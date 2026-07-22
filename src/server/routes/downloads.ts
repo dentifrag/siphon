@@ -22,7 +22,12 @@ export function registerDownloadRoutes(
     if (item.IsDir) throw httpError(400, 'Folder downloads are not supported yet. Select a file.')
 
     const requested = input.downloadDir?.trim()
-    const targetDir = (requested ? await resolvePath(scope, requested) : null) ?? config.defaultDir
+    let targetDir = config.defaultDir
+    if (requested) {
+      const resolved = await resolvePath(scope, requested)
+      if (!resolved) throw httpError(400, 'That download folder is not accessible.')
+      targetDir = resolved
+    }
     const fileName = safeBaseName(input.remotePath)
     return manager.enqueue({
       srcFs: fs,

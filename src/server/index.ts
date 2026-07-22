@@ -10,11 +10,17 @@ import { registerRoutes } from './app'
 async function main(): Promise<void> {
   const { config, configPath, created } = loadConfig()
   const auth = new AuthService(config.appPassword)
-  try {
-    mkdirSync(config.defaultDir, { recursive: true })
-  } catch {}
 
   const app = Fastify({ bodyLimit: 5 * 1024 * 1024, logger: true })
+  try {
+    mkdirSync(config.defaultDir, { recursive: true })
+  } catch (err) {
+    app.log.warn(
+      `Could not create the default download folder ${config.defaultDir} ` +
+        `(${err instanceof Error ? err.message : String(err)}). ` +
+        'Downloads there will fail until it exists or you pick another folder.'
+    )
+  }
   const execDir = dirname(process.execPath)
   const services = await createServices(config, execDir, (message) => app.log.info(message))
   const session = new ConnectionSession(services)
