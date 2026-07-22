@@ -28,12 +28,22 @@ export type CopyFileConfig = MultiThreadConfig
 export class RcloneClient {
   constructor(private readonly supervisor: RcloneSupervisor) {}
 
-  private async call<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  private async call<T>(
+    path: string,
+    body: Record<string, unknown>,
+    timeoutMs?: number
+  ): Promise<T> {
     const { baseUrl, authHeader } = this.supervisor.getEndpoint()
     const res = await fetch(`${baseUrl}/${path}`, {
       method: 'POST',
       headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined
+    }).catch((err: unknown) => {
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new Error(`rclone ${path} timed out after ${Math.round((timeoutMs ?? 0) / 1000)}s`)
+      }
+      throw err
     })
     const text = await res.text()
     const data = text ? JSON.parse(text) : {}
@@ -42,6 +52,14 @@ export class RcloneClient {
       throw new Error(message)
     }
     return data as T
+  }
+
+  checkConnection(fs: string): Promise<void> {
+    return this.call(
+      'operations/list',
+      { fs, remote: '', opt: { noModTime: true }, _config: { ConnectTimeout: '15s', Timeout: '30s' } },
+      35_000
+    ).then(() => undefined)
   }
 
   noop(): Promise<Record<string, unknown>> {
