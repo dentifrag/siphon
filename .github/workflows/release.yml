@@ -1,0 +1,62 @@
+name: Release binaries
+
+# Build single-file executables for Windows, macOS, and Linux and attach them to
+# a GitHub Release whenever a version tag (e.g. v1.0.0) is pushed. You can also
+# run it manually from the Actions tab to get downloadable artifacts.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: package:win
+            artifact: siphon-win-x64.exe
+          - os: ubuntu-latest
+            script: package:linux
+            artifact: siphon-linux-x64
+          - os: macos-latest
+            script: package:macos-arm64
+            artifact: siphon-macos-arm64
+          - os: macos-13
+            script: package:macos-x64
+            artifact: siphon-macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web UI + server bundle
+        run: npm run package:build
+
+      - name: Package executable
+        run: npm run ${{ matrix.script }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist-bin/${{ matrix.artifact }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-bin/${{ matrix.artifact }}
+          fail_on_unmatched_files: true

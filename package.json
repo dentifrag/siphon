@@ -1,0 +1,63 @@
+{
+  "name": "siphon",
+  "version": "1.0.0",
+  "description": "A self-hosted web UI for rclone: browse remotes and pull files onto your server.",
+  "main": "dist-server/index.cjs",
+  "scripts": {
+    "dev": "vite --config vite.web.config.ts",
+    "build": "npm run web:build:all",
+    "start": "node dist-server/index.cjs",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "web:server": "tsx watch src/server/index.ts",
+    "web:dev": "vite --config vite.web.config.ts",
+    "web:build": "vite build --config vite.web.config.ts",
+    "server:build": "esbuild src/server/index.ts --bundle --platform=node --target=node20 --format=cjs --packages=external --outfile=dist-server/index.cjs",
+    "web:build:all": "npm run web:build && npm run server:build",
+    "web:start": "node dist-server/index.cjs",
+    "service:install": "node windows-service/install.js",
+    "service:uninstall": "node windows-service/uninstall.js",
+    "package:build": "npm run web:build:all",
+    "package:win": "pkg dist-server/index.cjs -c pkg.config.json -t node22-win-x64 -o dist-bin/siphon-win-x64.exe",
+    "package:macos-arm64": "pkg dist-server/index.cjs -c pkg.config.json -t node22-macos-arm64 -o dist-bin/siphon-macos-arm64",
+    "package:macos-x64": "pkg dist-server/index.cjs -c pkg.config.json -t node22-macos-x64 -o dist-bin/siphon-macos-x64",
+    "package:linux": "pkg dist-server/index.cjs -c pkg.config.json -t node22-linux-x64 -o dist-bin/siphon-linux-x64",
+    "package:all": "npm run package:build && npm run package:win && npm run package:macos-arm64 && npm run package:macos-x64 && npm run package:linux"
+  },
+  "keywords": [
+    "rclone",
+    "sftp",
+    "web-ui",
+    "self-hosted",
+    "download-manager",
+    "parallel-download"
+  ],
+  "author": "dentifrag",
+  "license": "MIT",
+  "type": "commonjs",
+  "optionalDependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.1",
+    "@fastify/static": "^10.1.0",
+    "fastify": "^5.10.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "@yao-pkg/pkg": "^6.21.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
+  }
+}

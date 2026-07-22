@@ -1,0 +1,15 @@
+node_modules
+out
+dist
+dist-web
+dist-server
+release
+data
+downloads
+.git
+.github
+*.log
+.DS_Store
+.vscode
+.playwright-mcp
+tmp-*.mjs

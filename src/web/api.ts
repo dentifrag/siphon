@@ -1,0 +1,131 @@
+import type {
+  ConnectionConfig,
+  RemoteEntry,
+  RemoteStat,
+  TransferProgress
+} from '@shared/types'
+import type {
+  ConnectResult,
+  ConnectionProfileMeta,
+  DownloadEnqueueInput,
+  DownloadRootMeta,
+  LocalDirListing,
+  ResolvedProfile,
+  SaveProfileInput,
+  SftpApi
+} from '@shared/api'
+
+async function request<T>(
+  path: string,
+  options?: { method?: string; body?: unknown }
+): Promise<T> {
+  const response = await fetch(path, {
+    method: options?.method ?? 'GET',
+    headers: options?.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
+    credentials: 'same-origin'
+  })
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`
+    try {
+      const data = (await response.json()) as { message?: string; error?: string }
+      message = data.message || data.error || message
+    } catch {
+      message = `Request failed (${response.status})`
+    }
+    const error = new Error(message) as Error & { status: number }
+    error.status = response.status
+    throw error
+  }
+  const text = await response.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+export interface AuthStatus {
+  required: boolean
+  authenticated: boolean
+}
+
+export interface ServerConfig {
+  downloadDir: string
+  roots: DownloadRootMeta[]
+}
+
+export interface WebApi extends SftpApi {
+  authStatus(): Promise<AuthStatus>
+  login(password: string): Promise<void>
+  logout(): Promise<void>
+  serverConfig(): Promise<ServerConfig>
+}
+
+export function createWebApi(): WebApi {
+  return {
+    authStatus: () => request<AuthStatus>('/api/auth-status'),
+    login: async (password: string) => {
+      await request('/api/login', { method: 'POST', body: { password } })
+    },
+    logout: async () => {
+      await request('/api/logout', { method: 'POST' })
+    },
+    serverConfig: () => request<ServerConfig>('/api/config'),
+
+    connect: (config: ConnectionConfig, profileId?: string) =>
+      request<ConnectResult>('/api/connect', {
+        method: 'POST',
+        body: profileId ? { profileId } : { config }
+      }),
+    disconnect: async () => {
+      await request('/api/disconnect', { method: 'POST' })
+    },
+    list: (dir: string) => request<RemoteEntry[]>(`/api/list?path=${encodeURIComponent(dir)}`),
+    stat: (path: string) => request<RemoteStat>(`/api/stat?path=${encodeURIComponent(path)}`),
+    enqueueDownload: (input: DownloadEnqueueInput) =>
+      request<TransferProgress>('/api/download', { method: 'POST', body: input }),
+    cancelDownload: async (id: string) => {
+      await request('/api/download/cancel', { method: 'POST', body: { id } })
+    },
+    cancelAllDownloads: async () => {
+      await request('/api/downloads/cancel-all', { method: 'POST' })
+    },
+    clearFinishedDownloads: async () => {
+      await request('/api/downloads/clear-finished', { method: 'POST' })
+    },
+    listDownloads: () => request<TransferProgress[]>('/api/downloads'),
+    defaultDownloadDir: async () => {
+      const config = await request<ServerConfig>('/api/config')
+      return config.downloadDir
+    },
+    listDownloadRoots: () => request<DownloadRootMeta[]>('/api/fs/roots'),
+    browseLocalDirs: (path?: string) =>
+      request<LocalDirListing>(`/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+    createLocalDir: async (parentPath: string, name: string) => {
+      const result = await request<{ path: string }>('/api/fs/mkdir', {
+        method: 'POST',
+        body: { path: parentPath, name }
+      })
+      return result.path
+    },
+    listProfiles: () => request<ConnectionProfileMeta[]>('/api/profiles'),
+    saveProfile: (input: SaveProfileInput) =>
+      request<ConnectionProfileMeta[]>('/api/profiles', { method: 'POST', body: input }),
+    resolveProfile: (id: string) =>
+      request<ResolvedProfile | null>('/api/profiles/resolve', {
+        method: 'POST',
+        body: { id }
+      }),
+    deleteProfile: (id: string) =>
+      request<ConnectionProfileMeta[]>('/api/profiles/delete', {
+        method: 'POST',
+        body: { id }
+      }),
+    onDownloadUpdate: (callback: (transfer: TransferProgress) => void) => {
+      const source = new EventSource('/api/events', { withCredentials: true })
+      source.onmessage = (event) => {
+        try {
+          callback(JSON.parse(event.data) as TransferProgress)
+        } catch {}
+      }
+      return () => source.close()
+    }
+  }
+}

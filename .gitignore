@@ -1,0 +1,14 @@
+node_modules
+out
+dist
+dist-web
+dist-server
+release
+data
+downloads
+dist-bin
+*.log
+.DS_Store
+.vscode
+windows-service/service.config.json
+windows-service/daemon
