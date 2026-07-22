@@ -41,8 +41,8 @@ export function sftpParameters(input: {
   return params
 }
 
-function sanitizeRemoteName(base: string): string {
-  const cleaned = base.replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^[-.]+/, '')
+export function sanitizeRemoteName(base: string): string {
+  const cleaned = base.replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^[-._]+/, '')
   return cleaned || 'remote'
 }
 

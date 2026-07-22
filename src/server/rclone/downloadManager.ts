@@ -147,6 +147,7 @@ export class RcloneDownloadManager extends EventEmitter {
       t.progress.status = 'error'
       t.progress.error = err instanceof Error ? err.message : String(err)
       this.activeId = null
+      this.finalize(t)
       this.emitUpdate(nextId)
       void this.pump()
     }
