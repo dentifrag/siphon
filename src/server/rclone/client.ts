@@ -71,6 +71,12 @@ export class RcloneClient {
     return this.call('config/delete', { name }).then(() => undefined)
   }
 
+  async cloneRemote(source: string, target: string): Promise<void> {
+    const cfg = await this.getRemote(source)
+    const { type, ...parameters } = cfg
+    await this.createRemote(target, type ?? 'sftp', parameters, false)
+  }
+
   list(fs: string, remote: string): Promise<RcloneListEntry[]> {
     return this.call<{ list?: RcloneListEntry[] }>('operations/list', { fs, remote }).then(
       (r) => r.list ?? []

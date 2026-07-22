@@ -20,9 +20,13 @@ export class ConnectionSession {
     return `${this.current}:`
   }
 
+  remoteName(): string {
+    if (!this.current) throw httpError(400, 'Not connected to a server.')
+    return this.current
+  }
+
   async connect(input: { config?: ConnectionConfig; profileId?: string }): Promise<void> {
-    const { client, remotes, manager } = this.services
-    manager.cancelAll()
+    const { client, remotes } = this.services
     await this.teardown()
 
     if (input.profileId) {
@@ -60,7 +64,6 @@ export class ConnectionSession {
   }
 
   async disconnect(): Promise<void> {
-    this.services.manager.cancelAll()
     await this.teardown()
   }
 

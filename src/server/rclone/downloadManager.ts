@@ -14,6 +14,7 @@ export interface RcloneEnqueueInput {
   localPath: string
   size: number
   segments: number
+  cleanupRemote?: string
 }
 
 interface InternalTransfer {
@@ -22,6 +23,7 @@ interface InternalTransfer {
   group: string
   jobid: number | null
   canceled: boolean
+  cleaned: boolean
   samples: SpeedSample[]
 }
 
@@ -67,6 +69,7 @@ export class RcloneDownloadManager extends EventEmitter {
       group: `job-${id}`,
       jobid: null,
       canceled: false,
+      cleaned: false,
       samples: []
     })
     this.order.push(id)
@@ -80,6 +83,7 @@ export class RcloneDownloadManager extends EventEmitter {
     if (!t) return
     if (t.progress.status === 'queued') {
       t.progress.status = 'canceled'
+      this.finalize(t)
       this.emitUpdate(id)
     } else if (t.progress.status === 'downloading') {
       t.canceled = true
@@ -191,6 +195,7 @@ export class RcloneDownloadManager extends EventEmitter {
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0
         this.activeId = null
+        this.finalize(t)
         this.emitUpdate(id)
         await this.client.coreStatsDelete(t.group).catch(() => undefined)
         void this.pump()
@@ -198,6 +203,14 @@ export class RcloneDownloadManager extends EventEmitter {
         this.emitUpdate(id)
       }
     } catch {
+    }
+  }
+
+  private finalize(t: InternalTransfer): void {
+    const name = t.input.cleanupRemote
+    if (name && !t.cleaned) {
+      t.cleaned = true
+      void this.client.deleteRemote(name).catch(() => undefined)
     }
   }
 
