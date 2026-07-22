@@ -56,7 +56,7 @@ export class ConnectionSession {
     }
 
     try {
-      await client.list(this.remoteFs(), '')
+      await client.checkConnection(this.remoteFs())
     } catch (err) {
       await this.teardown()
       throw httpError(400, err instanceof Error ? err.message : 'Could not connect.')

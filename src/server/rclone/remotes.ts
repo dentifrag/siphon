@@ -31,7 +31,9 @@ export function sftpParameters(input: {
   const params: Record<string, string> = {
     host: input.host,
     port: String(input.port || 22),
-    user: input.username
+    user: input.username,
+    shell_type: 'none',
+    disable_hashcheck: 'true'
   }
   if (input.authMethod === 'password' && input.password) params.pass = input.password
   if (input.authMethod === 'privateKey' && input.privateKeyPath) {
