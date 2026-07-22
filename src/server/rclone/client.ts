@@ -1,4 +1,5 @@
 import type { RcloneSupervisor } from './supervisor'
+import type { MultiThreadConfig } from './chunk'
 
 export interface RcloneListEntry {
   Path: string
@@ -22,11 +23,7 @@ export interface RcloneJobStatus {
   id: number
 }
 
-export interface CopyFileConfig {
-  MultiThreadStreams: number
-  MultiThreadCutoff: string
-  MultiThreadChunkSize: string
-}
+export type CopyFileConfig = MultiThreadConfig
 
 export class RcloneClient {
   constructor(private readonly supervisor: RcloneSupervisor) {}

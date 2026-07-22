@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
 import type { RcloneClient } from './client'
-import { planMultiThread } from './chunk'
+import { multiThreadConfig, planMultiThread } from './chunk'
 
 export interface RcloneEnqueueInput {
   srcFs: string
@@ -136,11 +136,7 @@ export class RcloneDownloadManager extends EventEmitter {
         dstFs: t.input.dstFs,
         dstRemote: t.input.dstRemote,
         group: t.group,
-        config: {
-          MultiThreadStreams: plan.streams,
-          MultiThreadCutoff: String(plan.cutoffBytes),
-          MultiThreadChunkSize: String(plan.chunkBytes)
-        }
+        config: multiThreadConfig(plan)
       })
       this.startTicker()
     } catch (err) {
@@ -176,7 +172,8 @@ export class RcloneDownloadManager extends EventEmitter {
       const stats = await this.client.coreStats(t.group)
       const transferred = stats.bytes ?? t.progress.transferred
       t.progress.transferred = Math.min(transferred, t.progress.size || transferred)
-      t.progress.activeSegments = stats.transferring?.length ?? t.progress.activeSegments
+      const inFlight = (stats.transferring?.length ?? 0) > 0
+      t.progress.activeSegments = inFlight ? t.progress.segments : 0
       pushSample(t.samples, { time: Date.now(), bytes: t.progress.transferred })
       t.progress.speedBytesPerSec = rollingSpeed(t.samples)
 
