@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planMultiThread, MAX_STREAMS } from '../src/server/rclone/chunk'
+import { multiThreadConfig, planMultiThread, MAX_STREAMS } from '../src/server/rclone/chunk'
 
 const MB = 1024 * 1024
 
@@ -7,13 +7,11 @@ describe('planMultiThread', () => {
   it('sizes the chunk so a large file yields the requested number of streams', () => {
     const plan = planMultiThread(100 * MB, 4)
     expect(plan.streams).toBe(4)
-    // chunk ~= ceil(size / 4) so that 4 chunks (= 4 streams) are formed
     expect(plan.chunkBytes).toBe(Math.ceil((100 * MB) / 4))
     expect(Math.ceil((100 * MB) / plan.chunkBytes)).toBe(4)
   })
 
   it('never asks for more streams than chunks the file can be split into', () => {
-    // An 8 MB file with a 5 MB minimum chunk can only form 2 chunks.
     const plan = planMultiThread(8 * MB, 8)
     expect(plan.chunkBytes).toBeGreaterThanOrEqual(5 * MB)
     expect(plan.streams).toBe(Math.ceil((8 * MB) / plan.chunkBytes))
@@ -40,5 +38,17 @@ describe('planMultiThread', () => {
   it('always reports a cutoff so small files skip multi-thread entirely', () => {
     const plan = planMultiThread(50 * MB, 4)
     expect(plan.cutoffBytes).toBeGreaterThan(0)
+  })
+})
+
+describe('multiThreadConfig', () => {
+  it('serializes byte sizes with an explicit B suffix so rclone reads them as bytes', () => {
+    const plan = planMultiThread(100 * MB, 8)
+    const config = multiThreadConfig(plan)
+    expect(config.MultiThreadStreams).toBe(plan.streams)
+    expect(config.MultiThreadCutoff).toBe(`${plan.cutoffBytes}B`)
+    expect(config.MultiThreadChunkSize).toBe(`${plan.chunkBytes}B`)
+    expect(config.MultiThreadChunkSize).toMatch(/^\d+B$/)
+    expect(config.MultiThreadCutoff).toMatch(/^\d+B$/)
   })
 })

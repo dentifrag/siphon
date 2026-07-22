@@ -21,5 +21,15 @@ export async function createServices(
   const client = new RcloneClient(supervisor)
   const manager = new RcloneDownloadManager(client)
   const remotes = new RemoteStore(config.dataDir, client)
+  await removeEphemeralRemotes(client)
   return { supervisor, client, manager, remotes }
+}
+
+async function removeEphemeralRemotes(client: RcloneClient): Promise<void> {
+  const names = await client.listRemotes().catch(() => [] as string[])
+  for (const name of names) {
+    if (name === '_session' || name.startsWith('_dl-')) {
+      await client.deleteRemote(name).catch(() => undefined)
+    }
+  }
 }

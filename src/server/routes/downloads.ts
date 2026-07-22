@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { RouteContext } from '../context'
@@ -14,9 +15,8 @@ export function registerDownloadRoutes(
 
   app.post('/api/download', async (req) => {
     const input = req.body as DownloadEnqueueInput
-    const fs = session.remoteFs()
     const srcRemote = uiToRemotePath(input.remotePath)
-    const item = await client.stat(fs, srcRemote)
+    const item = await client.stat(session.remoteFs(), srcRemote)
     if (!item) throw httpError(404, 'File not found.')
     if (item.IsDir) throw httpError(400, 'Folder downloads are not supported yet. Select a file.')
 
@@ -24,15 +24,19 @@ export function registerDownloadRoutes(
     const targetDir =
       (requested ? await resolveWithinRoots(config.roots, requested) : null) ?? config.roots[0].path
     const fileName = safeBaseName(input.remotePath)
+
+    const jobRemote = `_dl-${randomUUID()}`
+    await client.cloneRemote(session.remoteName(), jobRemote)
     return manager.enqueue({
-      srcFs: fs,
+      srcFs: `${jobRemote}:`,
       srcRemote,
       dstFs: targetDir,
       dstRemote: fileName,
       displayName: input.remotePath,
       localPath: join(targetDir, fileName),
       size: item.Size < 0 ? 0 : item.Size,
-      segments: input.segments
+      segments: input.segments,
+      cleanupRemote: jobRemote
     })
   })
 

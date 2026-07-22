@@ -1,4 +1,5 @@
 import type { RcloneSupervisor } from './supervisor'
+import type { MultiThreadConfig } from './chunk'
 
 export interface RcloneListEntry {
   Path: string
@@ -22,11 +23,7 @@ export interface RcloneJobStatus {
   id: number
 }
 
-export interface CopyFileConfig {
-  MultiThreadStreams: number
-  MultiThreadCutoff: string
-  MultiThreadChunkSize: string
-}
+export type CopyFileConfig = MultiThreadConfig
 
 export class RcloneClient {
   constructor(private readonly supervisor: RcloneSupervisor) {}
@@ -72,6 +69,12 @@ export class RcloneClient {
 
   deleteRemote(name: string): Promise<void> {
     return this.call('config/delete', { name }).then(() => undefined)
+  }
+
+  async cloneRemote(source: string, target: string): Promise<void> {
+    const cfg = await this.getRemote(source)
+    const { type, ...parameters } = cfg
+    await this.createRemote(target, type ?? 'sftp', parameters, false)
   }
 
   list(fs: string, remote: string): Promise<RcloneListEntry[]> {

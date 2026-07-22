@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
 import type { RcloneClient } from './client'
-import { planMultiThread } from './chunk'
+import { multiThreadConfig, planMultiThread } from './chunk'
 
 export interface RcloneEnqueueInput {
   srcFs: string
@@ -14,6 +14,7 @@ export interface RcloneEnqueueInput {
   localPath: string
   size: number
   segments: number
+  cleanupRemote?: string
 }
 
 interface InternalTransfer {
@@ -22,6 +23,7 @@ interface InternalTransfer {
   group: string
   jobid: number | null
   canceled: boolean
+  cleaned: boolean
   samples: SpeedSample[]
 }
 
@@ -67,6 +69,7 @@ export class RcloneDownloadManager extends EventEmitter {
       group: `job-${id}`,
       jobid: null,
       canceled: false,
+      cleaned: false,
       samples: []
     })
     this.order.push(id)
@@ -80,6 +83,7 @@ export class RcloneDownloadManager extends EventEmitter {
     if (!t) return
     if (t.progress.status === 'queued') {
       t.progress.status = 'canceled'
+      this.finalize(t)
       this.emitUpdate(id)
     } else if (t.progress.status === 'downloading') {
       t.canceled = true
@@ -136,17 +140,25 @@ export class RcloneDownloadManager extends EventEmitter {
         dstFs: t.input.dstFs,
         dstRemote: t.input.dstRemote,
         group: t.group,
-        config: {
-          MultiThreadStreams: plan.streams,
-          MultiThreadCutoff: String(plan.cutoffBytes),
-          MultiThreadChunkSize: String(plan.chunkBytes)
-        }
+        config: multiThreadConfig(plan)
       })
+      if (t.canceled) {
+        void this.client.jobStop(t.jobid).catch(() => undefined)
+        t.progress.status = 'canceled'
+        t.progress.activeSegments = 0
+        this.activeId = null
+        this.finalize(t)
+        this.emitUpdate(nextId)
+        await this.client.coreStatsDelete(t.group).catch(() => undefined)
+        void this.pump()
+        return
+      }
       this.startTicker()
     } catch (err) {
       t.progress.status = 'error'
       t.progress.error = err instanceof Error ? err.message : String(err)
       this.activeId = null
+      this.finalize(t)
       this.emitUpdate(nextId)
       void this.pump()
     }
@@ -176,7 +188,8 @@ export class RcloneDownloadManager extends EventEmitter {
       const stats = await this.client.coreStats(t.group)
       const transferred = stats.bytes ?? t.progress.transferred
       t.progress.transferred = Math.min(transferred, t.progress.size || transferred)
-      t.progress.activeSegments = stats.transferring?.length ?? t.progress.activeSegments
+      const inFlight = (stats.transferring?.length ?? 0) > 0
+      t.progress.activeSegments = inFlight ? t.progress.segments : 0
       pushSample(t.samples, { time: Date.now(), bytes: t.progress.transferred })
       t.progress.speedBytesPerSec = rollingSpeed(t.samples)
 
@@ -194,6 +207,7 @@ export class RcloneDownloadManager extends EventEmitter {
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0
         this.activeId = null
+        this.finalize(t)
         this.emitUpdate(id)
         await this.client.coreStatsDelete(t.group).catch(() => undefined)
         void this.pump()
@@ -201,6 +215,14 @@ export class RcloneDownloadManager extends EventEmitter {
         this.emitUpdate(id)
       }
     } catch {
+    }
+  }
+
+  private finalize(t: InternalTransfer): void {
+    const name = t.input.cleanupRemote
+    if (name && !t.cleaned) {
+      t.cleaned = true
+      void this.client.deleteRemote(name).catch(() => undefined)
     }
   }
 
