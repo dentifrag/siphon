@@ -142,6 +142,17 @@ export class RcloneDownloadManager extends EventEmitter {
         group: t.group,
         config: multiThreadConfig(plan)
       })
+      if (t.canceled) {
+        void this.client.jobStop(t.jobid).catch(() => undefined)
+        t.progress.status = 'canceled'
+        t.progress.activeSegments = 0
+        this.activeId = null
+        this.finalize(t)
+        this.emitUpdate(nextId)
+        await this.client.coreStatsDelete(t.group).catch(() => undefined)
+        void this.pump()
+        return
+      }
       this.startTicker()
     } catch (err) {
       t.progress.status = 'error'
