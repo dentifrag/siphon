@@ -14,6 +14,7 @@ interface RemoteBrowserProps {
   error: string | null
   selected: Set<string>
   canDownload: boolean
+  suspended: boolean
   onNavigate: (dir: string) => void
   onRefresh: () => void
   onSelectionChange: (next: Set<string>) => void
@@ -36,6 +37,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     error,
     selected,
     canDownload,
+    suspended,
     onNavigate,
     onRefresh,
     onSelectionChange,
@@ -134,8 +136,9 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   )
 
   useEffect(() => {
-    if (!connected) return
+    if (!connected || suspended) return
     const onKey = (e: KeyboardEvent): void => {
+      if (loading) return
       if (menu) return
       if (isTextInputFocused()) return
 
@@ -180,7 +183,18 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [connected, menu, sortedEntries, selected, cwd, onNavigate, onSelectionChange, onDownloadSelected])
+  }, [
+    connected,
+    suspended,
+    loading,
+    menu,
+    sortedEntries,
+    selected,
+    cwd,
+    onNavigate,
+    onSelectionChange,
+    onDownloadSelected
+  ])
 
   return (
     <section className="panel browser">

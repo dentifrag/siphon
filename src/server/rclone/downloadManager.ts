@@ -128,12 +128,13 @@ export class RcloneDownloadManager extends EventEmitter {
     for (const id of [...this.order]) this.cancel(id)
   }
 
-  remove(id: string): void {
+  remove(id: string): boolean {
     const t = this.transfers.get(id)
-    if (!t || t.progress.status === 'downloading') return
+    if (!t || t.progress.status === 'downloading') return false
     this.finalize(t)
     this.deleteTransfer(id)
     this.emitRemove(id)
+    return true
   }
 
   clearFinished(): void {

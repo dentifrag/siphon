@@ -81,7 +81,7 @@ export interface SftpApi {
   cancelAllDownloads(): Promise<void>
   clearFinishedDownloads(): Promise<void>
   clearAllDownloads(): Promise<void>
-  removeDownload(id: string): Promise<void>
+  removeDownload(id: string): Promise<boolean>
   listDownloads(): Promise<TransferProgress[]>
   getMaxConcurrentDownloads(): Promise<number>
   setMaxConcurrentDownloads(max: number): Promise<number>

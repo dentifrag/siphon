@@ -83,8 +83,8 @@ export function registerDownloadRoutes(
   })
 
   app.post('/api/downloads/remove', async (req) => {
-    manager.remove((req.body as { id: string }).id)
-    return { ok: true }
+    const removed = manager.remove((req.body as { id: string }).id)
+    return { removed }
   })
 
   app.get('/api/downloads/concurrency', async () => ({ max: manager.getMaxConcurrent() }))
@@ -108,7 +108,7 @@ export function registerDownloadRoutes(
     const send = (payload: unknown): void => {
       raw.write(`data: ${JSON.stringify(payload)}\n\n`)
     }
-    for (const transfer of manager.list()) send({ type: 'update', transfer })
+    send({ type: 'reset', transfers: manager.list() })
     const offUpdate = manager.onUpdate((transfer) => send({ type: 'update', transfer }))
     const offRemove = manager.onRemove((id) => send({ type: 'remove', id }))
     const ping = setInterval(() => raw.write(': ping\n\n'), 25000)

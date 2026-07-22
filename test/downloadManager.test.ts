@@ -231,6 +231,32 @@ describe('RcloneDownloadManager remove and clearAll', () => {
     expect(deleteRemote).toHaveBeenCalledWith('_dl-queued')
   })
 
+  it('remove() returns false for a downloading transfer and true for a queued one', () => {
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockReturnValue(new Promise(() => {})),
+      jobStatus: vi.fn(),
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote: vi.fn().mockResolvedValue(undefined)
+    } as unknown as RcloneClient
+
+    const manager = new RcloneDownloadManager(client)
+    manager.setMaxConcurrent(1)
+    const active = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-active' }))
+    const queued = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-queued' }))
+
+    expect(manager.list().find((t) => t.id === active.id)?.status).toBe('downloading')
+    expect(manager.remove(active.id)).toBe(false)
+    expect(manager.list().find((t) => t.id === active.id)?.status).toBe('downloading')
+
+    const onRemove = vi.fn()
+    manager.onRemove(onRemove)
+    expect(manager.remove(queued.id)).toBe(true)
+    expect(onRemove).toHaveBeenCalledWith(queued.id)
+    expect(manager.list().find((t) => t.id === queued.id)).toBeUndefined()
+  })
+
   it('clearAll removes queued items immediately and sweeps active ones once they settle', async () => {
     vi.useFakeTimers()
     try {

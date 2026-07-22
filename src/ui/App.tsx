@@ -49,6 +49,10 @@ export default function App() {
     window.api.listProfiles().then(setProfiles).catch(() => undefined)
 
     return window.api.onDownloadUpdate((ev) => {
+      if (ev.type === 'reset') {
+        setTransfers(ev.transfers)
+        return
+      }
       if (ev.type === 'remove') {
         setTransfers((prev) => prev.filter((t) => t.id !== ev.id))
         return
@@ -182,19 +186,15 @@ export default function App() {
 
   const handleClearFinished = useCallback(async () => {
     await window.api.clearFinishedDownloads()
-    const list = await window.api.listDownloads()
-    setTransfers(list)
   }, [])
 
   const handleClearAll = useCallback(async () => {
     await window.api.clearAllDownloads()
-    const list = await window.api.listDownloads()
-    setTransfers(list)
   }, [])
 
   const handleRemoveDownload = useCallback(async (id: string) => {
-    await window.api.removeDownload(id)
-    setTransfers((prev) => prev.filter((t) => t.id !== id))
+    const removed = await window.api.removeDownload(id)
+    if (removed) setTransfers((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
   const handleMaxConcurrentChange = useCallback((max: number) => {
@@ -241,6 +241,7 @@ export default function App() {
           error={browseError}
           selected={selected}
           canDownload={downloadDir !== ''}
+          suspended={pickerOpen}
           onNavigate={navigateTo}
           onRefresh={() => navigateTo(cwd)}
           onSelectionChange={setSelected}

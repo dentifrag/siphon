@@ -94,9 +94,10 @@ export function createWebApi(): WebApi {
     clearAllDownloads: async () => {
       await request('/api/downloads/clear-all', { method: 'POST' })
     },
-    removeDownload: async (id: string) => {
-      await request('/api/downloads/remove', { method: 'POST', body: { id } })
-    },
+    removeDownload: (id: string) =>
+      request<{ removed: boolean }>('/api/downloads/remove', { method: 'POST', body: { id } }).then(
+        (r) => r.removed
+      ),
     listDownloads: () => request<TransferProgress[]>('/api/downloads'),
     getMaxConcurrentDownloads: () =>
       request<{ max: number }>('/api/downloads/concurrency').then((r) => r.max),
