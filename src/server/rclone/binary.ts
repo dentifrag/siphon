@@ -6,15 +6,28 @@ import { spawnSync } from 'node:child_process'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 
+export class RcloneUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RcloneUnavailableError'
+  }
+}
+
+const COMMON_UNIX_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+const DOWNLOAD_TIMEOUT_MS = 30_000
+const DOWNLOAD_ATTEMPTS = 3
+
 export async function resolveRcloneBinary(dataDir: string, execDir: string): Promise<string> {
   const exe = platform() === 'win32' ? 'rclone.exe' : 'rclone'
 
-  if (process.env.RCLONE_PATH && existsSync(process.env.RCLONE_PATH)) {
-    return process.env.RCLONE_PATH
+  if (process.env.RCLONE_PATH) {
+    if (existsSync(process.env.RCLONE_PATH)) return process.env.RCLONE_PATH
+    throw new RcloneUnavailableError(
+      helpText(`RCLONE_PATH points to "${process.env.RCLONE_PATH}", which does not exist`)
+    )
   }
 
-  const bundled = [join(execDir, exe), join(execDir, 'rclone', exe)]
-  for (const candidate of bundled) {
+  for (const candidate of [join(execDir, exe), join(execDir, 'rclone', exe)]) {
     if (existsSync(candidate)) return candidate
   }
 
@@ -34,6 +47,12 @@ function findOnPath(exe: string): string | null {
     const first = result.stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean)
     if (first && existsSync(first)) return first
   }
+  if (platform() !== 'win32') {
+    for (const dir of COMMON_UNIX_DIRS) {
+      const candidate = join(dir, exe)
+      if (existsSync(candidate)) return candidate
+    }
+  }
   return null
 }
 
@@ -43,32 +62,59 @@ export function rcloneAssetName(): string {
   return `rclone-current-${os}-${a}.zip`
 }
 
+export function helpText(reason: string): string {
+  return [
+    `Siphon needs rclone, but ${reason}.`,
+    '',
+    'Fix it with any one of these, then start Siphon again:',
+    '  1. Install rclone and keep it on your PATH (macOS: brew install rclone).',
+    '  2. Put the rclone binary in the same folder as Siphon.',
+    '  3. Set the RCLONE_PATH environment variable to a full path to rclone.'
+  ].join('\n')
+}
+
+function downloadFailureReason(err: unknown): string {
+  if (err instanceof Error && (err.name === 'TimeoutError' || err.message.includes('timeout'))) {
+    return 'the automatic download timed out (no internet, or the download server is unreachable)'
+  }
+  return `the automatic download failed (${err instanceof Error ? err.message : String(err)})`
+}
+
+async function fetchArchive(url: string): Promise<Response> {
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
+    } catch (err) {
+      lastErr = err
+      if (attempt < DOWNLOAD_ATTEMPTS) await delay(1500 * attempt)
+    }
+  }
+  throw new RcloneUnavailableError(helpText(downloadFailureReason(lastErr)))
+}
+
 async function downloadRclone(destPath: string): Promise<string> {
   const url = `https://downloads.rclone.org/${rcloneAssetName()}`
   const tmpZip = join(tmpdir(), `rclone-${Date.now()}.zip`)
   const tmpDir = join(tmpdir(), `rclone-extract-${Date.now()}`)
 
-  const res = await fetch(url)
+  const res = await fetchArchive(url)
   if (!res.ok || !res.body) {
-    throw new Error(
-      `Could not download rclone from ${url} (HTTP ${res.status}). ` +
-        'Install rclone manually and set RCLONE_PATH.'
-    )
+    throw new RcloneUnavailableError(helpText(`the download server returned HTTP ${res.status}`))
   }
   await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(tmpZip))
 
   mkdirSync(tmpDir, { recursive: true })
   const unzip = spawnSync('unzip', ['-o', '-q', tmpZip, '-d', tmpDir], { encoding: 'utf8' })
   if (unzip.status !== 0) {
-    throw new Error(
-      `Downloaded rclone but could not unzip it (${unzip.stderr || 'unzip failed'}). ` +
-        'Install rclone manually and set RCLONE_PATH.'
+    throw new RcloneUnavailableError(
+      helpText(`the download unpacked incorrectly (${unzip.stderr || 'unzip failed'})`)
     )
   }
 
   const exe = platform() === 'win32' ? 'rclone.exe' : 'rclone'
   const extracted = findExtractedBinary(tmpDir, exe)
-  if (!extracted) throw new Error('rclone binary not found in the downloaded archive.')
+  if (!extracted) throw new RcloneUnavailableError(helpText('the downloaded archive had no rclone binary'))
 
   mkdirSync(dirname(destPath), { recursive: true })
   const { copyFileSync } = await import('node:fs')
@@ -92,4 +138,8 @@ function findExtractedBinary(dir: string, exe: string): string | null {
     }
   }
   return null
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
