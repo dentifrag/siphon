@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { parseRoots, resolveConfig, type FileConfig } from '../src/server/config'
 
 describe('parseRoots', () => {
@@ -43,7 +45,9 @@ describe('resolveConfig', () => {
     expect(cfg.host).toBe('127.0.0.1')
     expect(cfg.appPassword).toBe('filepw')
     expect(cfg.dataDir).toBe('/custom/data')
+    expect(cfg.confined).toBe(true)
     expect(cfg.roots.map((r) => r.name)).toEqual(['A', 'B'])
+    expect(cfg.defaultDir).toBe('/a')
   })
 
   it('lets environment variables override the file', () => {
@@ -56,16 +60,20 @@ describe('resolveConfig', () => {
     const cfg = resolveConfig(file, env, base)
     expect(cfg.port).toBe(7777)
     expect(cfg.appPassword).toBe('envpw')
+    expect(cfg.confined).toBe(true)
     expect(cfg.roots.map((r) => r.name)).toEqual(['X', 'Y'])
   })
 
-  it('applies sane defaults when nothing is provided', () => {
+  it('is unconfined by default, defaulting downloads to the home Downloads folder', () => {
     const cfg = resolveConfig({}, {}, base)
     expect(cfg.port).toBe(8080)
     expect(cfg.host).toBe('0.0.0.0')
     expect(cfg.appPassword).toBeNull()
     expect(cfg.dataDir).toBe('/app/data')
-    expect(cfg.roots).toEqual([{ name: 'Downloads', path: '/app/downloads' }])
+    expect(cfg.confined).toBe(false)
+    expect(cfg.defaultDir).toBe(join(homedir(), 'Downloads'))
+    expect(cfg.roots[0]).toEqual({ name: 'Home', path: homedir() })
+    expect(cfg.roots.length).toBeGreaterThanOrEqual(1)
   })
 
   it('ignores a non-numeric or non-positive port from either source', () => {
@@ -74,8 +82,11 @@ describe('resolveConfig', () => {
     expect(resolveConfig({ port: -5 }, {}, base).port).toBe(8080)
   })
 
-  it('prefers DOWNLOAD_DIRS over DOWNLOAD_DIR fallback', () => {
+  it('treats DOWNLOAD_DIR as a single confined root', () => {
     const env = { DOWNLOAD_DIR: '/single' } as NodeJS.ProcessEnv
-    expect(resolveConfig({}, env, base).roots).toEqual([{ name: 'Downloads', path: '/single' }])
+    const cfg = resolveConfig({}, env, base)
+    expect(cfg.confined).toBe(true)
+    expect(cfg.roots).toEqual([{ name: 'Downloads', path: '/single' }])
+    expect(cfg.defaultDir).toBe('/single')
   })
 })
