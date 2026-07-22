@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { homedir } from 'node:os'
+import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { parseRoots, resolveConfig, type FileConfig } from '../src/server/config'
+import { parseRoots, resolveConfig, userDataDir, type FileConfig } from '../src/server/config'
+
+describe('userDataDir', () => {
+  it('returns a per-user, OS-appropriate app-data path', () => {
+    const dir = userDataDir()
+    if (platform() === 'darwin') {
+      expect(dir).toBe(join(homedir(), 'Library', 'Application Support', 'Siphon'))
+    } else if (platform() === 'win32') {
+      expect(dir.endsWith(join('Roaming', 'Siphon')) || dir.endsWith('Siphon')).toBe(true)
+    } else {
+      expect(dir.endsWith(join('.local', 'share', 'siphon')) || dir.endsWith('siphon')).toBe(true)
+    }
+  })
+})
 
 describe('parseRoots', () => {
   it('parses labelled roots', () => {
@@ -74,6 +87,14 @@ describe('resolveConfig', () => {
     expect(cfg.defaultDir).toBe(join(homedir(), 'Downloads'))
     expect(cfg.roots[0]).toEqual({ name: 'Home', path: homedir() })
     expect(cfg.roots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('uses the provided data default, but lets env and file override it', () => {
+    expect(resolveConfig({}, {}, base, '/user/appdata').dataDir).toBe('/user/appdata')
+    expect(resolveConfig({ dataDir: '/from/file' }, {}, base, '/user/appdata').dataDir).toBe('/from/file')
+    expect(
+      resolveConfig({}, { DATA_DIR: '/from/env' } as NodeJS.ProcessEnv, base, '/user/appdata').dataDir
+    ).toBe('/from/env')
   })
 
   it('ignores a non-numeric or non-positive port from either source', () => {

@@ -1,5 +1,5 @@
 import { mkdir, readdir, realpath } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, type Dirent } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
 
@@ -62,16 +62,43 @@ export async function listDirs(
   fallbackDir: string
 ): Promise<LocalDirListing> {
   const target = requested && requested.trim() !== '' ? requested : fallbackDir
-  const canonical = await resolvePath(scope, target)
+  let canonical = await resolvePath(scope, target)
   if (canonical === null) throw new Error('That folder is not accessible.')
 
-  const entries = await readdir(canonical, { withFileTypes: true })
+  let entries: Dirent[]
+  try {
+    entries = await readdir(canonical, { withFileTypes: true })
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      canonical = await firstExistingAncestor(scope, canonical)
+      entries = await readdir(canonical, { withFileTypes: true }).catch((): Dirent[] => [])
+    } else if (code === 'EACCES' || code === 'EPERM') {
+      return { path: canonical, parent: await parentOf(scope, canonical), dirs: [] }
+    } else {
+      throw err
+    }
+  }
+
   const dirs: LocalDirEntry[] = entries
     .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
     .map((entry) => ({ name: entry.name, path: join(canonical, entry.name) }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
   return { path: canonical, parent: await parentOf(scope, canonical), dirs }
+}
+
+async function firstExistingAncestor(scope: FsScope, start: string): Promise<string> {
+  let dir = start
+  for (;;) {
+    const parent = resolve(dir, '..')
+    if (parent === dir) break
+    const resolved = await resolvePath(scope, parent)
+    if (resolved && existsSync(resolved)) return resolved
+    dir = parent
+  }
+  const home = scope.roots[0]?.path
+  return home && existsSync(home) ? home : '/'
 }
 
 async function parentOf(scope: FsScope, canonical: string): Promise<string | null> {

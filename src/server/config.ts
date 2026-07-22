@@ -29,6 +29,17 @@ export function isPackaged(): boolean {
   return typeof (process as { pkg?: unknown }).pkg !== 'undefined'
 }
 
+export function userDataDir(app = 'Siphon'): string {
+  const home = homedir()
+  if (platform() === 'win32') {
+    return join(process.env.APPDATA || join(home, 'AppData', 'Roaming'), app)
+  }
+  if (platform() === 'darwin') {
+    return join(home, 'Library', 'Application Support', app)
+  }
+  return join(process.env.XDG_DATA_HOME || join(home, '.local', 'share'), app.toLowerCase())
+}
+
 export function parseRoots(downloadDirs: string | undefined, fallbackDir: string): DownloadRoot[] {
   const raw = downloadDirs?.trim()
   if (raw) {
@@ -56,11 +67,12 @@ function basenameLabel(path: string): string {
 export function resolveConfig(
   file: FileConfig,
   env: NodeJS.ProcessEnv,
-  baseDir: string
+  baseDir: string,
+  dataDefault: string = join(baseDir, 'data')
 ): ServerConfig {
   const port = intOr(env.PORT, file.port, 8080)
   const host = env.HOST || file.host || '0.0.0.0'
-  const dataDir = env.DATA_DIR || file.dataDir || join(baseDir, 'data')
+  const dataDir = env.DATA_DIR || file.dataDir || dataDefault
   const appPassword = env.APP_PASSWORD || file.appPassword || null
 
   const home = homedir()
@@ -115,7 +127,7 @@ const CONFIG_TEMPLATE = `{
   "//downloadDirs": "Optional. Leave blank to browse your whole computer and save anywhere (downloads default to your Downloads folder). Set it to LIMIT downloads to specific folders. Format: Label=path,Label2=path2. Windows example: Downloads=C:\\\\Users\\\\You\\\\Downloads,Data=D:\\\\",
   "downloadDirs": "",
 
-  "//dataDir": "Optional. Where saved profiles + the rclone config live. Defaults to a 'data' folder next to this file.",
+  "//dataDir": "Optional. Where saved profiles + the rclone config live. Defaults to a per-user app-data folder (macOS: ~/Library/Application Support/Siphon, Linux: ~/.local/share/siphon, Windows: %APPDATA%\\\\Siphon).",
   "dataDir": ""
 }
 `
@@ -143,7 +155,9 @@ function readFileConfig(path: string): FileConfig {
 
 export function loadConfig(): { config: ServerConfig; configPath: string | null; created: boolean } {
   const path = configFilePath()
-  const baseDir = isPackaged() ? dirname(process.execPath) : process.cwd()
+  const packaged = isPackaged()
+  const baseDir = packaged ? dirname(process.execPath) : process.cwd()
+  const dataDefault = packaged ? userDataDir() : join(baseDir, 'data')
 
   let file: FileConfig = {}
   let created = false
@@ -158,5 +172,5 @@ export function loadConfig(): { config: ServerConfig; configPath: string | null;
     }
   }
 
-  return { config: resolveConfig(file, process.env, baseDir), configPath: path, created }
+  return { config: resolveConfig(file, process.env, baseDir, dataDefault), configPath: path, created }
 }

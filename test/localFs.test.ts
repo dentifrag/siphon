@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { listDirs, makeDir, resolvePath, type FsScope } from '../src/server/localFs'
@@ -80,6 +80,13 @@ describe('listDirs', () => {
   it('walks upward past the roots when unconfined', async () => {
     const listing = await listDirs(open, join(base, 'driveA'), base)
     expect(listing.parent).toBe(base)
+  })
+
+  it('falls back to an existing ancestor when the target folder is missing', async () => {
+    const missing = join(base, 'driveA', 'gone', 'deeper')
+    const listing = await listDirs(open, missing, base)
+    expect(listing.path).toBe(join(base, 'driveA'))
+    expect(existsSync(listing.path)).toBe(true)
   })
 })
 

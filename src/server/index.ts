@@ -6,6 +6,7 @@ import { AuthService } from './auth'
 import { createServices } from './services'
 import { ConnectionSession } from './session'
 import { registerRoutes } from './app'
+import { RcloneUnavailableError } from './rclone/binary'
 
 async function main(): Promise<void> {
   const { config, configPath, created } = loadConfig()
@@ -52,6 +53,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  if (error instanceof RcloneUnavailableError) {
+    console.error(`\n${error.message}\n`)
+    process.exit(1)
+  }
   console.error(error)
   process.exit(1)
 })
