@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { RouteContext } from '../context'
 import { httpError } from '../http'
-import { resolveWithinRoots } from '../localFs'
+import { resolvePath, type FsScope } from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
 
 export function registerDownloadRoutes(
@@ -11,6 +11,7 @@ export function registerDownloadRoutes(
   { config, services, session }: RouteContext
 ): void {
   const { client, manager } = services
+  const scope: FsScope = { roots: config.roots, confined: config.confined }
 
   app.post('/api/download', async (req) => {
     const input = req.body as DownloadEnqueueInput
@@ -21,8 +22,7 @@ export function registerDownloadRoutes(
     if (item.IsDir) throw httpError(400, 'Folder downloads are not supported yet. Select a file.')
 
     const requested = input.downloadDir?.trim()
-    const targetDir =
-      (requested ? await resolveWithinRoots(config.roots, requested) : null) ?? config.roots[0].path
+    const targetDir = (requested ? await resolvePath(scope, requested) : null) ?? config.defaultDir
     const fileName = safeBaseName(input.remotePath)
     return manager.enqueue({
       srcFs: fs,

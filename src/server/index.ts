@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import { dirname } from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { loadConfig } from './config'
 import { AuthService } from './auth'
 import { createServices } from './services'
@@ -9,6 +10,9 @@ import { registerRoutes } from './app'
 async function main(): Promise<void> {
   const { config, configPath, created } = loadConfig()
   const auth = new AuthService(config.appPassword)
+  try {
+    mkdirSync(config.defaultDir, { recursive: true })
+  } catch {}
 
   const app = Fastify({ bodyLimit: 5 * 1024 * 1024, logger: true })
   const execDir = dirname(process.execPath)
@@ -33,7 +37,11 @@ async function main(): Promise<void> {
     app.log.warn('No password set: the web UI is unauthenticated. Set a password to protect it.')
   }
   app.log.info(`Engine: rclone (config at ${services.supervisor.configPath})`)
-  app.log.info(`Download roots: ${config.roots.map((root) => `${root.name} (${root.path})`).join(', ')}`)
+  if (config.confined) {
+    app.log.info(`Download folders: ${config.roots.map((root) => `${root.name} (${root.path})`).join(', ')}`)
+  } else {
+    app.log.info(`Downloads default to ${config.defaultDir}; the folder picker can browse the whole computer.`)
+  }
   app.log.info(`Open http://localhost:${config.port} in your browser.`)
 }
 

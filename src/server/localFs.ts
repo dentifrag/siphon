@@ -14,17 +14,23 @@ export interface LocalDirListing {
   dirs: LocalDirEntry[]
 }
 
+export interface FsScope {
+  roots: DownloadRoot[]
+  confined: boolean
+}
+
 function isInside(parent: string, child: string): boolean {
   const rel = relative(parent, child)
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
-export async function resolveWithinRoots(
-  roots: DownloadRoot[],
-  candidate: string
-): Promise<string | null> {
+export async function resolvePath(scope: FsScope, candidate: string): Promise<string | null> {
   if (!candidate || candidate.includes('\0')) return null
-  for (const root of roots) {
+  if (!scope.confined) {
+    if (!isAbsolute(candidate)) return null
+    return canonicalize(candidate)
+  }
+  for (const root of scope.roots) {
     const base = isAbsolute(candidate) ? candidate : resolve(root.path, candidate)
     const canonicalBase = await canonicalize(base)
     const canonicalRoot = await canonicalize(root.path)
@@ -51,12 +57,13 @@ async function canonicalize(path: string): Promise<string> {
 }
 
 export async function listDirs(
-  roots: DownloadRoot[],
-  requested: string | undefined
+  scope: FsScope,
+  requested: string | undefined,
+  fallbackDir: string
 ): Promise<LocalDirListing> {
-  const target = requested && requested.trim() !== '' ? requested : roots[0].path
-  const canonical = await resolveWithinRoots(roots, target)
-  if (canonical === null) throw new Error('Path is outside the allowed download roots.')
+  const target = requested && requested.trim() !== '' ? requested : fallbackDir
+  const canonical = await resolvePath(scope, target)
+  if (canonical === null) throw new Error('That folder is not accessible.')
 
   const entries = await readdir(canonical, { withFileTypes: true })
   const dirs: LocalDirEntry[] = entries
@@ -64,27 +71,29 @@ export async function listDirs(
     .map((entry) => ({ name: entry.name, path: join(canonical, entry.name) }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  const isRoot = await isConfiguredRoot(roots, canonical)
-  const parent = isRoot ? null : resolve(canonical, '..')
-  const safeParent = parent ? await resolveWithinRoots(roots, parent) : null
-
-  return { path: canonical, parent: safeParent, dirs }
+  return { path: canonical, parent: await parentOf(scope, canonical), dirs }
 }
 
-export async function makeDir(
-  roots: DownloadRoot[],
-  parentPath: string,
-  name: string
-): Promise<string> {
+async function parentOf(scope: FsScope, canonical: string): Promise<string | null> {
+  const parent = resolve(canonical, '..')
+  if (parent === canonical) return null
+  if (scope.confined) {
+    if (await isConfiguredRoot(scope.roots, canonical)) return null
+    return resolvePath(scope, parent)
+  }
+  return parent
+}
+
+export async function makeDir(scope: FsScope, parentPath: string, name: string): Promise<string> {
   const cleanName = name.trim()
   if (!cleanName || /[\\/\0]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
     throw new Error('Invalid folder name.')
   }
-  const canonicalParent = await resolveWithinRoots(roots, parentPath)
-  if (canonicalParent === null) throw new Error('Path is outside the allowed download roots.')
+  const canonicalParent = await resolvePath(scope, parentPath)
+  if (canonicalParent === null) throw new Error('That folder is not accessible.')
   const target = join(canonicalParent, cleanName)
-  const canonicalTarget = await resolveWithinRoots(roots, target)
-  if (canonicalTarget === null) throw new Error('Path is outside the allowed download roots.')
+  const canonicalTarget = await resolvePath(scope, target)
+  if (canonicalTarget === null) throw new Error('That folder is not accessible.')
   await mkdir(canonicalTarget, { recursive: true })
   return canonicalTarget
 }
