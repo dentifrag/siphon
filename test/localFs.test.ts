@@ -62,9 +62,12 @@ describe('resolvePath (unconfined)', () => {
 })
 
 describe('listDirs', () => {
-  it('lists only subdirectories and hides the parent at a configured root', async () => {
+  it('lists directories and files, directories first, and hides the parent at a configured root', async () => {
     const listing = await listDirs(confined, join(base, 'driveA'), join(base, 'driveA'))
-    expect(listing.dirs.map((d) => d.name)).toEqual(['movies'])
+    expect(listing.entries.map((e) => ({ name: e.name, isDir: e.isDir }))).toEqual([
+      { name: 'movies', isDir: true },
+      { name: 'file.txt', isDir: false }
+    ])
     expect(listing.parent).toBeNull()
   })
 

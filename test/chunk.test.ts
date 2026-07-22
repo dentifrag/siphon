@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { multiThreadConfig, planMultiThread, MAX_STREAMS } from '../src/server/rclone/chunk'
+import {
+  multiThreadConfig,
+  planDirectoryMultiThread,
+  planMultiThread,
+  MAX_STREAMS
+} from '../src/server/rclone/chunk'
 
 const MB = 1024 * 1024
 
@@ -50,5 +55,27 @@ describe('multiThreadConfig', () => {
     expect(config.MultiThreadChunkSize).toBe(`${plan.chunkBytes}B`)
     expect(config.MultiThreadChunkSize).toMatch(/^\d+B$/)
     expect(config.MultiThreadCutoff).toMatch(/^\d+B$/)
+  })
+})
+
+describe('planDirectoryMultiThread', () => {
+  it('uses the requested segment count directly as the stream count', () => {
+    const plan = planDirectoryMultiThread(4)
+    expect(plan.streams).toBe(4)
+    expect(plan.chunkBytes).toBe(5 * MB)
+    expect(plan.cutoffBytes).toBeGreaterThan(0)
+  })
+
+  it('clamps the requested segment count to the maximum', () => {
+    const plan = planDirectoryMultiThread(999)
+    expect(plan.streams).toBe(MAX_STREAMS)
+  })
+
+  it('falls back to a single stream for a segment count of 0', () => {
+    expect(planDirectoryMultiThread(0).streams).toBe(1)
+  })
+
+  it('treats a segment count of 1 as a single-stream download', () => {
+    expect(planDirectoryMultiThread(1).streams).toBe(1)
   })
 })

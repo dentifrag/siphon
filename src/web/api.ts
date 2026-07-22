@@ -90,7 +90,19 @@ export function createWebApi(): WebApi {
     clearFinishedDownloads: async () => {
       await request('/api/downloads/clear-finished', { method: 'POST' })
     },
+    clearAllDownloads: async () => {
+      await request('/api/downloads/clear-all', { method: 'POST' })
+    },
+    removeDownload: async (id: string) => {
+      await request('/api/downloads/remove', { method: 'POST', body: { id } })
+    },
     listDownloads: () => request<TransferProgress[]>('/api/downloads'),
+    getMaxConcurrentDownloads: () =>
+      request<{ max: number }>('/api/downloads/concurrency').then((r) => r.max),
+    setMaxConcurrentDownloads: (max: number) =>
+      request<{ max: number }>('/api/downloads/concurrency', { method: 'POST', body: { max } }).then(
+        (r) => r.max
+      ),
     defaultDownloadDir: async () => {
       const config = await request<ServerConfig>('/api/config')
       return config.downloadDir

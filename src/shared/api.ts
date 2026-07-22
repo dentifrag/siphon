@@ -58,15 +58,16 @@ export interface DownloadRootMeta {
   path: string
 }
 
-export interface LocalDirEntry {
+export interface LocalEntry {
   name: string
   path: string
+  isDir: boolean
 }
 
 export interface LocalDirListing {
   path: string
   parent: string | null
-  dirs: LocalDirEntry[]
+  entries: LocalEntry[]
 }
 
 export interface SftpApi {
@@ -78,7 +79,11 @@ export interface SftpApi {
   cancelDownload(id: string): Promise<void>
   cancelAllDownloads(): Promise<void>
   clearFinishedDownloads(): Promise<void>
+  clearAllDownloads(): Promise<void>
+  removeDownload(id: string): Promise<void>
   listDownloads(): Promise<TransferProgress[]>
+  getMaxConcurrentDownloads(): Promise<number>
+  setMaxConcurrentDownloads(max: number): Promise<number>
   defaultDownloadDir(): Promise<string>
   listDownloadRoots(): Promise<DownloadRootMeta[]>
   browseLocalDirs(path?: string): Promise<LocalDirListing>

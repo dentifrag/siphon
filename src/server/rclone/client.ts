@@ -12,6 +12,8 @@ export interface RcloneListEntry {
 
 export interface RcloneStats {
   bytes?: number
+  totalBytes?: number
+  totalTransfers?: number
   speed?: number
   transferring?: Array<{ name?: string; bytes?: number; size?: number; speed?: number }>
 }
@@ -120,6 +122,22 @@ export class RcloneClient {
       srcRemote: input.srcRemote,
       dstFs: input.dstFs,
       dstRemote: input.dstRemote,
+      _async: true,
+      _group: input.group,
+      _config: input.config
+    }).then((r) => r.jobid)
+  }
+
+  copyDirAsync(input: {
+    srcFs: string
+    dstFs: string
+    group: string
+    config: CopyFileConfig
+  }): Promise<number> {
+    return this.call<{ jobid: number }>('sync/copy', {
+      srcFs: input.srcFs,
+      dstFs: input.dstFs,
+      createEmptySrcDirs: true,
       _async: true,
       _group: input.group,
       _config: input.config

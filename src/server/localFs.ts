@@ -3,15 +3,16 @@ import { existsSync, type Dirent } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
 
-export interface LocalDirEntry {
+export interface LocalEntry {
   name: string
   path: string
+  isDir: boolean
 }
 
 export interface LocalDirListing {
   path: string
   parent: string | null
-  dirs: LocalDirEntry[]
+  entries: LocalEntry[]
 }
 
 export interface FsScope {
@@ -65,27 +66,31 @@ export async function listDirs(
   let canonical = await resolvePath(scope, target)
   if (canonical === null) throw new Error('That folder is not accessible.')
 
-  let entries: Dirent[]
+  let dirents: Dirent[]
   try {
-    entries = await readdir(canonical, { withFileTypes: true })
+    dirents = await readdir(canonical, { withFileTypes: true })
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       canonical = await firstExistingAncestor(scope, canonical)
-      entries = await readdir(canonical, { withFileTypes: true }).catch((): Dirent[] => [])
+      dirents = await readdir(canonical, { withFileTypes: true }).catch((): Dirent[] => [])
     } else if (code === 'EACCES' || code === 'EPERM') {
-      return { path: canonical, parent: await parentOf(scope, canonical), dirs: [] }
+      return { path: canonical, parent: await parentOf(scope, canonical), entries: [] }
     } else {
       throw err
     }
   }
 
-  const dirs: LocalDirEntry[] = entries
-    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-    .map((entry) => ({ name: entry.name, path: join(canonical, entry.name) }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const entries: LocalEntry[] = dirents
+    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink() || entry.isFile())
+    .map((entry) => ({
+      name: entry.name,
+      path: join(canonical, entry.name),
+      isDir: entry.isDirectory() || entry.isSymbolicLink()
+    }))
+    .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))
 
-  return { path: canonical, parent: await parentOf(scope, canonical), dirs }
+  return { path: canonical, parent: await parentOf(scope, canonical), entries }
 }
 
 async function firstExistingAncestor(scope: FsScope, start: string): Promise<string> {
