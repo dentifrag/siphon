@@ -1,6 +1,7 @@
 import type {
   AuthMethod,
   ConnectionConfig,
+  DownloadEvent,
   RemoteEntry,
   RemoteStat,
   TransferProgress
@@ -92,5 +93,5 @@ export interface SftpApi {
   saveProfile(input: SaveProfileInput): Promise<ConnectionProfileMeta[]>
   resolveProfile(id: string): Promise<ResolvedProfile | null>
   deleteProfile(id: string): Promise<ConnectionProfileMeta[]>
-  onDownloadUpdate(callback: (transfer: TransferProgress) => void): () => void
+  onDownloadUpdate(callback: (event: DownloadEvent) => void): () => void
 }

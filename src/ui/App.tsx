@@ -48,7 +48,12 @@ export default function App() {
     window.api.listDownloads().then(setTransfers).catch(() => undefined)
     window.api.listProfiles().then(setProfiles).catch(() => undefined)
 
-    return window.api.onDownloadUpdate((update) => {
+    return window.api.onDownloadUpdate((ev) => {
+      if (ev.type === 'remove') {
+        setTransfers((prev) => prev.filter((t) => t.id !== ev.id))
+        return
+      }
+      const update = ev.transfer
       setTransfers((prev) => {
         const index = prev.findIndex((t) => t.id === update.id)
         if (index === -1) return [...prev, update]

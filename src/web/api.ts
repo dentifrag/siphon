@@ -1,5 +1,6 @@
 import type {
   ConnectionConfig,
+  DownloadEvent,
   RemoteEntry,
   RemoteStat,
   TransferProgress
@@ -130,11 +131,11 @@ export function createWebApi(): WebApi {
         method: 'POST',
         body: { id }
       }),
-    onDownloadUpdate: (callback: (transfer: TransferProgress) => void) => {
+    onDownloadUpdate: (callback: (event: DownloadEvent) => void) => {
       const source = new EventSource('/api/events', { withCredentials: true })
       source.onmessage = (event) => {
         try {
-          callback(JSON.parse(event.data) as TransferProgress)
+          callback(JSON.parse(event.data) as DownloadEvent)
         } catch {}
       }
       return () => source.close()

@@ -59,6 +59,13 @@ export class RcloneDownloadManager extends EventEmitter {
     }
   }
 
+  onRemove(listener: (id: string) => void): () => void {
+    this.on('remove', listener)
+    return () => {
+      this.off('remove', listener)
+    }
+  }
+
   list(): TransferProgress[] {
     return this.order.map((id) => ({ ...this.transfers.get(id)!.progress }))
   }
@@ -126,6 +133,7 @@ export class RcloneDownloadManager extends EventEmitter {
     if (!t || t.progress.status === 'downloading') return
     this.finalize(t)
     this.deleteTransfer(id)
+    this.emitRemove(id)
   }
 
   clearFinished(): void {
@@ -296,8 +304,12 @@ export class RcloneDownloadManager extends EventEmitter {
   private settleTerminal(id: string, t: InternalTransfer): void {
     this.activeIds.delete(id)
     this.finalize(t)
-    if (t.removePending) this.deleteTransfer(id)
-    else this.emitUpdate(id)
+    if (t.removePending) {
+      this.deleteTransfer(id)
+      this.emitRemove(id)
+    } else {
+      this.emitUpdate(id)
+    }
     this.pump()
   }
 
@@ -312,5 +324,9 @@ export class RcloneDownloadManager extends EventEmitter {
   private emitUpdate(id: string): void {
     const t = this.transfers.get(id)
     if (t) this.emit('update', { ...t.progress })
+  }
+
+  private emitRemove(id: string): void {
+    this.emit('remove', id)
   }
 }

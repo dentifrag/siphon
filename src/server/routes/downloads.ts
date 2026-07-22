@@ -108,12 +108,14 @@ export function registerDownloadRoutes(
     const send = (payload: unknown): void => {
       raw.write(`data: ${JSON.stringify(payload)}\n\n`)
     }
-    for (const transfer of manager.list()) send(transfer)
-    const unsubscribe = manager.onUpdate(send)
+    for (const transfer of manager.list()) send({ type: 'update', transfer })
+    const offUpdate = manager.onUpdate((transfer) => send({ type: 'update', transfer }))
+    const offRemove = manager.onRemove((id) => send({ type: 'remove', id }))
     const ping = setInterval(() => raw.write(': ping\n\n'), 25000)
     req.raw.on('close', () => {
       clearInterval(ping)
-      unsubscribe()
+      offUpdate()
+      offRemove()
     })
   })
 }

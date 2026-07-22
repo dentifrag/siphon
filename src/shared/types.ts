@@ -43,3 +43,5 @@ export interface TransferProgress {
   status: TransferStatus
   error?: string
 }
+
+export type DownloadEvent = { type: 'update'; transfer: TransferProgress } | { type: 'remove'; id: string }

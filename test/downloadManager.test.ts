@@ -278,3 +278,71 @@ describe('RcloneDownloadManager remove and clearAll', () => {
   })
 })
 
+describe('RcloneDownloadManager removal signal', () => {
+  it('remove() on a queued item emits a remove event with that id', () => {
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockReturnValue(new Promise(() => {})),
+      jobStatus: vi.fn(),
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote: vi.fn().mockResolvedValue(undefined)
+    } as unknown as RcloneClient
+
+    const manager = new RcloneDownloadManager(client)
+    manager.setMaxConcurrent(1)
+    manager.enqueue(enqueueInput({ cleanupRemote: '_dl-active' }))
+    const queued = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-queued' }))
+
+    const onRemove = vi.fn()
+    manager.onRemove(onRemove)
+    manager.remove(queued.id)
+
+    expect(onRemove).toHaveBeenCalledWith(queued.id)
+    expect(manager.list().find((t) => t.id === queued.id)).toBeUndefined()
+  })
+
+  it('emits a remove event once a clearAll-marked active transfer actually settles', async () => {
+    vi.useFakeTimers()
+    try {
+      let nextJobId = 1
+      const jobStatuses = new Map<number, { finished: boolean; success: boolean; error: string }>()
+      const client = {
+        coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+        coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+        copyFileAsync: vi.fn().mockImplementation(async () => {
+          const id = nextJobId++
+          jobStatuses.set(id, { finished: false, success: false, error: '' })
+          return id
+        }),
+        jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+        jobStop: vi.fn().mockResolvedValue(undefined),
+        deleteRemote: vi.fn().mockResolvedValue(undefined)
+      } as unknown as RcloneClient
+
+      const manager = new RcloneDownloadManager(client)
+      manager.setMaxConcurrent(1)
+      const active = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-active' }))
+
+      const onRemove = vi.fn()
+      manager.onRemove(onRemove)
+
+      await flushMicrotasks()
+      expect(manager.list().find((t) => t.id === active.id)?.status).toBe('downloading')
+
+      manager.clearAll()
+      expect(onRemove).not.toHaveBeenCalled()
+      expect(manager.list().find((t) => t.id === active.id)?.status).toBe('downloading')
+
+      jobStatuses.set(1, { finished: true, success: false, error: '' })
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+      await flushMicrotasks()
+
+      expect(onRemove).toHaveBeenCalledWith(active.id)
+      expect(manager.list().find((t) => t.id === active.id)).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
