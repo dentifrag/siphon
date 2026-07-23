@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { Button, IconButton } from '@primer/react'
-import { ArrowUpIcon, FileDirectoryFillIcon, FileIcon } from '@primer/octicons-react'
+import { ActionList, ActionMenu, Button, IconButton } from '@primer/react'
+import {
+  ArrowUpIcon,
+  FileDirectoryFillIcon,
+  FileIcon,
+  KebabHorizontalIcon
+} from '@primer/octicons-react'
 import type { RemoteEntry } from '@shared/types'
 import { breadcrumbs, parentDir } from '../lib/path'
 import { formatBytes, formatMtime } from '../lib/format'
@@ -25,12 +30,6 @@ interface RemoteBrowserProps {
   onDownloadEntry: (entry: RemoteEntry) => void
 }
 
-interface ContextMenuState {
-  x: number
-  y: number
-  entry: RemoteEntry
-}
-
 export function RemoteBrowser(props: RemoteBrowserProps) {
   const {
     connected,
@@ -52,7 +51,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   const isCoarse = useCoarsePointer()
 
   const anchorRef = useRef<number | null>(null)
-  const [menu, setMenu] = useState<ContextMenuState | null>(null)
+  const [openMenuPath, setOpenMenuPath] = useState<string | null>(null)
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' })
 
   const sortedEntries = useMemo(() => sortEntries(entries, sort), [entries, sort])
@@ -68,24 +67,6 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
 
   const sortIndicator = (key: SortKey): string =>
     sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''
-
-  const closeMenu = useCallback(() => setMenu(null), [])
-
-  useEffect(() => {
-    if (!menu) return
-    const onDocClick = (): void => closeMenu()
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') closeMenu()
-    }
-    window.addEventListener('click', onDocClick)
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('resize', closeMenu)
-    return () => {
-      window.removeEventListener('click', onDocClick)
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('resize', closeMenu)
-    }
-  }, [menu, closeMenu])
 
   useEffect(() => {
     anchorRef.current = null
@@ -146,7 +127,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
         onSelectionChange(new Set([entry.path]))
         anchorRef.current = index
       }
-      setMenu({ x: event.clientX, y: event.clientY, entry })
+      setOpenMenuPath(entry.path)
     },
     [onSelectionChange, selected]
   )
@@ -155,7 +136,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     if (!connected || suspended) return
     const onKey = (e: KeyboardEvent): void => {
       if (loading) return
-      if (menu) return
+      if (openMenuPath !== null) return
       if (isTextInputFocused()) return
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -203,7 +184,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     connected,
     suspended,
     loading,
-    menu,
+    openMenuPath,
     sortedEntries,
     selected,
     cwd,
@@ -311,18 +292,37 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                     </td>
                     <td className="col-size">{isDir ? '' : formatBytes(entry.size)}</td>
                     <td className="col-mtime">{formatMtime(entry.mtime)}</td>
-                    <td className="col-actions">
-                      <button
-                        type="button"
-                        className="btn btn--icon btn--row-menu"
-                        aria-label="Row actions"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleContextMenu(e, entry, index)
-                        }}
+                    <td className="col-actions" onClick={(e) => e.stopPropagation()}>
+                      <ActionMenu
+                        open={openMenuPath === entry.path}
+                        onOpenChange={(open) =>
+                          setOpenMenuPath(open ? entry.path : null)
+                        }
                       >
-                        ⋯
-                      </button>
+                        <ActionMenu.Anchor>
+                          <IconButton
+                            icon={KebabHorizontalIcon}
+                            aria-label="Row actions"
+                            variant="invisible"
+                            size="small"
+                          />
+                        </ActionMenu.Anchor>
+                        <ActionMenu.Overlay align="end">
+                          <ActionList>
+                            {isDir && (
+                              <ActionList.Item onSelect={() => onNavigate(entry.path)}>
+                                Open
+                              </ActionList.Item>
+                            )}
+                            <ActionList.Item
+                              disabled={!canDownload}
+                              onSelect={() => onDownloadSelected()}
+                            >
+                              Download{selectedCount > 1 ? ` (${selectedCount})` : ''}
+                            </ActionList.Item>
+                          </ActionList>
+                        </ActionMenu.Overlay>
+                      </ActionMenu>
                     </td>
                   </tr>
                 )
@@ -331,41 +331,6 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           </table>
         )}
       </div>
-
-      {menu && (
-        <ul
-          className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {menu.entry.type === 'directory' && (
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate(menu.entry.path)
-                  closeMenu()
-                }}
-              >
-                Open
-              </button>
-            </li>
-          )}
-          <li>
-            <button
-              type="button"
-              disabled={!canDownload}
-              title={canDownload ? '' : 'Choose a download folder first'}
-              onClick={() => {
-                onDownloadSelected()
-                closeMenu()
-              }}
-            >
-              Download{selectedCount > 1 ? ` (${selectedCount})` : ''}
-            </button>
-          </li>
-        </ul>
-      )}
     </section>
   )
 }

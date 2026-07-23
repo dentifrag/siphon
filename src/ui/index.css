@@ -393,46 +393,6 @@ body {
   background: var(--selected);
 }
 
-/* Right-click context menu */
-.context-menu {
-  position: fixed;
-  z-index: 1000;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  min-width: 160px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-}
-
-.context-menu li {
-  margin: 0;
-}
-
-.context-menu button {
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: none;
-  padding: 7px 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.context-menu button:hover:not(:disabled) {
-  background: var(--accent-emphasis);
-  color: var(--on-emphasis);
-}
-
-.context-menu button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .col-check {
   width: 34px;
   text-align: center;
@@ -458,12 +418,6 @@ body {
 .col-actions {
   width: 36px;
   text-align: center;
-}
-
-.btn--row-menu {
-  padding: 2px 8px;
-  font-size: 14px;
-  line-height: 1;
 }
 
 .file-name {
@@ -901,11 +855,6 @@ body {
 
   .btn--small {
     min-height: 40px;
-  }
-
-  .btn--row-menu {
-    min-height: 40px;
-    min-width: 40px;
   }
 
   .file-table tbody tr {
