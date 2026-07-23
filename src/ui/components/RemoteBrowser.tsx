@@ -28,6 +28,7 @@ interface RemoteBrowserProps {
   onSelectionChange: (next: Set<string>) => void
   onDownloadSelected: () => void
   onDownloadEntry: (entry: RemoteEntry) => void
+  onUpload: () => void
 }
 
 export function RemoteBrowser(props: RemoteBrowserProps) {
@@ -44,7 +45,8 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     onRefresh,
     onSelectionChange,
     onDownloadSelected,
-    onDownloadEntry
+    onDownloadEntry,
+    onUpload
   } = props
 
   const selectedCount = entries.filter((entry) => selected.has(entry.path)).length
@@ -224,6 +226,13 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
             onClick={onRefresh}
           >
             Refresh
+          </Button>
+          <Button
+            variant="default"
+            disabled={!connected || loading}
+            onClick={onUpload}
+          >
+            Upload
           </Button>
           <Button
             variant="primary"

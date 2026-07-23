@@ -15,6 +15,7 @@ export interface RcloneEnqueueInput {
   size: number
   segments: number
   cleanupRemote?: string
+  direction?: 'download' | 'upload'
 }
 
 interface InternalTransfer {
@@ -93,7 +94,8 @@ export class RcloneDownloadManager extends EventEmitter {
       speedBytesPerSec: 0,
       activeSegments: 0,
       segments: input.segments,
-      status: 'queued'
+      status: 'queued',
+      direction: input.direction ?? 'download'
     }
     this.transfers.set(id, {
       progress,

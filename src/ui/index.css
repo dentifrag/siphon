@@ -590,6 +590,11 @@ body {
   background: var(--selected);
 }
 
+.folder-picker__list li.is-focused .folder-picker__file-name {
+  background: var(--selected);
+  border-radius: 6px;
+}
+
 .folder-picker__list li.is-disabled {
   display: flex;
   align-items: center;
@@ -597,6 +602,33 @@ body {
   padding: 7px 10px;
   color: var(--muted);
   cursor: default;
+}
+
+.folder-picker__list li:has(.folder-picker__item) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-picker__list li:has(.folder-picker__item) button {
+  flex: 1;
+}
+
+.folder-picker__item {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.folder-picker__file-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
 }
 
 .folder-picker__hint {

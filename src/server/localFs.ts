@@ -1,4 +1,4 @@
-import { mkdir, readdir, realpath } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
@@ -131,6 +131,31 @@ export async function makeDir(scope: FsScope, parentPath: string, name: string):
   if (canonicalTarget === null) throw new Error('That folder is not accessible.')
   await mkdir(canonicalTarget, { recursive: true })
   return canonicalTarget
+}
+
+export async function listFilesRecursive(
+  _scope: FsScope,
+  dir: string
+): Promise<{ relPath: string; size: number }[]> {
+  const results: { relPath: string; size: number }[] = []
+
+  async function walk(current: string, relPrefix: string): Promise<void> {
+    const dirents = await readdir(current, { withFileTypes: true })
+    for (const entry of dirents) {
+      if (entry.isSymbolicLink()) continue
+      const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+      const entryPath = join(current, entry.name)
+      if (entry.isDirectory()) {
+        await walk(entryPath, relPath)
+      } else if (entry.isFile()) {
+        const stats = await stat(entryPath)
+        results.push({ relPath, size: stats.size })
+      }
+    }
+  }
+
+  await walk(dir, '')
+  return results
 }
 
 async function isConfiguredRoot(roots: DownloadRoot[], canonical: string): Promise<boolean> {

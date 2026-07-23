@@ -1,8 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+  symlinkSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listDirs, makeDir, resolvePath, type FsScope } from '../src/server/localFs'
+import { listDirs, listFilesRecursive, makeDir, resolvePath, type FsScope } from '../src/server/localFs'
 
 let base: string
 let confined: FsScope
@@ -111,5 +119,32 @@ describe('makeDir', () => {
 
   it('rejects creating under a path outside the roots when confined', async () => {
     await expect(makeDir(confined, base, 'x')).rejects.toThrow()
+  })
+})
+
+describe('listFilesRecursive', () => {
+  it('returns relative paths and sizes for a nested tree, skipping symlinks', async () => {
+    const uploadRoot = mkdtempSync(join(tmpdir(), 'siphon-upload-'))
+    const outsideRoot = mkdtempSync(join(tmpdir(), 'siphon-outside-'))
+    try {
+      mkdirSync(join(uploadRoot, 'sub'), { recursive: true })
+      writeFileSync(join(uploadRoot, 'a.txt'), '12345')
+      writeFileSync(join(uploadRoot, 'sub', 'b.txt'), '1234567890')
+      writeFileSync(join(outsideRoot, 'secret.txt'), 'shh')
+      symlinkSync(join(outsideRoot, 'secret.txt'), join(uploadRoot, 'escape.txt'))
+      symlinkSync(outsideRoot, join(uploadRoot, 'escape-dir'))
+
+      const scope: FsScope = { confined: true, roots: [{ name: 'up', path: uploadRoot }] }
+      const files = await listFilesRecursive(scope, uploadRoot)
+
+      expect(files.sort((a, b) => a.relPath.localeCompare(b.relPath))).toEqual([
+        { relPath: 'a.txt', size: 5 },
+        { relPath: 'sub/b.txt', size: 10 }
+      ])
+      expect(files.some((f) => f.relPath.includes('escape'))).toBe(false)
+    } finally {
+      rmSync(uploadRoot, { recursive: true, force: true })
+      rmSync(outsideRoot, { recursive: true, force: true })
+    }
   })
 })

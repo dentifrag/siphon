@@ -7,26 +7,31 @@ import { isTextInputFocused } from '../lib/keyboard'
 
 interface FolderPickerProps {
   initialPath: string
+  mode?: 'chooseDir' | 'chooseItems'
   onClose: () => void
-  onChoose: (path: string) => void
+  onChoose: (paths: string[]) => void
 }
 
 export function FolderPicker(props: FolderPickerProps) {
-  const { initialPath, onClose, onChoose } = props
+  const { initialPath, mode = 'chooseDir', onClose, onChoose } = props
   const [roots, setRoots] = useState<DownloadRootMeta[]>([])
   const [listing, setListing] = useState<LocalDirListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [newFolder, setNewFolder] = useState<string | null>(null)
   const [focusIndex, setFocusIndex] = useState<number | null>(null)
+  const [checked, setChecked] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLUListElement | null>(null)
 
-  const dirs = useMemo(() => listing?.entries.filter((entry) => entry.isDir) ?? [], [listing])
-  const focusedPath = focusIndex !== null ? dirs[focusIndex]?.path : undefined
+  const rows = useMemo(() => listing?.entries ?? [], [listing])
+  const dirs = useMemo(() => rows.filter((entry) => entry.isDir), [rows])
+  const navRows = mode === 'chooseItems' ? rows : dirs
+  const focusedPath = focusIndex !== null ? navRows[focusIndex]?.path : undefined
 
   const load = useCallback(async (path?: string) => {
     setLoading(true)
     setError(null)
+    setChecked(new Set())
     try {
       const result = await window.api.browseLocalDirs(path)
       setListing(result)
@@ -43,33 +48,34 @@ export function FolderPicker(props: FolderPickerProps) {
   }, [initialPath, load])
 
   useEffect(() => {
-    setFocusIndex(dirs.length > 0 ? 0 : null)
-  }, [dirs])
+    setFocusIndex(navRows.length > 0 ? 0 : null)
+  }, [navRows])
 
   useEffect(() => {
-    const focusDir = (index: number): void => {
-      const buttons = listRef.current?.querySelectorAll('button')
-      buttons?.[index]?.focus()
+    const focusRow = (index: number): void => {
+      const selector = mode === 'chooseItems' ? 'input[type="checkbox"]' : 'button'
+      const targets = listRef.current?.querySelectorAll<HTMLElement>(selector)
+      targets?.[index]?.focus()
     }
     const onKey = (e: KeyboardEvent): void => {
       if (isTextInputFocused()) return
-      if (dirs.length === 0) return
+      if (navRows.length === 0) return
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        const next = Math.min((focusIndex ?? -1) + 1, dirs.length - 1)
+        const next = Math.min((focusIndex ?? -1) + 1, navRows.length - 1)
         setFocusIndex(next)
-        focusDir(next)
+        focusRow(next)
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         const next = Math.max((focusIndex ?? 1) - 1, 0)
         setFocusIndex(next)
-        focusDir(next)
+        focusRow(next)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [dirs, focusIndex])
+  }, [navRows, focusIndex, mode])
 
   const createFolder = useCallback(async () => {
     if (!listing || !newFolder || !newFolder.trim()) {
@@ -85,21 +91,40 @@ export function FolderPicker(props: FolderPickerProps) {
     }
   }, [listing, newFolder, load])
 
+  const toggleChecked = useCallback((path: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
   return (
     <Dialog
-      title="Choose download folder"
+      title={mode === 'chooseItems' ? 'Choose files to upload' : 'Choose download folder'}
       width="large"
       onClose={() => onClose()}
       footerButtons={[
         { content: 'Cancel', onClick: () => onClose() },
-        {
-          content: 'Use this folder',
-          buttonType: 'primary',
-          disabled: !listing,
-          onClick: () => {
-            if (listing) onChoose(listing.path)
-          }
-        }
+        mode === 'chooseItems'
+          ? {
+              content:
+                checked.size > 0
+                  ? `Upload ${checked.size} item${checked.size === 1 ? '' : 's'}`
+                  : 'Upload items',
+              buttonType: 'primary',
+              disabled: checked.size === 0,
+              onClick: () => onChoose([...checked])
+            }
+          : {
+              content: 'Use this folder',
+              buttonType: 'primary',
+              disabled: !listing,
+              onClick: () => {
+                if (listing) onChoose([listing.path])
+              }
+            }
       ]}
     >
       {roots.length > 1 && (
@@ -129,13 +154,15 @@ export function FolderPicker(props: FolderPickerProps) {
         <span className="folder-picker__path" title={listing?.path ?? ''}>
           {listing?.path ?? '…'}
         </span>
-        <Button
-          size="small"
-          disabled={!listing || loading}
-          onClick={() => setNewFolder('')}
-        >
-          New folder
-        </Button>
+        {mode !== 'chooseItems' && (
+          <Button
+            size="small"
+            disabled={!listing || loading}
+            onClick={() => setNewFolder('')}
+          >
+            New folder
+          </Button>
+        )}
       </div>
 
       {newFolder !== null && (
@@ -173,7 +200,36 @@ export function FolderPicker(props: FolderPickerProps) {
         ) : (
           <ul ref={listRef}>
             {listing?.entries.map((entry) =>
-              entry.isDir ? (
+              mode === 'chooseItems' ? (
+                <li
+                  key={entry.path}
+                  className={entry.path === focusedPath ? 'is-focused' : undefined}
+                >
+                  <label className="folder-picker__item">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${entry.name}`}
+                      checked={checked.has(entry.path)}
+                      onChange={() => toggleChecked(entry.path)}
+                    />
+                  </label>
+                  {entry.isDir ? (
+                    <button type="button" onClick={() => load(entry.path)}>
+                      <span className="file-icon">
+                        <FileDirectoryFillIcon />
+                      </span>
+                      {entry.name}
+                    </button>
+                  ) : (
+                    <span className="folder-picker__file-name">
+                      <span className="file-icon">
+                        <FileIcon />
+                      </span>
+                      {entry.name}
+                    </span>
+                  )}
+                </li>
+              ) : entry.isDir ? (
                 <li
                   key={entry.path}
                   className={entry.path === focusedPath ? 'is-focused' : undefined}
@@ -198,7 +254,11 @@ export function FolderPicker(props: FolderPickerProps) {
         )}
       </div>
 
-      <p className="folder-picker__hint">Files will download into this folder.</p>
+      <p className="folder-picker__hint">
+        {mode === 'chooseItems'
+          ? 'Checked files and folders will upload into the remote folder you are browsing.'
+          : 'Files will download into this folder.'}
+      </p>
     </Dialog>
   )
 }
