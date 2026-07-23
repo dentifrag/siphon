@@ -40,6 +40,11 @@ body {
   background: var(--bg);
 }
 
+/* Primer portals overlays at z-index 1, lift them above the app's sticky z-index. */
+#__primerPortalRoot__ {
+  z-index: 100;
+}
+
 .app {
   display: flex;
   flex-direction: column;
