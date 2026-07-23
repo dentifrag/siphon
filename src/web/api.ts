@@ -13,6 +13,7 @@ import type {
   LocalDirListing,
   ResolvedProfile,
   SaveProfileInput,
+  SessionStatus,
   SftpApi
 } from '@shared/api'
 
@@ -78,10 +79,11 @@ export function createWebApi(): WebApi {
     disconnect: async () => {
       await request('/api/disconnect', { method: 'POST' })
     },
+    status: () => request<SessionStatus>('/api/status'),
     list: (dir: string) => request<RemoteEntry[]>(`/api/list?path=${encodeURIComponent(dir)}`),
     stat: (path: string) => request<RemoteStat>(`/api/stat?path=${encodeURIComponent(path)}`),
     enqueueDownload: (input: DownloadEnqueueInput) =>
-      request<TransferProgress>('/api/download', { method: 'POST', body: input }),
+      request<TransferProgress[]>('/api/download', { method: 'POST', body: input }),
     cancelDownload: async (id: string) => {
       await request('/api/download/cancel', { method: 'POST', body: { id } })
     },

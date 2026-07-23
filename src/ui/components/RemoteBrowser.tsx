@@ -5,6 +5,7 @@ import { breadcrumbs, parentDir } from '../lib/path'
 import { formatBytes, formatMtime } from '../lib/format'
 import { sortEntries, type SortKey, type SortState } from '../lib/sort'
 import { isTextInputFocused } from '../lib/keyboard'
+import { useCoarsePointer } from '../lib/useCoarsePointer'
 
 interface RemoteBrowserProps {
   connected: boolean
@@ -46,6 +47,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   } = props
 
   const selectedCount = entries.filter((entry) => selected.has(entry.path)).length
+  const isCoarse = useCoarsePointer()
 
   const anchorRef = useRef<number | null>(null)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -105,6 +107,18 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
 
   const handleRowClick = useCallback(
     (event: MouseEvent, entry: RemoteEntry, index: number) => {
+      if (isCoarse) {
+        if (entry.type === 'directory') {
+          onNavigate(entry.path)
+          return
+        }
+        const next = new Set(selected)
+        if (next.has(entry.path)) next.delete(entry.path)
+        else next.add(entry.path)
+        onSelectionChange(next)
+        anchorRef.current = index
+        return
+      }
       if (event.shiftKey) {
         selectRange(index)
         return
@@ -120,7 +134,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
       onSelectionChange(new Set([entry.path]))
       anchorRef.current = index
     },
-    [onSelectionChange, selectRange, selected]
+    [isCoarse, onNavigate, onSelectionChange, selectRange, selected]
   )
 
   const handleContextMenu = useCallback(
@@ -266,6 +280,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                 <th className="col-mtime col-sortable" onClick={() => toggleSort('mtime')}>
                   Modified{sortIndicator('mtime')}
                 </th>
+                <th className="col-actions" aria-hidden="true"></th>
               </tr>
             </thead>
             <tbody>
@@ -292,6 +307,19 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                     </td>
                     <td className="col-size">{isDir ? '' : formatBytes(entry.size)}</td>
                     <td className="col-mtime">{formatMtime(entry.mtime)}</td>
+                    <td className="col-actions">
+                      <button
+                        type="button"
+                        className="btn btn--icon btn--row-menu"
+                        aria-label="Row actions"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleContextMenu(e, entry, index)
+                        }}
+                      >
+                        ⋯
+                      </button>
+                    </td>
                   </tr>
                 )
               })}

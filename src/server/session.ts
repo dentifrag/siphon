@@ -15,6 +15,10 @@ export class ConnectionSession {
     return this.current !== null
   }
 
+  status(): { connected: boolean; remoteName: string | null } {
+    return { connected: this.current !== null, remoteName: this.current }
+  }
+
   remoteFs(): string {
     if (!this.current) throw httpError(400, 'Not connected to a server.')
     return `${this.current}:`

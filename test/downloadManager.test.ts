@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { POLL_INTERVAL_MS, RcloneDownloadManager, type RcloneEnqueueInput } from '../src/server/rclone/downloadManager'
+import {
+  CANCEL_SETTLE_TIMEOUT_MS,
+  POLL_INTERVAL_MS,
+  RcloneDownloadManager,
+  type RcloneEnqueueInput
+} from '../src/server/rclone/downloadManager'
 import type { RcloneClient } from '../src/server/rclone/client'
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
@@ -16,7 +21,6 @@ async function flushMicrotasks(times = 10): Promise<void> {
 
 function enqueueInput(overrides: Partial<RcloneEnqueueInput> = {}): RcloneEnqueueInput {
   return {
-    kind: 'file',
     srcFs: 'dl:',
     srcRemote: 'file.bin',
     dstFs: '/out',
@@ -117,93 +121,6 @@ describe('RcloneDownloadManager concurrency', () => {
     expect(manager.setMaxConcurrent(0)).toBe(1)
     expect(manager.setMaxConcurrent(99)).toBe(8)
     expect(manager.setMaxConcurrent(5)).toBe(5)
-  })
-})
-
-describe('RcloneDownloadManager directory downloads', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('calls copyDirAsync (not copyFileAsync) with the composed srcFs/dstFs', async () => {
-    const client = {
-      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
-      coreStats: vi.fn().mockResolvedValue({ bytes: 0, totalBytes: 0, transferring: [] }),
-      copyDirAsync: vi.fn().mockResolvedValue(7),
-      copyFileAsync: vi.fn(),
-      jobStatus: vi.fn().mockResolvedValue({ finished: false, success: false, error: '', id: 7 }),
-      jobStop: vi.fn().mockResolvedValue(undefined),
-      deleteRemote: vi.fn().mockResolvedValue(undefined)
-    } as unknown as RcloneClient
-
-    const manager = new RcloneDownloadManager(client)
-    manager.enqueue(
-      enqueueInput({
-        kind: 'directory',
-        srcFs: '_dl-xyz:movies',
-        srcRemote: '',
-        dstFs: '/out/movies',
-        dstRemote: '',
-        displayName: '/movies',
-        localPath: '/out/movies',
-        size: 0
-      })
-    )
-
-    await flushMicrotasks()
-
-    expect(client.copyDirAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ srcFs: '_dl-xyz:movies', dstFs: '/out/movies' })
-    )
-    expect(client.copyFileAsync).not.toHaveBeenCalled()
-  })
-
-  it('grows progress.size from totalBytes as the scan progresses and never shrinks it', async () => {
-    const coreStats = vi.fn().mockResolvedValue({ bytes: 0, totalBytes: 0, transferring: [] })
-    const client = {
-      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
-      coreStats,
-      copyDirAsync: vi.fn().mockResolvedValue(7),
-      copyFileAsync: vi.fn(),
-      jobStatus: vi.fn().mockResolvedValue({ finished: false, success: false, error: '', id: 7 }),
-      jobStop: vi.fn().mockResolvedValue(undefined),
-      deleteRemote: vi.fn().mockResolvedValue(undefined)
-    } as unknown as RcloneClient
-
-    const manager = new RcloneDownloadManager(client)
-    const enqueued = manager.enqueue(
-      enqueueInput({
-        kind: 'directory',
-        srcFs: '_dl-xyz:movies',
-        srcRemote: '',
-        dstFs: '/out/movies',
-        dstRemote: '',
-        displayName: '/movies',
-        localPath: '/out/movies',
-        size: 0
-      })
-    )
-    await flushMicrotasks()
-
-    coreStats.mockResolvedValue({ bytes: 2000, totalBytes: 5000, transferring: [{ name: 'a' }] })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    await flushMicrotasks()
-
-    let transfer = manager.list().find((t) => t.id === enqueued.id)
-    expect(transfer?.size).toBe(5000)
-    expect(transfer?.transferred).toBe(2000)
-
-    coreStats.mockResolvedValue({ bytes: 3000, totalBytes: 4000, transferring: [{ name: 'a' }] })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    await flushMicrotasks()
-
-    transfer = manager.list().find((t) => t.id === enqueued.id)
-    expect(transfer?.size).toBe(5000)
-    expect(transfer?.transferred).toBe(3000)
   })
 })
 
@@ -371,4 +288,123 @@ describe('RcloneDownloadManager removal signal', () => {
     }
   })
 })
+
+describe('RcloneDownloadManager shared-remote refcounting', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('only deletes a cloned remote once every sibling sharing it has settled, and remove() on an already-settled sibling does not double-decrement', async () => {
+    let nextJobId = 1
+    const jobStatuses = new Map<number, { finished: boolean; success: boolean; error: string }>()
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockImplementation(async () => {
+        const id = nextJobId++
+        jobStatuses.set(id, { finished: false, success: false, error: '' })
+        return id
+      }),
+      jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote
+    } as unknown as RcloneClient
+
+    const manager = new RcloneDownloadManager(client)
+    manager.setMaxConcurrent(2)
+    const a = manager.enqueue(enqueueInput({ cleanupRemote: 'X' }))
+    const b = manager.enqueue(enqueueInput({ cleanupRemote: 'X' }))
+
+    await flushMicrotasks()
+    expect(manager.list().find((t) => t.id === a.id)?.status).toBe('downloading')
+    expect(manager.list().find((t) => t.id === b.id)?.status).toBe('downloading')
+
+    jobStatuses.set(1, { finished: true, success: true, error: '' })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === a.id)?.status).toBe('completed')
+    expect(deleteRemote).not.toHaveBeenCalled()
+
+    manager.remove(a.id)
+    expect(deleteRemote).not.toHaveBeenCalled()
+    expect(manager.list().find((t) => t.id === a.id)).toBeUndefined()
+
+    jobStatuses.set(2, { finished: true, success: true, error: '' })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === b.id)?.status).toBe('completed')
+    expect(deleteRemote).toHaveBeenCalledTimes(1)
+    expect(deleteRemote).toHaveBeenCalledWith('X')
+  })
+})
+
+describe('RcloneDownloadManager cancel watchdog', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('sets canceling true immediately when cancel() is called on a downloading transfer', () => {
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockReturnValue(new Promise(() => {})),
+      jobStatus: vi.fn(),
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote: vi.fn().mockResolvedValue(undefined)
+    } as unknown as RcloneClient
+
+    const manager = new RcloneDownloadManager(client)
+    const enqueued = manager.enqueue(enqueueInput())
+
+    expect(manager.list().find((t) => t.id === enqueued.id)?.status).toBe('downloading')
+    manager.cancel(enqueued.id)
+
+    const transfer = manager.list().find((t) => t.id === enqueued.id)
+    expect(transfer?.status).toBe('downloading')
+    expect(transfer?.canceling).toBe(true)
+  })
+
+  it('force-settles a stuck cancellation after CANCEL_SETTLE_TIMEOUT_MS and frees its slot', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockResolvedValue(1),
+      jobStatus: vi.fn().mockResolvedValue({ finished: false, success: false, error: '', id: 1 }),
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote
+    } as unknown as RcloneClient
+
+    const manager = new RcloneDownloadManager(client)
+    manager.setMaxConcurrent(1)
+    const stuck = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-stuck' }))
+    const queued = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-queued' }))
+
+    await flushMicrotasks()
+    expect(manager.list().find((t) => t.id === stuck.id)?.status).toBe('downloading')
+    expect(manager.list().find((t) => t.id === queued.id)?.status).toBe('queued')
+
+    manager.cancel(stuck.id)
+    expect(manager.list().find((t) => t.id === stuck.id)?.canceling).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(CANCEL_SETTLE_TIMEOUT_MS + POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === stuck.id)?.status).toBe('canceled')
+    expect(deleteRemote).toHaveBeenCalledWith('_dl-stuck')
+    expect(manager.list().find((t) => t.id === queued.id)?.status).toBe('downloading')
+  })
+})
+
 

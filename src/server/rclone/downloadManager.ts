@@ -1,12 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import type { TransferKind, TransferProgress } from '../../shared/types'
+import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
 import type { RcloneClient } from './client'
-import { multiThreadConfig, planDirectoryMultiThread, planMultiThread } from './chunk'
+import { multiThreadConfig, planMultiThread } from './chunk'
 
 export interface RcloneEnqueueInput {
-  kind: TransferKind
   srcFs: string
   srcRemote: string
   dstFs: string
@@ -24,6 +23,7 @@ interface InternalTransfer {
   group: string
   jobid: number | null
   canceled: boolean
+  canceledAt: number | null
   cleaned: boolean
   removePending: boolean
   polling: boolean
@@ -34,6 +34,7 @@ export const POLL_INTERVAL_MS = 400
 export const DEFAULT_MAX_CONCURRENT = 3
 export const MIN_MAX_CONCURRENT = 1
 export const MAX_MAX_CONCURRENT = 8
+export const CANCEL_SETTLE_TIMEOUT_MS = 4000
 
 function clampMaxConcurrent(value: number): number {
   const n = Math.floor(value)
@@ -45,6 +46,7 @@ export class RcloneDownloadManager extends EventEmitter {
   private readonly transfers = new Map<string, InternalTransfer>()
   private readonly order: string[] = []
   private readonly activeIds = new Set<string>()
+  private readonly remoteRefs = new Map<string, number>()
   private maxConcurrent = DEFAULT_MAX_CONCURRENT
   private ticker: ReturnType<typeof setInterval> | null = null
 
@@ -84,7 +86,6 @@ export class RcloneDownloadManager extends EventEmitter {
     const id = randomUUID()
     const progress: TransferProgress = {
       id,
-      kind: input.kind,
       remotePath: input.displayName,
       localPath: input.localPath,
       size: input.size,
@@ -100,12 +101,17 @@ export class RcloneDownloadManager extends EventEmitter {
       group: `job-${id}`,
       jobid: null,
       canceled: false,
+      canceledAt: null,
       cleaned: false,
       removePending: false,
       polling: false,
       samples: []
     })
     this.order.push(id)
+    if (input.cleanupRemote) {
+      const name = input.cleanupRemote
+      this.remoteRefs.set(name, (this.remoteRefs.get(name) ?? 0) + 1)
+    }
     this.emitUpdate(id)
     this.pump()
     return { ...progress }
@@ -120,7 +126,10 @@ export class RcloneDownloadManager extends EventEmitter {
       this.emitUpdate(id)
     } else if (t.progress.status === 'downloading') {
       t.canceled = true
+      t.canceledAt = Date.now()
+      t.progress.canceling = true
       if (t.jobid !== null) void this.client.jobStop(t.jobid).catch(() => undefined)
+      this.emitUpdate(id)
     }
   }
 
@@ -150,8 +159,11 @@ export class RcloneDownloadManager extends EventEmitter {
       if (!t) continue
       if (t.progress.status === 'downloading') {
         t.canceled = true
+        t.canceledAt = Date.now()
+        t.progress.canceling = true
         t.removePending = true
         if (t.jobid !== null) void this.client.jobStop(t.jobid).catch(() => undefined)
+        this.emitUpdate(id)
         continue
       }
       if (t.progress.status === 'queued') t.progress.status = 'canceled'
@@ -204,30 +216,19 @@ export class RcloneDownloadManager extends EventEmitter {
 
       t.progress.status = 'downloading'
       t.samples = [{ time: Date.now(), bytes: 0 }]
-      const plan =
-        t.input.kind === 'directory'
-          ? planDirectoryMultiThread(t.input.segments)
-          : planMultiThread(t.input.size, t.input.segments)
+      const plan = planMultiThread(t.input.size, t.input.segments)
       t.progress.segments = plan.streams
       this.emitUpdate(id)
 
       await this.client.coreStatsDelete(t.group).catch(() => undefined)
-      t.jobid =
-        t.input.kind === 'directory'
-          ? await this.client.copyDirAsync({
-              srcFs: t.input.srcFs,
-              dstFs: t.input.dstFs,
-              group: t.group,
-              config: multiThreadConfig(plan)
-            })
-          : await this.client.copyFileAsync({
-              srcFs: t.input.srcFs,
-              srcRemote: t.input.srcRemote,
-              dstFs: t.input.dstFs,
-              dstRemote: t.input.dstRemote,
-              group: t.group,
-              config: multiThreadConfig(plan)
-            })
+      t.jobid = await this.client.copyFileAsync({
+        srcFs: t.input.srcFs,
+        srcRemote: t.input.srcRemote,
+        dstFs: t.input.dstFs,
+        dstRemote: t.input.dstRemote,
+        group: t.group,
+        config: multiThreadConfig(plan)
+      })
 
       if (t.canceled) {
         void this.client.jobStop(t.jobid).catch(() => undefined)
@@ -267,10 +268,6 @@ export class RcloneDownloadManager extends EventEmitter {
 
     try {
       const stats = await this.client.coreStats(t.group)
-      if (t.input.kind === 'directory') {
-        const total = stats.totalBytes ?? 0
-        if (total > t.progress.size) t.progress.size = total
-      }
       const transferred = stats.bytes ?? t.progress.transferred
       t.progress.transferred = Math.min(transferred, t.progress.size || transferred)
       const inFlight = (stats.transferring?.length ?? 0) > 0
@@ -291,6 +288,17 @@ export class RcloneDownloadManager extends EventEmitter {
         }
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0
+        this.settleTerminal(id, t)
+        await this.client.coreStatsDelete(t.group).catch(() => undefined)
+      } else if (
+        t.canceled &&
+        t.canceledAt !== null &&
+        Date.now() - t.canceledAt > CANCEL_SETTLE_TIMEOUT_MS
+      ) {
+        t.progress.status = 'canceled'
+        t.progress.activeSegments = 0
+        t.progress.speedBytesPerSec = 0
+        void this.client.jobStop(t.jobid).catch(() => undefined)
         this.settleTerminal(id, t)
         await this.client.coreStatsDelete(t.group).catch(() => undefined)
       } else {
@@ -318,7 +326,13 @@ export class RcloneDownloadManager extends EventEmitter {
     const name = t.input.cleanupRemote
     if (name && !t.cleaned) {
       t.cleaned = true
-      void this.client.deleteRemote(name).catch(() => undefined)
+      const remaining = (this.remoteRefs.get(name) ?? 1) - 1
+      if (remaining <= 0) {
+        this.remoteRefs.delete(name)
+        void this.client.deleteRemote(name).catch(() => undefined)
+      } else {
+        this.remoteRefs.set(name, remaining)
+      }
     }
   }
 
