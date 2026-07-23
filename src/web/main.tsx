@@ -13,6 +13,7 @@ window.api = api
 
 function Root(): React.JSX.Element {
   const [state, setState] = useState<'loading' | 'login' | 'ready'>('loading')
+  const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -29,7 +30,7 @@ function Root(): React.JSX.Element {
     setSubmitting(true)
     setError(null)
     try {
-      await api.login(password)
+      await api.login(username, password)
       const status = await api.authStatus()
       if (status.authenticated || !status.required) setState('ready')
       else setError('Invalid password')
@@ -53,11 +54,19 @@ function Root(): React.JSX.Element {
       <div className="login">
         <form className="login__card" onSubmit={submit}>
           <h1>Siphon</h1>
-          <p>Enter the app password to continue.</p>
+          <p>Enter your username and password to continue.</p>
+          <TextInput
+            type="text"
+            block
+            autoComplete="username"
+            autoFocus
+            value={username}
+            placeholder="Username"
+            onChange={(e) => setUsername(e.target.value)}
+          />
           <TextInput
             type="password"
             block
-            autoFocus
             value={password}
             placeholder="Password"
             onChange={(e) => setPassword(e.target.value)}
