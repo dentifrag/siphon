@@ -40,7 +40,14 @@ Environment variables win if both are set.
 
 | Setting | `config.json` key | Default | What it does |
 | --- | --- | --- | --- |
-| `APP_PASSWORD` | `appPassword` | none | Password to open the UI. Without it, anyone on the network can use it. |
+| `APP_USERNAME` | `appUsername` | `admin` when auth is enabled | Login username. Change this from `admin`. |
+| `APP_PASSWORD` | `appPassword` | none | Plaintext password for login. |
+| `APP_PASSWORD_HASH` | `appPasswordHash` | none | Scrypt password hash from `--hash-password`. Takes precedence over `APP_PASSWORD`. |
+| `LOGIN_MAX_ATTEMPTS` | `loginMaxAttempts` | `10` | Failed login attempts before lockout. Set `0` to disable lockout. |
+| `LOGIN_LOCKOUT_MINUTES` | `loginLockoutMinutes` | `15` | Lockout duration after too many failed attempts. |
+| `SESSION_TTL_HOURS` | `sessionTtlHours` | `72` | Session lifetime before re-login is required. |
+| `TRUST_PROXY` | `trustProxy` | `false` | Trust reverse-proxy headers for client IP and protocol. |
+| `SECURE_COOKIES` | `secureCookies` | `auto` | Cookie security mode: `auto`, `true`, `false`. |
 | `DOWNLOAD_DIRS` | `downloadDirs` | `/downloads` | Where files can be saved. `Label=path` pairs, comma-separated. |
 | `PORT` | `port` | `8080` | Web UI port. |
 | `DATA_DIR` | `dataDir` | `./data` | Where saved connections are stored. |
@@ -66,14 +73,24 @@ Uploads and remote file management are out of scope for now.
   service that starts at boot. See [`windows-service/`](windows-service/) for details.
 - **Linux:** point a systemd unit at the binary with `Restart=always`.
 
-## Security
+## Authentication and security
 
-- Always set a password (`APP_PASSWORD`). Without one, the UI is open to your whole network.
-- Siphon runs rclone privately on localhost with random credentials; browsers only talk to
-  Siphon's own password-protected API, never to rclone directly.
-- Saved passwords are stored by rclone (obscured in its config), not by Siphon. Downloads are
-  restricted to the folders you configure.
-- This version does not verify SFTP host keys, so run it on a network you trust.
+- Username + password login is supported. The default username is `admin` when auth is enabled, change it with `APP_USERNAME` or `appUsername`.
+- You can configure the password as plaintext (`APP_PASSWORD` or `appPassword`) or as a scrypt hash (`APP_PASSWORD_HASH` or `appPasswordHash`). Generate hashes with:
+
+```bash
+./siphon --hash-password
+```
+
+  Hashed passwords take precedence over plaintext values.
+- Login lockout is enabled by default, `loginMaxAttempts=10` and `loginLockoutMinutes=15`. Set `loginMaxAttempts=0` to disable lockout.
+- Sessions expire automatically, `sessionTtlHours=72` by default.
+- For HTTPS behind VPN or reverse proxy, set `trustProxy=true` and `secureCookies=true`.
+- Passwordless mode is still available, leave both password settings blank. Siphon starts with a warning because the UI is open.
+- Forgot your password, if a hash is configured (`APP_PASSWORD_HASH` or `appPasswordHash`), replace or remove that hash first (or regenerate it with `--hash-password`) because hash settings take precedence over plaintext. Then set a new password or hash and restart Siphon.
+- Siphon runs rclone privately on localhost with random credentials, browsers only talk to Siphon's API, never to rclone directly.
+- Saved passwords are stored by rclone (obscured in its config), not by Siphon. Downloads are restricted to folders you configure.
+- This version does not verify SFTP host keys, run it on a network you trust.
 
 ## Development
 

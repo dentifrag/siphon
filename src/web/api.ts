@@ -55,7 +55,7 @@ export interface ServerConfig {
 
 export interface WebApi extends SftpApi {
   authStatus(): Promise<AuthStatus>
-  login(password: string): Promise<void>
+  login(username: string, password: string): Promise<void>
   logout(): Promise<void>
   serverConfig(): Promise<ServerConfig>
 }
@@ -63,8 +63,8 @@ export interface WebApi extends SftpApi {
 export function createWebApi(): WebApi {
   return {
     authStatus: () => request<AuthStatus>('/api/auth-status'),
-    login: async (password: string) => {
-      await request('/api/login', { method: 'POST', body: { password } })
+    login: async (username: string, password: string) => {
+      await request('/api/login', { method: 'POST', body: { username, password } })
     },
     logout: async () => {
       await request('/api/logout', { method: 'POST' })
