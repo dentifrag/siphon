@@ -10,6 +10,14 @@ import { defaultConnectionForm, toConnectionConfig, type ConnectionForm } from '
 import { errorMessage } from './lib/format'
 
 type ConnState = 'disconnected' | 'connecting' | 'connected'
+type StoredConnection = {
+  host: string
+  port: string
+  username: string
+  authMethod: ConnectionForm['authMethod']
+  privateKeyPath: string
+  profileId: string
+}
 
 const MAX_CONCURRENT_STORAGE_KEY = 'siphon.maxConcurrentDownloads'
 const CONNECTION_STORAGE_KEY = 'siphon.connection'
@@ -18,6 +26,30 @@ function loadStoredMaxConcurrent(): number {
   const stored = Number.parseInt(localStorage.getItem(MAX_CONCURRENT_STORAGE_KEY) ?? '', 10)
   if (!Number.isFinite(stored)) return 3
   return Math.max(1, Math.min(8, stored))
+}
+
+function parseStoredConnection(raw: string): StoredConnection | null {
+  const parsed: unknown = JSON.parse(raw)
+  if (!parsed || typeof parsed !== 'object') return null
+  const saved = parsed as Record<string, unknown>
+  if (
+    typeof saved.host !== 'string' ||
+    typeof saved.port !== 'string' ||
+    typeof saved.username !== 'string' ||
+    (saved.authMethod !== 'password' && saved.authMethod !== 'privateKey') ||
+    typeof saved.privateKeyPath !== 'string' ||
+    typeof saved.profileId !== 'string'
+  ) {
+    return null
+  }
+  return {
+    host: saved.host,
+    port: saved.port,
+    username: saved.username,
+    authMethod: saved.authMethod,
+    privateKeyPath: saved.privateKeyPath,
+    profileId: saved.profileId
+  }
 }
 
 export default function App() {
@@ -102,16 +134,18 @@ export default function App() {
         try {
           const raw = localStorage.getItem(CONNECTION_STORAGE_KEY)
           if (raw) {
-            const saved = JSON.parse(raw)
-            setForm((prev) => ({
-              ...prev,
-              host: saved.host ?? prev.host,
-              port: saved.port ?? prev.port,
-              username: saved.username ?? prev.username,
-              authMethod: saved.authMethod ?? prev.authMethod,
-              privateKeyPath: saved.privateKeyPath ?? prev.privateKeyPath
-            }))
-            if (saved.profileId) setSelectedProfileId(saved.profileId)
+            const saved = parseStoredConnection(raw)
+            if (saved) {
+              setForm((prev) => ({
+                ...prev,
+                host: saved.host,
+                port: saved.port,
+                username: saved.username,
+                authMethod: saved.authMethod,
+                privateKeyPath: saved.privateKeyPath
+              }))
+              setSelectedProfileId(saved.profileId)
+            }
           }
         } catch {
           // ignore malformed stored connection
@@ -126,29 +160,44 @@ export default function App() {
   const handleConnect = useCallback(async () => {
     setConnState('connecting')
     setConnError(null)
+    let storagePayload: StoredConnection | null = null
     try {
       const result = await window.api.connect(
         toConnectionConfig(form),
         selectedProfileId || undefined
       )
       setConnState('connected')
-      localStorage.setItem(
-        CONNECTION_STORAGE_KEY,
-        JSON.stringify({
-          host: form.host,
-          port: form.port,
-          username: form.username,
-          authMethod: form.authMethod,
-          privateKeyPath: form.privateKeyPath,
-          profileId: selectedProfileId
-        })
-      )
+      const selectedProfile = selectedProfileId
+        ? profiles.find((profile) => profile.id === selectedProfileId)
+        : null
+      storagePayload = selectedProfile
+        ? {
+            host: selectedProfile.host,
+            port: String(selectedProfile.port),
+            username: selectedProfile.username,
+            authMethod: selectedProfile.authMethod,
+            privateKeyPath: selectedProfile.privateKeyPath ?? '',
+            profileId: selectedProfile.id
+          }
+        : {
+            host: form.host,
+            port: form.port,
+            username: form.username,
+            authMethod: form.authMethod,
+            privateKeyPath: form.privateKeyPath,
+            profileId: ''
+          }
       await navigateTo(result.home || '/')
     } catch (error) {
       setConnState('disconnected')
       setConnError(errorMessage(error))
+      return
     }
-  }, [form, navigateTo, selectedProfileId])
+    if (!storagePayload) return
+    try {
+      localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(storagePayload))
+    } catch {}
+  }, [form, navigateTo, profiles, selectedProfileId])
 
   const handleDisconnect = useCallback(async () => {
     try {
