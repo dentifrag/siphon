@@ -616,14 +616,14 @@ body {
 
 /* Responsive layout -------------------------------------------------------- */
 @media (max-width: 768px) {
-  .app:not(:has(.connection--connected)) {
+  .app:not(.app--connected) {
     height: auto;
     min-height: 100dvh;
     overflow-y: auto;
   }
 
-  .app:not(:has(.connection--connected)) .mobile-tabs,
-  .app:not(:has(.connection--connected)) .workspace {
+  .app:not(.app--connected) .mobile-tabs,
+  .app:not(.app--connected) .workspace {
     display: none;
   }
 

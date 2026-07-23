@@ -226,7 +226,7 @@ export default function App() {
   const connected = connState === 'connected'
 
   return (
-    <div className="app">
+    <div className={connected ? 'app app--connected' : 'app'}>
       <header className="app__bar">
         <h1>Siphon</h1>
       </header>
