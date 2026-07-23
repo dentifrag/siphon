@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { SegmentedControl } from '@primer/react'
 import type { RemoteEntry, TransferProgress } from '@shared/types'
 import type { ConnectionProfileMeta, SaveProfileInput } from '@shared/api'
 import { ConnectionPanel } from './components/ConnectionPanel'
@@ -39,6 +40,7 @@ export default function App() {
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [rememberSecret, setRememberSecret] = useState(true)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
 
   useEffect(() => {
     window.api
@@ -224,7 +226,7 @@ export default function App() {
   const connected = connState === 'connected'
 
   return (
-    <div className="app">
+    <div className={connected ? 'app app--connected' : 'app'}>
       <header className="app__bar">
         <h1>Siphon</h1>
       </header>
@@ -250,7 +252,23 @@ export default function App() {
         onRememberSecretChange={setRememberSecret}
       />
 
-      <div className="workspace">
+      <nav className="mobile-tabs">
+        <SegmentedControl
+          aria-label="View"
+          fullWidth
+          onChange={(index) => setMobileTab(index === 0 ? 'files' : 'transfers')}
+        >
+          <SegmentedControl.Button selected={mobileTab === 'files'}>Files</SegmentedControl.Button>
+          <SegmentedControl.Button
+            selected={mobileTab === 'transfers'}
+            count={transfers.length || undefined}
+          >
+            Transfers
+          </SegmentedControl.Button>
+        </SegmentedControl>
+      </nav>
+
+      <div className={`workspace workspace--${mobileTab}`}>
         <RemoteBrowser
           connected={connected}
           cwd={cwd}

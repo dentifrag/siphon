@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { Button, Checkbox, FormControl, Select, TextInput } from '@primer/react'
+import { ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react'
 import type { AuthMethod } from '@shared/types'
 import type { ConnectionProfileMeta } from '@shared/api'
 import type { ConnectionForm } from '../lib/types'
@@ -57,175 +60,213 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
   const disabled = connected || connecting
   const canConnect = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
   const canSave = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
-  return (
-    <section className="panel connection">
+  const sectionClass = ['panel', 'connection', connected ? 'connection--connected' : '']
+    .filter(Boolean)
+    .join(' ')
+
+  const credentials = (
+    <div className="connection__credentials" id="connection-details" hidden={connected && !detailsOpen}>
       <div className="connection__row connection__saved">
-        <label className="field field--grow">
-          <span>Saved sites</span>
-          <select
+        <FormControl className="form-field form-field--grow" disabled={disabled || profiles.length === 0}>
+          <FormControl.Label className="form-field__label">Saved sites</FormControl.Label>
+          <Select
+            block
             value={selectedProfileId}
-            disabled={disabled || profiles.length === 0}
             onChange={(e) => onSelectProfile(e.target.value)}
           >
-            <option value="">
+            <Select.Option value="">
               {profiles.length === 0 ? 'No saved sites yet' : 'New connection…'}
-            </option>
+            </Select.Option>
             {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
+              <Select.Option key={profile.id} value={profile.id}>
                 {profile.name}
                 {profile.hasSecret ? ' 🔒' : ''}
-              </option>
+              </Select.Option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </FormControl>
         <div className="saved-actions">
-          <label className="remember">
-            <input
-              type="checkbox"
+          <FormControl className="remember" disabled={connecting}>
+            <Checkbox
               checked={rememberSecret}
-              disabled={connecting}
               onChange={(e) => onRememberSecretChange(e.target.checked)}
             />
-            Remember password
-          </label>
-          <button type="button" className="btn" disabled={!canSave} onClick={onSaveProfile}>
+            <FormControl.Label className="remember-label">Remember password</FormControl.Label>
+          </FormControl>
+          <Button variant="default" disabled={!canSave} onClick={onSaveProfile}>
             Save
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger"
+          </Button>
+          <Button
+            variant="danger"
             disabled={!selectedProfileId || connecting}
             onClick={onDeleteProfile}
           >
             Delete
-          </button>
+          </Button>
         </div>
       </div>
 
       <div className="connection__row">
-        <label className="field field--grow">
-          <span>Host</span>
-          <input
+        <FormControl className="form-field form-field--grow" disabled={disabled}>
+          <FormControl.Label className="form-field__label">Host</FormControl.Label>
+          <TextInput
+            block
             value={form.host}
-            disabled={disabled}
             placeholder="sftp.example.com"
             onChange={(e) => onFormChange({ host: e.target.value })}
           />
-        </label>
-        <label className="field field--port">
-          <span>Port</span>
-          <input
+        </FormControl>
+        <FormControl className="form-field form-field--port" disabled={disabled}>
+          <FormControl.Label className="form-field__label">Port</FormControl.Label>
+          <TextInput
+            block
             value={form.port}
-            disabled={disabled}
             inputMode="numeric"
             onChange={(e) => onFormChange({ port: e.target.value })}
           />
-        </label>
-        <label className="field field--grow">
-          <span>Username</span>
-          <input
+        </FormControl>
+        <FormControl className="form-field form-field--grow" disabled={disabled}>
+          <FormControl.Label className="form-field__label">Username</FormControl.Label>
+          <TextInput
+            block
             value={form.username}
-            disabled={disabled}
             placeholder="user"
             onChange={(e) => onFormChange({ username: e.target.value })}
           />
-        </label>
+        </FormControl>
       </div>
 
       <div className="connection__row">
-        <label className="field">
-          <span>Auth</span>
-          <select
+        <FormControl className="form-field" disabled={disabled}>
+          <FormControl.Label className="form-field__label">Auth</FormControl.Label>
+          <Select
+            block
             value={form.authMethod}
-            disabled={disabled}
             onChange={(e) => onFormChange({ authMethod: e.target.value as AuthMethod })}
           >
             {(Object.keys(AUTH_LABELS) as AuthMethod[]).map((method) => (
-              <option key={method} value={method}>
+              <Select.Option key={method} value={method}>
                 {AUTH_LABELS[method]}
-              </option>
+              </Select.Option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </FormControl>
 
         {form.authMethod === 'password' && (
-          <label className="field field--grow">
-            <span>Password</span>
-            <input
+          <FormControl className="form-field form-field--grow" disabled={disabled}>
+            <FormControl.Label className="form-field__label">Password</FormControl.Label>
+            <TextInput
+              block
               type="password"
               value={form.password}
-              disabled={disabled}
               onChange={(e) => onFormChange({ password: e.target.value })}
             />
-          </label>
+          </FormControl>
         )}
 
         {form.authMethod === 'privateKey' && (
           <>
-            <label className="field field--grow">
-              <span>Private key path</span>
-              <input
+            <FormControl className="form-field form-field--grow" disabled={disabled}>
+              <FormControl.Label className="form-field__label">Private key path</FormControl.Label>
+              <TextInput
+                block
                 value={form.privateKeyPath}
-                disabled={disabled}
                 placeholder="~/.ssh/id_ed25519"
                 onChange={(e) => onFormChange({ privateKeyPath: e.target.value })}
               />
-            </label>
-            <label className="field">
-              <span>Passphrase</span>
-              <input
+            </FormControl>
+            <FormControl className="form-field" disabled={disabled}>
+              <FormControl.Label className="form-field__label">Passphrase</FormControl.Label>
+              <TextInput
+                block
                 type="password"
                 value={form.passphrase}
-                disabled={disabled}
                 onChange={(e) => onFormChange({ passphrase: e.target.value })}
               />
-            </label>
+            </FormControl>
           </>
         )}
       </div>
+    </div>
+  )
 
-      <div className="connection__row connection__row--settings">
-        <label className="field field--segments">
-          <span>Segments</span>
-          <input
-            type="number"
-            min={1}
-            max={16}
-            value={segments}
-            onChange={(e) => onSegmentsChange(clampSegments(e.target.value))}
+  const sessionSettings = (
+    <>
+      <FormControl className="form-field form-field--segments">
+        <FormControl.Label className="form-field__label">Segments</FormControl.Label>
+        <TextInput
+          block
+          type="number"
+          min={1}
+          max={16}
+          value={segments}
+          onChange={(e) => onSegmentsChange(clampSegments(e.target.value))}
+        />
+      </FormControl>
+      <div className="form-field form-field--grow">
+        <label className="form-field__label" htmlFor="download-dir">
+          Download folder
+        </label>
+        <div className="dir-picker">
+          <TextInput
+            id="download-dir"
+            className="dir-picker__input"
+            block
+            value={downloadDir}
+            placeholder="Server download folder (or subfolder)"
+            onChange={(e) => onDownloadDirChange(e.target.value)}
           />
-        </label>
-        <label className="field field--grow">
-          <span>Download folder</span>
-          <div className="dir-picker">
-            <input
-              value={downloadDir}
-              placeholder="Server download folder (or subfolder)"
-              onChange={(e) => onDownloadDirChange(e.target.value)}
-            />
-            <button type="button" className="btn" onClick={onBrowseServer}>
-              Choose…
-            </button>
-          </div>
-        </label>
-        <div className="connection__actions">
-          {connected ? (
-            <button type="button" className="btn btn--danger" onClick={onDisconnect}>
-              Disconnect
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={!canConnect}
-              onClick={onConnect}
-            >
-              {connecting ? 'Connecting…' : 'Connect'}
-            </button>
-          )}
+          <Button variant="default" onClick={onBrowseServer}>
+            Choose…
+          </Button>
         </div>
       </div>
+    </>
+  )
+
+  return (
+    <section className={sectionClass}>
+      {connected ? (
+        <>
+          <div className="connection__row connection__bar">
+            <Button
+              variant="invisible"
+              className="connection__toggle"
+              aria-expanded={detailsOpen}
+              aria-controls="connection-details"
+              trailingVisual={detailsOpen ? ChevronUpIcon : ChevronDownIcon}
+              onClick={() => setDetailsOpen((open) => !open)}
+            >
+              <span className="connection__bar-id">{form.host.trim() || 'Connected'}</span>
+            </Button>
+            {sessionSettings}
+            <div className="connection__actions">
+              <Button variant="danger" onClick={onDisconnect}>
+                Disconnect
+              </Button>
+            </div>
+          </div>
+          {credentials}
+        </>
+      ) : (
+        <>
+          {credentials}
+          <div className="connection__row connection__row--settings connection__settings">
+            {sessionSettings}
+            <div className="connection__actions">
+              <Button
+                variant="primary"
+                disabled={!canConnect}
+                onClick={onConnect}
+              >
+                {connecting ? 'Connecting…' : 'Connect'}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
 
       {error && <p className="banner banner--error">{error}</p>}
     </section>

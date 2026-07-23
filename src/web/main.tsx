@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
+import { BaseStyles, Button, TextInput, ThemeProvider } from '@primer/react'
+import '@primer/primitives/dist/css/functional/themes/light.css'
+import '@primer/primitives/dist/css/functional/themes/dark.css'
 import App from '../ui/App'
 import '../ui/index.css'
 import './web.css'
@@ -51,17 +54,18 @@ function Root(): React.JSX.Element {
         <form className="login__card" onSubmit={submit}>
           <h1>Siphon</h1>
           <p>Enter the app password to continue.</p>
-          <input
+          <TextInput
             type="password"
-            value={password}
+            block
             autoFocus
+            value={password}
             placeholder="Password"
             onChange={(e) => setPassword(e.target.value)}
           />
           {error && <p className="login__error">{error}</p>}
-          <button type="submit" className="btn btn--primary" disabled={submitting || !password}>
+          <Button type="submit" variant="primary" block disabled={submitting || !password}>
             {submitting ? 'Signing in…' : 'Sign in'}
-          </button>
+          </Button>
         </form>
       </div>
     )
@@ -72,6 +76,10 @@ function Root(): React.JSX.Element {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <Root />
+    <ThemeProvider colorMode="auto">
+      <BaseStyles>
+        <Root />
+      </BaseStyles>
+    </ThemeProvider>
   </React.StrictMode>
 )
