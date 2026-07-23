@@ -33,33 +33,46 @@ export function registerDownloadRoutes(
     await client.cloneRemote(session.remoteName(), jobRemote)
 
     if (item.IsDir) {
-      const localPath = join(targetDir, baseName)
-      return manager.enqueue({
-        kind: 'directory',
-        srcFs: srcRemote ? `${jobRemote}:${srcRemote}` : `${jobRemote}:`,
-        srcRemote: '',
-        dstFs: localPath,
-        dstRemote: '',
+      const dirPath = srcRemote
+      const wrappingName = baseName
+      const files = await client.listRecursiveFiles(session.remoteFs(), dirPath).catch(async (err) => {
+        await client.deleteRemote(jobRemote)
+        throw err
+      })
+
+      if (files.length === 0) {
+        await client.deleteRemote(jobRemote)
+        return []
+      }
+
+      return files.map((entry) =>
+        manager.enqueue({
+          srcFs: dirPath ? `${jobRemote}:${dirPath}` : `${jobRemote}:`,
+          srcRemote: entry.Path,
+          dstFs: targetDir,
+          dstRemote: `${wrappingName}/${entry.Path}`,
+          displayName: `${wrappingName}/${entry.Path}`,
+          localPath: join(targetDir, wrappingName, entry.Path),
+          size: entry.Size < 0 ? 0 : entry.Size,
+          segments: input.segments,
+          cleanupRemote: jobRemote
+        })
+      )
+    }
+
+    return [
+      manager.enqueue({
+        srcFs: `${jobRemote}:`,
+        srcRemote,
+        dstFs: targetDir,
+        dstRemote: baseName,
         displayName: input.remotePath,
-        localPath,
-        size: 0,
+        localPath: join(targetDir, baseName),
+        size: item.Size < 0 ? 0 : item.Size,
         segments: input.segments,
         cleanupRemote: jobRemote
       })
-    }
-
-    return manager.enqueue({
-      kind: 'file',
-      srcFs: `${jobRemote}:`,
-      srcRemote,
-      dstFs: targetDir,
-      dstRemote: baseName,
-      displayName: input.remotePath,
-      localPath: join(targetDir, baseName),
-      size: item.Size < 0 ? 0 : item.Size,
-      segments: input.segments,
-      cleanupRemote: jobRemote
-    })
+    ]
   })
 
   app.post('/api/download/cancel', async (req) => {

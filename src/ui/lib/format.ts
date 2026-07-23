@@ -22,6 +22,23 @@ export function formatPercent(transferred: number, size: number): number {
   return Math.max(0, Math.min(100, Math.round((transferred / size) * 100)))
 }
 
+export function formatEta(remainingBytes: number, bytesPerSec: number): string {
+  if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return ''
+  if (!Number.isFinite(remainingBytes) || remainingBytes <= 0) return ''
+  const totalSeconds = remainingBytes / bytesPerSec
+  if (totalSeconds >= 3600) {
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    return `${hours}h ${minutes}m`
+  }
+  if (totalSeconds >= 60) {
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = Math.floor(totalSeconds % 60)
+    return `${minutes}m ${seconds}s`
+  }
+  return `${Math.round(totalSeconds)}s`
+}
+
 export function formatMtime(ms: number): string {
   if (!ms) return ''
   return new Date(ms).toLocaleString(undefined, {
