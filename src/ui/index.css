@@ -511,31 +511,6 @@ body {
   white-space: nowrap;
 }
 
-.progress {
-  height: 8px;
-  background: var(--surface-subtle);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.progress__bar {
-  height: 100%;
-  background: var(--accent-emphasis);
-  transition: width 0.2s ease;
-}
-
-.progress__bar--completed {
-  background: var(--ok-emphasis);
-}
-
-.progress__bar--error {
-  background: var(--danger-emphasis);
-}
-
-.progress__bar--canceled {
-  background: var(--muted);
-}
-
 .transfer__meta {
   display: flex;
   align-items: center;
@@ -552,39 +527,6 @@ body {
 
 .transfer__error {
   color: var(--danger);
-}
-
-/* Badges ------------------------------------------------------------------ */
-.badge {
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.badge--downloading {
-  background: var(--selected);
-  border-color: var(--border-accent-emphasis);
-  color: var(--accent);
-}
-
-.badge--completed {
-  background: var(--ok-muted);
-  border-color: var(--borderColor-success-emphasis);
-  color: var(--ok);
-}
-
-.badge--error {
-  background: var(--danger-muted);
-  border-color: var(--borderColor-danger-emphasis);
-  color: var(--danger);
-}
-
-.badge--canceled,
-.badge--queued {
-  background: var(--surface-muted);
 }
 
 /* Empty states ------------------------------------------------------------ */

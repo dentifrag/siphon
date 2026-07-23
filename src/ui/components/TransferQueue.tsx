@@ -1,4 +1,4 @@
-import { Button } from '@primer/react'
+import { Button, Label, ProgressBar } from '@primer/react'
 import type { TransferProgress, TransferStatus } from '@shared/types'
 import { formatBytes, formatEta, formatPercent, formatSpeed } from '../lib/format'
 
@@ -18,6 +18,25 @@ const STATUS_LABELS: Record<TransferStatus, string> = {
   completed: 'Completed',
   error: 'Error',
   canceled: 'Canceled'
+}
+
+const STATUS_VARIANTS: Record<
+  TransferStatus,
+  'accent' | 'success' | 'danger' | 'secondary'
+> = {
+  queued: 'secondary',
+  downloading: 'accent',
+  completed: 'success',
+  error: 'danger',
+  canceled: 'secondary'
+}
+
+const STATUS_PROGRESS_BG: Record<TransferStatus, string> = {
+  queued: 'accent.emphasis',
+  downloading: 'accent.emphasis',
+  completed: 'success.emphasis',
+  error: 'danger.emphasis',
+  canceled: 'neutral.emphasis'
 }
 
 function baseName(path: string): string {
@@ -96,17 +115,19 @@ export function TransferQueue(props: TransferQueueProps) {
                     <span className="transfer__name" title={transfer.remotePath}>
                       {baseName(transfer.localPath || transfer.remotePath)}
                     </span>
-                    <span className={`badge badge--${transfer.status}`}>
+                    <Label variant={STATUS_VARIANTS[transfer.status]}>
                       {STATUS_LABELS[transfer.status]}
-                    </span>
+                    </Label>
                   </div>
 
-                  <div className="progress">
-                    <div
-                      className={`progress__bar progress__bar--${transfer.status}`}
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
+                  <ProgressBar
+                    progress={percent}
+                    bg={STATUS_PROGRESS_BG[transfer.status]}
+                    aria-label={`${baseName(
+                      transfer.localPath || transfer.remotePath
+                    )} ${percent}%`}
+                    aria-valuenow={percent}
+                  />
 
                   <div className="transfer__meta">
                     <span>
