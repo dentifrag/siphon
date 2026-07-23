@@ -126,13 +126,19 @@ describe('listFilesRecursive', () => {
   it('returns relative paths and sizes for a nested tree, skipping symlinks', async () => {
     const uploadRoot = mkdtempSync(join(tmpdir(), 'siphon-upload-'))
     const outsideRoot = mkdtempSync(join(tmpdir(), 'siphon-outside-'))
+    let symlinksCreated = true
     try {
       mkdirSync(join(uploadRoot, 'sub'), { recursive: true })
       writeFileSync(join(uploadRoot, 'a.txt'), '12345')
       writeFileSync(join(uploadRoot, 'sub', 'b.txt'), '1234567890')
       writeFileSync(join(outsideRoot, 'secret.txt'), 'shh')
-      symlinkSync(join(outsideRoot, 'secret.txt'), join(uploadRoot, 'escape.txt'))
-      symlinkSync(outsideRoot, join(uploadRoot, 'escape-dir'))
+      try {
+        symlinkSync(join(outsideRoot, 'secret.txt'), join(uploadRoot, 'escape.txt'))
+        symlinkSync(outsideRoot, join(uploadRoot, 'escape-dir'))
+      } catch {
+        // Creating symlinks needs elevated permissions / Developer Mode on Windows.
+        symlinksCreated = false
+      }
 
       const scope: FsScope = { confined: true, roots: [{ name: 'up', path: uploadRoot }] }
       const files = await listFilesRecursive(scope, uploadRoot)
@@ -141,7 +147,9 @@ describe('listFilesRecursive', () => {
         { relPath: 'a.txt', size: 5 },
         { relPath: 'sub/b.txt', size: 10 }
       ])
-      expect(files.some((f) => f.relPath.includes('escape'))).toBe(false)
+      if (symlinksCreated) {
+        expect(files.some((f) => f.relPath.includes('escape'))).toBe(false)
+      }
     } finally {
       rmSync(uploadRoot, { recursive: true, force: true })
       rmSync(outsideRoot, { recursive: true, force: true })
