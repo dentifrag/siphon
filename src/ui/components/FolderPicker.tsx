@@ -71,11 +71,17 @@ export function FolderPicker(props: FolderPickerProps) {
         const next = Math.max((focusIndex ?? 1) - 1, 0)
         setFocusIndex(next)
         focusRow(next)
+      } else if (mode === 'chooseItems' && e.key === 'Enter') {
+        const entry = focusIndex !== null ? navRows[focusIndex] : undefined
+        if (entry?.isDir) {
+          e.preventDefault()
+          load(entry.path)
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [navRows, focusIndex, mode])
+  }, [navRows, focusIndex, mode, load])
 
   const createFolder = useCallback(async () => {
     if (!listing || !newFolder || !newFolder.trim()) {

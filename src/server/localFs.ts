@@ -1,4 +1,4 @@
-import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readdir, realpath, lstat } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
@@ -142,14 +142,14 @@ export async function listFilesRecursive(
   async function walk(current: string, relPrefix: string): Promise<void> {
     const dirents = await readdir(current, { withFileTypes: true })
     for (const entry of dirents) {
-      if (entry.isSymbolicLink()) continue
       const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
       const entryPath = join(current, entry.name)
-      if (entry.isDirectory()) {
+      const st = await lstat(entryPath)
+      if (st.isSymbolicLink()) continue
+      if (st.isDirectory()) {
         await walk(entryPath, relPath)
-      } else if (entry.isFile()) {
-        const stats = await stat(entryPath)
-        results.push({ relPath, size: stats.size })
+      } else if (st.isFile()) {
+        results.push({ relPath, size: st.size })
       }
     }
   }
