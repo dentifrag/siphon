@@ -763,19 +763,20 @@ body {
 @media (max-width: 768px) {
   .workspace {
     flex-direction: column;
+    overflow-y: auto;
   }
 
   .browser {
     border-right: none;
     border-bottom: 1px solid var(--border);
     flex: 1 1 50%;
-    min-height: 220px;
+    min-height: 160px;
   }
 
   .queue {
     width: 100%;
     flex: 1 1 50%;
-    min-height: 220px;
+    min-height: 160px;
   }
 
   .col-mtime {

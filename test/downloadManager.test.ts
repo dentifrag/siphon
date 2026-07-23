@@ -405,6 +405,50 @@ describe('RcloneDownloadManager cancel watchdog', () => {
     expect(deleteRemote).toHaveBeenCalledWith('_dl-stuck')
     expect(manager.list().find((t) => t.id === queued.id)?.status).toBe('downloading')
   })
+
+  it('does not let a poll that was already in flight when the watchdog fired overwrite the forced cancellation', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const jobStatusDeferred = deferred<{
+      finished: boolean
+      success: boolean
+      error: string
+      id: number
+    }>()
+    const jobStatus = vi.fn().mockReturnValueOnce(jobStatusDeferred.promise)
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockResolvedValue(1),
+      jobStatus,
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote
+    } as unknown as RcloneClient
+
+    const manager = new RcloneDownloadManager(client)
+    const enqueued = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-race' }))
+
+    await flushMicrotasks()
+    expect(manager.list().find((t) => t.id === enqueued.id)?.status).toBe('downloading')
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await flushMicrotasks()
+    expect(jobStatus).toHaveBeenCalledTimes(1)
+
+    manager.cancel(enqueued.id)
+    expect(manager.list().find((t) => t.id === enqueued.id)?.canceling).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(CANCEL_SETTLE_TIMEOUT_MS + POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === enqueued.id)?.status).toBe('canceled')
+    expect(deleteRemote).toHaveBeenCalledTimes(1)
+
+    jobStatusDeferred.resolve({ finished: true, success: true, error: '', id: 1 })
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === enqueued.id)?.status).toBe('canceled')
+    expect(deleteRemote).toHaveBeenCalledTimes(1)
+  })
 })
 
 

@@ -86,7 +86,7 @@ export function TransferQueue(props: TransferQueueProps) {
             {transfers.map((transfer) => {
               const percent = formatPercent(transfer.transferred, transfer.size)
               const active = transfer.status === 'downloading'
-              const canceling = transfer.canceling === true
+              const canceling = transfer.canceling === true && transfer.status === 'downloading'
               const eta =
                 active && !canceling && transfer.size > 0 && transfer.speedBytesPerSec > 0
                   ? formatEta(transfer.size - transfer.transferred, transfer.speedBytesPerSec)

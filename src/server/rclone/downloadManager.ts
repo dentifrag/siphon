@@ -263,7 +263,23 @@ export class RcloneDownloadManager extends EventEmitter {
 
   private async poll(id: string): Promise<void> {
     const t = this.transfers.get(id)
-    if (!t || t.jobid === null || t.polling) return
+    if (!t) return
+
+    if (
+      t.canceled &&
+      t.canceledAt !== null &&
+      Date.now() - t.canceledAt > CANCEL_SETTLE_TIMEOUT_MS
+    ) {
+      t.progress.status = 'canceled'
+      t.progress.activeSegments = 0
+      t.progress.speedBytesPerSec = 0
+      if (t.jobid !== null) void this.client.jobStop(t.jobid).catch(() => undefined)
+      this.settleTerminal(id, t)
+      await this.client.coreStatsDelete(t.group).catch(() => undefined)
+      return
+    }
+
+    if (t.polling || t.jobid === null) return
     t.polling = true
 
     try {
@@ -276,6 +292,7 @@ export class RcloneDownloadManager extends EventEmitter {
       t.progress.speedBytesPerSec = rollingSpeed(t.samples)
 
       const job = await this.client.jobStatus(t.jobid)
+      if (!this.activeIds.has(id)) return
       if (job.finished) {
         if (job.success) {
           t.progress.status = 'completed'
@@ -288,17 +305,6 @@ export class RcloneDownloadManager extends EventEmitter {
         }
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0
-        this.settleTerminal(id, t)
-        await this.client.coreStatsDelete(t.group).catch(() => undefined)
-      } else if (
-        t.canceled &&
-        t.canceledAt !== null &&
-        Date.now() - t.canceledAt > CANCEL_SETTLE_TIMEOUT_MS
-      ) {
-        t.progress.status = 'canceled'
-        t.progress.activeSegments = 0
-        t.progress.speedBytesPerSec = 0
-        void this.client.jobStop(t.jobid).catch(() => undefined)
         this.settleTerminal(id, t)
         await this.client.coreStatsDelete(t.group).catch(() => undefined)
       } else {
