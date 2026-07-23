@@ -107,16 +107,16 @@ function requiresJson(req: FastifyRequest, reply: FastifyReply): boolean {
   return true
 }
 
-function sameOrigin(req: FastifyRequest): boolean {
+export function sameOrigin(req: FastifyRequest): boolean {
   const originHeader = req.headers.origin
   if (!originHeader) return true
   const origin = Array.isArray(originHeader) ? originHeader[0] : originHeader
   if (!origin) return false
-  const host = req.headers.host
+  const rawHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host
+  const host = req.host || rawHost
   if (!host) return false
   try {
-    const parsed = new URL(origin)
-    return parsed.protocol === `${req.protocol}:` && parsed.host === host
+    return new URL(origin).host === host
   } catch {
     return false
   }
