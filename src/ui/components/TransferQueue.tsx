@@ -1,5 +1,5 @@
 import type { TransferProgress, TransferStatus } from '@shared/types'
-import { formatBytes, formatPercent, formatSpeed } from '../lib/format'
+import { formatBytes, formatEta, formatPercent, formatSpeed } from '../lib/format'
 
 interface TransferQueueProps {
   transfers: TransferProgress[]
@@ -86,12 +86,15 @@ export function TransferQueue(props: TransferQueueProps) {
             {transfers.map((transfer) => {
               const percent = formatPercent(transfer.transferred, transfer.size)
               const active = transfer.status === 'downloading'
-              const scanning = active && transfer.kind === 'directory' && transfer.size === 0
+              const canceling = transfer.canceling === true && transfer.status === 'downloading'
+              const eta =
+                active && !canceling && transfer.size > 0 && transfer.speedBytesPerSec > 0
+                  ? formatEta(transfer.size - transfer.transferred, transfer.speedBytesPerSec)
+                  : ''
               return (
                 <li key={transfer.id} className="transfer">
                   <div className="transfer__top">
                     <span className="transfer__name" title={transfer.remotePath}>
-                      <span className="file-icon">{transfer.kind === 'directory' ? '📁' : '📄'}</span>
                       {baseName(transfer.localPath || transfer.remotePath)}
                     </span>
                     <span className={`badge badge--${transfer.status}`}>
@@ -102,38 +105,40 @@ export function TransferQueue(props: TransferQueueProps) {
                   <div className="progress">
                     <div
                       className={`progress__bar progress__bar--${transfer.status}`}
-                      style={{ width: `${scanning ? 0 : percent}%` }}
+                      style={{ width: `${percent}%` }}
                     />
                   </div>
 
                   <div className="transfer__meta">
-                    {scanning ? (
-                      <span>Scanning…</span>
+                    <span>
+                      {formatBytes(transfer.transferred)} / {formatBytes(transfer.size)} (
+                      {percent}%)
+                    </span>
+                    {canceling ? (
+                      <span>Canceling…</span>
                     ) : (
-                      <span>
-                        {formatBytes(transfer.transferred)} / {formatBytes(transfer.size)} (
-                        {percent}%)
-                      </span>
-                    )}
-                    {active && !scanning && (
-                      <span>
-                        {formatSpeed(transfer.speedBytesPerSec)} · {transfer.activeSegments}/
-                        {transfer.segments} segments
-                      </span>
+                      active && (
+                        <span>
+                          {formatSpeed(transfer.speedBytesPerSec)} · {transfer.activeSegments}/
+                          {transfer.segments} segments
+                          {eta ? ` · ~${eta} left` : ''}
+                        </span>
+                      )
                     )}
                     {transfer.status === 'error' && transfer.error && (
                       <span className="transfer__error">{transfer.error}</span>
                     )}
                     <span className="transfer__actions">
-                      {(transfer.status === 'downloading' || transfer.status === 'queued') && (
-                        <button
-                          type="button"
-                          className="btn btn--small"
-                          onClick={() => onCancel(transfer.id)}
-                        >
-                          Cancel
-                        </button>
-                      )}
+                      {(transfer.status === 'downloading' || transfer.status === 'queued') &&
+                        !canceling && (
+                          <button
+                            type="button"
+                            className="btn btn--small"
+                            onClick={() => onCancel(transfer.id)}
+                          >
+                            Cancel
+                          </button>
+                        )}
                       {transfer.status !== 'downloading' && (
                         <button
                           type="button"

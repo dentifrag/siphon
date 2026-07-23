@@ -32,8 +32,3 @@ export function multiThreadConfig(plan: MultiThreadPlan): MultiThreadConfig {
     MultiThreadChunkSize: `${plan.chunkBytes}B`
   }
 }
-
-export function planDirectoryMultiThread(segments: number): MultiThreadPlan {
-  const streams = Math.max(1, Math.min(Math.floor(segments) || 1, MAX_STREAMS))
-  return { streams, chunkBytes: MIN_CHUNK_BYTES, cutoffBytes: CUTOFF_BYTES }
-}

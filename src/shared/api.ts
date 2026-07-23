@@ -11,6 +11,11 @@ export interface ConnectResult {
   home: string
 }
 
+export interface SessionStatus {
+  connected: boolean
+  remoteName: string | null
+}
+
 export interface DownloadEnqueueInput {
   remotePath: string
   downloadDir: string
@@ -74,9 +79,10 @@ export interface LocalDirListing {
 export interface SftpApi {
   connect(config: ConnectionConfig, profileId?: string): Promise<ConnectResult>
   disconnect(): Promise<void>
+  status(): Promise<SessionStatus>
   list(dir: string): Promise<RemoteEntry[]>
   stat(path: string): Promise<RemoteStat>
-  enqueueDownload(input: DownloadEnqueueInput): Promise<TransferProgress>
+  enqueueDownload(input: DownloadEnqueueInput): Promise<TransferProgress[]>
   cancelDownload(id: string): Promise<void>
   cancelAllDownloads(): Promise<void>
   clearFinishedDownloads(): Promise<void>

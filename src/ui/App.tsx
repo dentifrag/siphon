@@ -72,7 +72,7 @@ export default function App() {
     window.api.setMaxConcurrentDownloads(maxConcurrent).catch(() => undefined)
   }, [maxConcurrent])
 
-  const navigateTo = useCallback(async (dir: string) => {
+  const navigateTo = useCallback(async (dir: string): Promise<boolean> => {
     setBrowseLoading(true)
     setBrowseError(null)
     setSelected(new Set())
@@ -80,12 +80,28 @@ export default function App() {
       const list = await window.api.list(dir)
       setCwd(dir)
       setEntries(list)
+      localStorage.setItem('siphon.cwd', dir)
+      return true
     } catch (error) {
       setBrowseError(errorMessage(error))
+      return false
     } finally {
       setBrowseLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    window.api
+      .status()
+      .then(async (status) => {
+        if (!status.connected) return
+        setConnState('connected')
+        const storedCwd = localStorage.getItem('siphon.cwd') || '/'
+        const ok = await navigateTo(storedCwd)
+        if (!ok) await navigateTo('/')
+      })
+      .catch(() => undefined)
+  }, [navigateTo])
 
   const handleConnect = useCallback(async () => {
     setConnState('connecting')
@@ -168,7 +184,10 @@ export default function App() {
         return
       }
       try {
-        await window.api.enqueueDownload({ remotePath, downloadDir, segments })
+        const enqueued = await window.api.enqueueDownload({ remotePath, downloadDir, segments })
+        if (enqueued.length === 0) {
+          setBrowseError('That folder has no files to download.')
+        }
       } catch (error) {
         setBrowseError(errorMessage(error))
       }
@@ -208,7 +227,6 @@ export default function App() {
     <div className="app">
       <header className="app__bar">
         <h1>Siphon</h1>
-        <span className="app__tag">a web UI for rclone</span>
       </header>
 
       <ConnectionPanel

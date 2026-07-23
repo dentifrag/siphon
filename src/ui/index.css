@@ -52,14 +52,6 @@ body {
   font-weight: 600;
 }
 
-.app__tag {
-  font-size: 11px;
-  color: #adbac7;
-  border: 1px solid #444c56;
-  padding: 1px 8px;
-  border-radius: 999px;
-}
-
 /* Panels ------------------------------------------------------------------ */
 .panel {
   background: var(--panel);
@@ -140,7 +132,22 @@ body {
 }
 
 .field--concurrent {
-  max-width: 96px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: none;
+}
+
+.field--concurrent > span {
+  text-transform: none;
+  font-size: 12px;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+
+.field--concurrent input {
+  width: 64px;
 }
 
 .field--note p {
@@ -417,6 +424,17 @@ body {
   color: var(--muted);
 }
 
+.col-actions {
+  width: 36px;
+  text-align: center;
+}
+
+.btn--row-menu {
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+
 .file-name {
   display: inline-flex;
   align-items: center;
@@ -464,7 +482,7 @@ body {
 
 .queue__header-actions {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
@@ -739,4 +757,74 @@ body {
 .folder-picker__hint {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* Responsive layout -------------------------------------------------------- */
+@media (max-width: 768px) {
+  .workspace {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .browser {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex: 1 1 50%;
+    min-height: 160px;
+  }
+
+  .queue {
+    width: 100%;
+    flex: 1 1 50%;
+    min-height: 160px;
+  }
+
+  .col-mtime {
+    display: none;
+  }
+
+  .col-name {
+    width: auto;
+  }
+
+  .browser__toolbar,
+  .queue__header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+
+/* Touch targets -------------------------------------------------------------- */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn--small {
+    min-height: 40px;
+  }
+
+  .btn--row-menu {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  .file-table tbody tr {
+    min-height: 44px;
+  }
+
+  .file-table tbody td {
+    padding: 10px;
+  }
+
+  .browser__toolbar,
+  .queue__header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .folder-picker__list li button,
+  .folder-picker__list li.is-disabled {
+    min-height: 44px;
+  }
 }

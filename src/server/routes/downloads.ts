@@ -2,10 +2,74 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
+import type { TransferProgress } from '../../shared/types'
 import type { RouteContext } from '../context'
 import { httpError } from '../http'
 import { resolvePath, type FsScope } from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
+import type { RcloneClient, RcloneListEntry } from '../rclone/client'
+import type { RcloneDownloadManager } from '../rclone/downloadManager'
+
+export interface ExpandDownloadInput {
+  item: RcloneListEntry
+  remotePath: string
+  dirPath: string
+  wrappingName: string
+  targetDir: string
+  segments: number
+  jobRemote: string
+}
+
+export async function expandDownload(
+  client: RcloneClient,
+  manager: RcloneDownloadManager,
+  input: ExpandDownloadInput
+): Promise<TransferProgress[]> {
+  const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote } = input
+
+  if (item.IsDir) {
+    let files
+    try {
+      files = await client.listRecursiveFiles(`${jobRemote}:`, dirPath)
+    } catch (err) {
+      await client.deleteRemote(jobRemote).catch(() => undefined)
+      throw err
+    }
+
+    if (files.length === 0) {
+      await client.deleteRemote(jobRemote).catch(() => undefined)
+      return []
+    }
+
+    return files.map((entry) =>
+      manager.enqueue({
+        srcFs: dirPath ? `${jobRemote}:${dirPath}` : `${jobRemote}:`,
+        srcRemote: entry.Path,
+        dstFs: targetDir,
+        dstRemote: `${wrappingName}/${entry.Path}`,
+        displayName: `${wrappingName}/${entry.Path}`,
+        localPath: join(targetDir, wrappingName, entry.Path),
+        size: entry.Size < 0 ? 0 : entry.Size,
+        segments,
+        cleanupRemote: jobRemote
+      })
+    )
+  }
+
+  return [
+    manager.enqueue({
+      srcFs: `${jobRemote}:`,
+      srcRemote: dirPath,
+      dstFs: targetDir,
+      dstRemote: wrappingName,
+      displayName: remotePath,
+      localPath: join(targetDir, wrappingName),
+      size: item.Size < 0 ? 0 : item.Size,
+      segments,
+      cleanupRemote: jobRemote
+    })
+  ]
+}
 
 export function registerDownloadRoutes(
   app: FastifyInstance,
@@ -32,33 +96,14 @@ export function registerDownloadRoutes(
     const jobRemote = `_dl-${randomUUID()}`
     await client.cloneRemote(session.remoteName(), jobRemote)
 
-    if (item.IsDir) {
-      const localPath = join(targetDir, baseName)
-      return manager.enqueue({
-        kind: 'directory',
-        srcFs: srcRemote ? `${jobRemote}:${srcRemote}` : `${jobRemote}:`,
-        srcRemote: '',
-        dstFs: localPath,
-        dstRemote: '',
-        displayName: input.remotePath,
-        localPath,
-        size: 0,
-        segments: input.segments,
-        cleanupRemote: jobRemote
-      })
-    }
-
-    return manager.enqueue({
-      kind: 'file',
-      srcFs: `${jobRemote}:`,
-      srcRemote,
-      dstFs: targetDir,
-      dstRemote: baseName,
-      displayName: input.remotePath,
-      localPath: join(targetDir, baseName),
-      size: item.Size < 0 ? 0 : item.Size,
+    return expandDownload(client, manager, {
+      item,
+      remotePath: input.remotePath,
+      dirPath: srcRemote,
+      wrappingName: baseName,
+      targetDir,
       segments: input.segments,
-      cleanupRemote: jobRemote
+      jobRemote
     })
   })
 
