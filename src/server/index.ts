@@ -79,10 +79,10 @@ async function main(): Promise<void> {
   const { config, configPath, created } = loadConfig()
   const sessionTtlMs = config.sessionTtlHours * 60 * 60 * 1_000
   const authStore = new AuthStore(config.dataDir)
-  const hasEnvCredential = Boolean(config.appPassword) || Boolean(config.appPasswordHash)
+  const hasConfiguredCredential = Boolean(config.appPassword) || Boolean(config.appPasswordHash)
 
   let startup: AuthStartup
-  if (hasEnvCredential) {
+  if (hasConfiguredCredential) {
     const username = config.appUsername ?? 'admin'
     const passwordHash = config.appPasswordHash ?? hashPassword(config.appPassword ?? '')
     startup = { mode: 'password', username, passwordHash, canChangePassword: false }
@@ -146,9 +146,9 @@ async function main(): Promise<void> {
     app.log.info(`Config file: ${configPath}`)
   }
 
-  if (hasEnvCredential && existsSync(authStore.path())) {
+  if (hasConfiguredCredential && existsSync(authStore.path())) {
     app.log.warn(
-      `Auth store found at ${authStore.path()}, but APP_PASSWORD or APP_PASSWORD_HASH is set. Stored auth is dormant until env credentials are removed.`
+      `Auth store found at ${authStore.path()}, but APP_PASSWORD / APP_PASSWORD_HASH or a configured appPassword/appPasswordHash is set. Stored auth is dormant until the override is removed.`
     )
   }
 

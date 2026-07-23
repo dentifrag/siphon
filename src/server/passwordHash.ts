@@ -19,7 +19,13 @@ function decodeBase64(value: string): Buffer | null {
 }
 
 function isPowerOfTwo(value: number): boolean {
-  return (value & (value - 1)) === 0
+  if (!Number.isSafeInteger(value) || value < 1) return false
+  let n = value
+  while (n > 1) {
+    if (n % 2 !== 0) return false
+    n /= 2
+  }
+  return true
 }
 
 export function validateScryptParams(n: number, r: number, p: number): boolean {
@@ -32,6 +38,7 @@ export function validateScryptParams(n: number, r: number, p: number): boolean {
 export function parseScryptHash(stored: string): ParsedScryptHash | null {
   const parts = stored.split('$')
   if (parts.length !== 6 || parts[0] !== 'scrypt') return null
+  if (!/^\d+$/.test(parts[1]) || !/^\d+$/.test(parts[2]) || !/^\d+$/.test(parts[3])) return null
 
   const n = Number.parseInt(parts[1], 10)
   const r = Number.parseInt(parts[2], 10)

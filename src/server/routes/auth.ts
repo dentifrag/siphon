@@ -125,6 +125,7 @@ function sameOrigin(req: FastifyRequest): boolean {
 const USERNAME_MAX = 64
 const PASSWORD_MIN = 8
 const PASSWORD_MAX = 256
+const PASSWORD_CHANGE_DISABLED = 'Password changes are disabled for this configuration.'
 
 export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter }: RouteContext): void {
   app.post('/api/login', async (req, reply) => {
@@ -217,7 +218,7 @@ export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter
   app.post('/api/change-password', async (req, reply) => {
     reply.header('Cache-Control', 'no-store')
     if (!auth.canChangePassword) {
-      return reply.code(409).send({ error: 'Not available in open mode' })
+      return reply.code(409).send({ error: PASSWORD_CHANGE_DISABLED })
     }
     if (!requiresJson(req, reply)) return
     const key = req.ip
@@ -252,10 +253,10 @@ export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter
         return reply.code(401).send({ error: 'Current password is incorrect' })
       }
       if (error instanceof AuthPasswordChangeNotAllowedError) {
-        return reply.code(409).send({ error: 'Password changes are not allowed for this configuration' })
+        return reply.code(409).send({ error: PASSWORD_CHANGE_DISABLED })
       }
       if (error instanceof AuthNotPasswordModeError) {
-        return reply.code(409).send({ error: 'Not available in open mode' })
+        return reply.code(409).send({ error: PASSWORD_CHANGE_DISABLED })
       }
       throw error
     }

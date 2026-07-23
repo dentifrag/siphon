@@ -71,12 +71,11 @@ export class AuthStore {
 
     const handle = await open(tmpPath, 'wx', 0o600)
     try {
-      await handle.writeFile(payload, 'utf8')
-    } finally {
-      await handle.close()
-    }
-
-    try {
+      try {
+        await handle.writeFile(payload, 'utf8')
+      } finally {
+        await handle.close()
+      }
       await rename(tmpPath, path)
     } catch (error) {
       await unlink(tmpPath).catch(() => undefined)

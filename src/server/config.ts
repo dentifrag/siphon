@@ -179,11 +179,11 @@ const CONFIG_TEMPLATE = `{
   "port": 8080,
   "host": "0.0.0.0",
 
-  "//appUsername": "Username for login. Defaults to admin when auth is enabled, change it.",
-  "appUsername": "admin",
+  "//appUsername": "Optional login username override. Leave blank to use first-run setup wizard credentials.",
+  "appUsername": "",
 
-  "//appPassword": "Plaintext password for login (fallback if appPasswordHash is not set).",
-  "appPassword": "change-me",
+  "//appPassword": "Optional plaintext password override. Leave blank to use first-run setup wizard credentials.",
+  "appPassword": "",
 
   "//appPasswordHash": "scrypt hash for login from --hash-password. Takes precedence over appPassword.",
   "appPasswordHash": "",

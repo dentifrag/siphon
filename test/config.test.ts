@@ -1,7 +1,8 @@
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { homedir, platform } from 'node:os'
+import { homedir, platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseRoots, resolveConfig, userDataDir, type FileConfig } from '../src/server/config'
+import { parseRoots, resolveConfig, loadConfig, userDataDir, type FileConfig } from '../src/server/config'
 
 describe('userDataDir', () => {
   it('returns a per-user, OS-appropriate app-data path', () => {
@@ -143,5 +144,43 @@ describe('resolveConfig', () => {
     expect(cfg.confined).toBe(true)
     expect(cfg.roots).toEqual([{ name: 'Downloads', path: '/single' }])
     expect(cfg.defaultDir).toBe('/single')
+  })
+})
+
+describe('loadConfig', () => {
+  it('creates a template with blank credential overrides', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'siphon-config-test-'))
+    const configPath = join(tempDir, 'config.json')
+    const previous = {
+      CONFIG_PATH: process.env.CONFIG_PATH,
+      APP_PASSWORD: process.env.APP_PASSWORD,
+      APP_PASSWORD_HASH: process.env.APP_PASSWORD_HASH,
+      APP_USERNAME: process.env.APP_USERNAME
+    }
+    process.env.CONFIG_PATH = configPath
+    delete process.env.APP_PASSWORD
+    delete process.env.APP_PASSWORD_HASH
+    delete process.env.APP_USERNAME
+    try {
+      const { config, created } = loadConfig()
+      expect(created).toBe(true)
+      expect(config.appPassword).toBeNull()
+      expect(config.appPasswordHash).toBeNull()
+      expect(config.appUsername).toBeNull()
+
+      const template = await readFile(configPath, 'utf8')
+      expect(template).toContain('"appUsername": ""')
+      expect(template).toContain('"appPassword": ""')
+      expect(template.includes('"appPassword": "change-me"')).toBe(false)
+    } finally {
+      if (previous.CONFIG_PATH === undefined) delete process.env.CONFIG_PATH
+      else process.env.CONFIG_PATH = previous.CONFIG_PATH
+      if (previous.APP_PASSWORD === undefined) delete process.env.APP_PASSWORD
+      else process.env.APP_PASSWORD = previous.APP_PASSWORD
+      if (previous.APP_PASSWORD_HASH === undefined) delete process.env.APP_PASSWORD_HASH
+      else process.env.APP_PASSWORD_HASH = previous.APP_PASSWORD_HASH
+      if (previous.APP_USERNAME === undefined) delete process.env.APP_USERNAME
+      else process.env.APP_USERNAME = previous.APP_USERNAME
+    }
   })
 })
