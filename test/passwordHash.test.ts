@@ -14,8 +14,16 @@ describe('passwordHash parsing and validation', () => {
     expect(parseScryptHash('scrypt$16384$8$1x$QQ==$QQ==')).toBeNull()
   })
 
+  it('rejects params that exceed supported scrypt bounds', () => {
+    expect(validateScryptParams(2 ** 21, 8, 1)).toBe(false)
+    expect(validateScryptParams(131_072, 32, 8)).toBe(false)
+    expect(parseScryptHash('scrypt$2097152$8$1$QQ==$QQ==')).toBeNull()
+    expect(parseScryptHash('scrypt$131072$32$8$QQ==$QQ==')).toBeNull()
+  })
+
   it('accepts generated hashes and verifies password', () => {
     const stored = hashPassword('secret-pass')
+    expect(validateScryptParams(16_384, 8, 1)).toBe(true)
     expect(isScryptHashFormat(stored)).toBe(true)
     expect(verifyPassword('secret-pass', stored)).toBe(true)
   })

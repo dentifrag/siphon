@@ -11,7 +11,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 28px;
-  width: 320px;
+  width: min(320px, calc(100% - 32px));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -19,7 +19,7 @@
 }
 
 .login__card--setup {
-  width: 360px;
+  width: min(360px, calc(100% - 32px));
 }
 
 .login__card h1 {

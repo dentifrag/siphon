@@ -57,7 +57,7 @@ paths as a volume.
 
 ## First-run setup
 
-On first launch without `APP_PASSWORD` or `APP_PASSWORD_HASH`, Siphon starts in setup mode.
+On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
 Only setup APIs are available until setup is completed.
 
 Open the app in a browser and choose one of these:
@@ -67,8 +67,7 @@ Open the app in a browser and choose one of these:
 
 Setup mode should be completed before exposing Siphon beyond loopback or a trusted LAN.
 
-If `APP_PASSWORD` or `APP_PASSWORD_HASH` is set, those credentials override stored auth state
-and setup is skipped.
+If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is configured, those credentials override stored auth state and setup is skipped.
 
 ## Features
 

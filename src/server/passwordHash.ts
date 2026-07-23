@@ -9,6 +9,10 @@ export interface ParsedScryptHash {
 }
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/
+const MAX_SCRYPT_MEMORY = 32 * 1024 * 1024
+const MAX_N = 2 ** 20
+const MAX_R = 32
+const MAX_P = 16
 
 function decodeBase64(value: string): Buffer | null {
   if (!BASE64_RE.test(value) || value.length % 4 !== 0) return null
@@ -32,6 +36,8 @@ export function validateScryptParams(n: number, r: number, p: number): boolean {
   if (!Number.isSafeInteger(n) || !Number.isSafeInteger(r) || !Number.isSafeInteger(p)) return false
   if (n <= 1 || r <= 0 || p <= 0) return false
   if (!isPowerOfTwo(n)) return false
+  if (n > MAX_N || r > MAX_R || p > MAX_P) return false
+  if (128 * n * r * p > MAX_SCRYPT_MEMORY) return false
   return true
 }
 
