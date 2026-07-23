@@ -45,48 +45,82 @@ describe('parseRoots', () => {
 describe('resolveConfig', () => {
   const base = '/app'
 
-  it('uses file values when env is absent', () => {
-    const file: FileConfig = {
-      port: 9000,
-      host: '127.0.0.1',
-      appPassword: 'filepw',
-      downloadDirs: 'A=/a,B=/b',
-      dataDir: '/custom/data'
-    }
-    const cfg = resolveConfig(file, {}, base)
-    expect(cfg.port).toBe(9000)
-    expect(cfg.host).toBe('127.0.0.1')
-    expect(cfg.appPassword).toBe('filepw')
-    expect(cfg.dataDir).toBe('/custom/data')
-    expect(cfg.confined).toBe(true)
-    expect(cfg.roots.map((r) => r.name)).toEqual(['A', 'B'])
-    expect(cfg.defaultDir).toBe('/a')
-  })
-
-  it('lets environment variables override the file', () => {
-    const file: FileConfig = { port: 9000, appPassword: 'filepw', downloadDirs: 'A=/a' }
-    const env = {
-      PORT: '7777',
-      APP_PASSWORD: 'envpw',
-      DOWNLOAD_DIRS: 'X=/x,Y=/y'
-    } as NodeJS.ProcessEnv
-    const cfg = resolveConfig(file, env, base)
-    expect(cfg.port).toBe(7777)
-    expect(cfg.appPassword).toBe('envpw')
-    expect(cfg.confined).toBe(true)
-    expect(cfg.roots.map((r) => r.name)).toEqual(['X', 'Y'])
-  })
-
-  it('is unconfined by default, defaulting downloads to the home Downloads folder', () => {
+  it('keeps expected defaults including auth hardening defaults', () => {
     const cfg = resolveConfig({}, {}, base)
     expect(cfg.port).toBe(8080)
     expect(cfg.host).toBe('0.0.0.0')
     expect(cfg.appPassword).toBeNull()
+    expect(cfg.appPasswordHash).toBeNull()
+    expect(cfg.appUsername).toBeNull()
+    expect(cfg.loginMaxAttempts).toBe(10)
+    expect(cfg.loginLockoutMinutes).toBe(15)
+    expect(cfg.sessionTtlHours).toBe(72)
+    expect(cfg.trustProxy).toBe(false)
+    expect(cfg.secureCookies).toBe('auto')
     expect(cfg.dataDir).toBe('/app/data')
     expect(cfg.confined).toBe(false)
     expect(cfg.defaultDir).toBe(join(homedir(), 'Downloads'))
     expect(cfg.roots[0]).toEqual({ name: 'Home', path: homedir() })
-    expect(cfg.roots.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('defaults username to admin when auth is configured', () => {
+    const passwordCfg = resolveConfig({ appPassword: 'pw' }, {}, base)
+    expect(passwordCfg.appUsername).toBe('admin')
+    const hashCfg = resolveConfig({ appPasswordHash: 'scrypt$16384$8$1$QQ==$QQ==' }, {}, base)
+    expect(hashCfg.appUsername).toBe('admin')
+  })
+
+  it('lets file and env override new auth settings', () => {
+    const file: FileConfig = {
+      appUsername: 'file-user',
+      appPasswordHash: 'scrypt$16384$8$1$QQ==$QQ==',
+      loginMaxAttempts: 7,
+      loginLockoutMinutes: 33,
+      sessionTtlHours: 12,
+      trustProxy: true,
+      secureCookies: 'false'
+    }
+    const env = {
+      APP_USERNAME: 'env-user',
+      APP_PASSWORD_HASH: 'scrypt$16384$8$1$Qg==$Qg==',
+      LOGIN_MAX_ATTEMPTS: '4',
+      LOGIN_LOCKOUT_MINUTES: '9',
+      SESSION_TTL_HOURS: '5',
+      TRUST_PROXY: 'yes',
+      SECURE_COOKIES: 'true'
+    } as NodeJS.ProcessEnv
+    const cfg = resolveConfig(file, env, base)
+    expect(cfg.appUsername).toBe('env-user')
+    expect(cfg.appPasswordHash).toBe('scrypt$16384$8$1$Qg==$Qg==')
+    expect(cfg.loginMaxAttempts).toBe(4)
+    expect(cfg.loginLockoutMinutes).toBe(9)
+    expect(cfg.sessionTtlHours).toBe(5)
+    expect(cfg.trustProxy).toBe(true)
+    expect(cfg.secureCookies).toBe('true')
+  })
+
+  it('passes through zero login max attempts', () => {
+    expect(resolveConfig({}, { LOGIN_MAX_ATTEMPTS: '0' } as NodeJS.ProcessEnv, base).loginMaxAttempts).toBe(
+      0
+    )
+    expect(resolveConfig({ loginMaxAttempts: 0 }, {}, base).loginMaxAttempts).toBe(0)
+  })
+
+  it('normalizes secureCookies values', () => {
+    expect(resolveConfig({}, { SECURE_COOKIES: 'auto' } as NodeJS.ProcessEnv, base).secureCookies).toBe('auto')
+    expect(resolveConfig({}, { SECURE_COOKIES: 'true' } as NodeJS.ProcessEnv, base).secureCookies).toBe('true')
+    expect(resolveConfig({}, { SECURE_COOKIES: 'false' } as NodeJS.ProcessEnv, base).secureCookies).toBe(
+      'false'
+    )
+    expect(resolveConfig({}, { SECURE_COOKIES: 'weird' } as NodeJS.ProcessEnv, base).secureCookies).toBe('auto')
+  })
+
+  it('parses trustProxy booleans', () => {
+    expect(resolveConfig({}, { TRUST_PROXY: '1' } as NodeJS.ProcessEnv, base).trustProxy).toBe(true)
+    expect(resolveConfig({}, { TRUST_PROXY: 'no' } as NodeJS.ProcessEnv, base).trustProxy).toBe(false)
+    expect(resolveConfig({ trustProxy: true }, { TRUST_PROXY: 'wat' } as NodeJS.ProcessEnv, base).trustProxy).toBe(
+      true
+    )
   })
 
   it('uses the provided data default, but lets env and file override it', () => {

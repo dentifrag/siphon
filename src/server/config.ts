@@ -15,14 +15,28 @@ export interface ServerConfig {
   confined: boolean
   dataDir: string
   appPassword: string | null
+  appPasswordHash: string | null
+  appUsername: string | null
+  loginMaxAttempts: number
+  loginLockoutMinutes: number
+  sessionTtlHours: number
+  trustProxy: boolean
+  secureCookies: 'auto' | 'true' | 'false'
 }
 
 export interface FileConfig {
   port?: number
   host?: string
   appPassword?: string
+  appPasswordHash?: string
+  appUsername?: string
   downloadDirs?: string
   dataDir?: string
+  loginMaxAttempts?: number
+  loginLockoutMinutes?: number
+  sessionTtlHours?: number
+  trustProxy?: boolean
+  secureCookies?: string
 }
 
 export function isPackaged(): boolean {
@@ -74,6 +88,13 @@ export function resolveConfig(
   const host = env.HOST || file.host || '0.0.0.0'
   const dataDir = env.DATA_DIR || file.dataDir || dataDefault
   const appPassword = env.APP_PASSWORD || file.appPassword || null
+  const appPasswordHash = env.APP_PASSWORD_HASH || file.appPasswordHash || null
+  const appUsername = env.APP_USERNAME || file.appUsername || (appPassword || appPasswordHash ? 'admin' : null)
+  const loginMaxAttempts = intOrAllowZero(env.LOGIN_MAX_ATTEMPTS, file.loginMaxAttempts, 10)
+  const loginLockoutMinutes = intOr(env.LOGIN_LOCKOUT_MINUTES, file.loginLockoutMinutes, 15)
+  const sessionTtlHours = intOr(env.SESSION_TTL_HOURS, file.sessionTtlHours, 72)
+  const trustProxy = boolOr(env.TRUST_PROXY, file.trustProxy, false)
+  const secureCookies = normalizeSecureCookies(env.SECURE_COOKIES || file.secureCookies || 'auto')
 
   const home = homedir()
   const dirsSpec = env.DOWNLOAD_DIRS || file.downloadDirs
@@ -90,7 +111,22 @@ export function resolveConfig(
     defaultDir = join(home, 'Downloads')
   }
 
-  return { port, host, roots, defaultDir, confined, dataDir, appPassword }
+  return {
+    port,
+    host,
+    roots,
+    defaultDir,
+    confined,
+    dataDir,
+    appPassword,
+    appPasswordHash,
+    appUsername,
+    loginMaxAttempts,
+    loginLockoutMinutes,
+    sessionTtlHours,
+    trustProxy,
+    secureCookies
+  }
 }
 
 function openRoots(home: string): DownloadRoot[] {
@@ -111,9 +147,31 @@ function openRoots(home: string): DownloadRoot[] {
 
 function intOr(envValue: string | undefined, fileValue: number | undefined, fallback: number): number {
   const fromEnv = Number.parseInt(envValue ?? '', 10)
-  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv
-  if (typeof fileValue === 'number' && Number.isFinite(fileValue) && fileValue > 0) return fileValue
+  if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv
+  if (Number.isInteger(fileValue) && (fileValue as number) > 0) return fileValue as number
   return fallback
+}
+
+function intOrAllowZero(envValue: string | undefined, fileValue: number | undefined, fallback: number): number {
+  const fromEnv = Number.parseInt(envValue ?? '', 10)
+  if (Number.isInteger(fromEnv) && fromEnv >= 0) return fromEnv
+  if (Number.isInteger(fileValue) && (fileValue as number) >= 0) return fileValue as number
+  return fallback
+}
+
+function boolOr(envValue: string | undefined, fileValue: boolean | undefined, fallback: boolean): boolean {
+  const normalized = (envValue ?? '').trim().toLowerCase()
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') return false
+  if (typeof fileValue === 'boolean') return fileValue
+  return fallback
+}
+
+function normalizeSecureCookies(value: string): 'auto' | 'true' | 'false' {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'true') return 'true'
+  if (normalized === 'false') return 'false'
+  return 'auto'
 }
 
 const CONFIG_TEMPLATE = `{
@@ -121,8 +179,29 @@ const CONFIG_TEMPLATE = `{
   "port": 8080,
   "host": "0.0.0.0",
 
-  "//appPassword": "Password to open the web UI. Strongly recommended.",
+  "//appUsername": "Username for login. Defaults to admin when auth is enabled, change it.",
+  "appUsername": "admin",
+
+  "//appPassword": "Plaintext password for login (fallback if appPasswordHash is not set).",
   "appPassword": "change-me",
+
+  "//appPasswordHash": "scrypt hash for login from --hash-password. Takes precedence over appPassword.",
+  "appPasswordHash": "",
+
+  "//loginMaxAttempts": "Failed login attempts before lockout. 0 disables lockout.",
+  "loginMaxAttempts": 10,
+
+  "//loginLockoutMinutes": "How long a lockout lasts after too many failed attempts.",
+  "loginLockoutMinutes": 15,
+
+  "//sessionTtlHours": "Session lifetime in hours before re-login is required.",
+  "sessionTtlHours": 72,
+
+  "//trustProxy": "Enable behind a reverse proxy so client IP and HTTPS protocol are detected.",
+  "trustProxy": false,
+
+  "//secureCookies": "Cookie security mode: auto, true, or false. Set true when serving over HTTPS.",
+  "secureCookies": "auto",
 
   "//downloadDirs": "Optional. Leave blank to browse your whole computer and save anywhere (downloads default to your Downloads folder). Set it to LIMIT downloads to specific folders. Format: Label=path,Label2=path2. Windows example: Downloads=C:\\\\Users\\\\You\\\\Downloads,Data=D:\\\\",
   "downloadDirs": "",
@@ -145,8 +224,17 @@ function readFileConfig(path: string): FileConfig {
     if (typeof parsed.port === 'number') clean.port = parsed.port
     if (typeof parsed.host === 'string') clean.host = parsed.host
     if (typeof parsed.appPassword === 'string' && parsed.appPassword) clean.appPassword = parsed.appPassword
+    if (typeof parsed.appPasswordHash === 'string' && parsed.appPasswordHash) {
+      clean.appPasswordHash = parsed.appPasswordHash
+    }
+    if (typeof parsed.appUsername === 'string' && parsed.appUsername) clean.appUsername = parsed.appUsername
     if (typeof parsed.downloadDirs === 'string' && parsed.downloadDirs) clean.downloadDirs = parsed.downloadDirs
     if (typeof parsed.dataDir === 'string' && parsed.dataDir) clean.dataDir = parsed.dataDir
+    if (typeof parsed.loginMaxAttempts === 'number') clean.loginMaxAttempts = parsed.loginMaxAttempts
+    if (typeof parsed.loginLockoutMinutes === 'number') clean.loginLockoutMinutes = parsed.loginLockoutMinutes
+    if (typeof parsed.sessionTtlHours === 'number') clean.sessionTtlHours = parsed.sessionTtlHours
+    if (typeof parsed.trustProxy === 'boolean') clean.trustProxy = parsed.trustProxy
+    if (typeof parsed.secureCookies === 'string' && parsed.secureCookies) clean.secureCookies = parsed.secureCookies
     return clean
   } catch {
     return {}
