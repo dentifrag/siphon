@@ -14,7 +14,7 @@ heavy lifting.
 ### Docker (recommended for an always-on server)
 
 ```bash
-APP_PASSWORD=change-me docker compose up -d --build
+docker compose up -d --build
 # then open http://<server-ip>:8080
 ```
 
@@ -25,9 +25,8 @@ the image, so there's nothing else to install.
 
 1. Download the binary for your OS from the [Releases page](https://github.com/dentifrag/siphon/releases)
    (`siphon-win-x64.exe`, `siphon-macos-arm64`, `siphon-macos-x64`, or `siphon-linux-x64`).
-2. Run it once. It creates a `config.json` next to itself. Open that file and set a password
-   and your download folders.
-3. Run it again and open `http://localhost:8080` (or `http://<pc-ip>:8080` from another device).
+2. Run it once. It creates a `config.json` next to itself.
+3. Open `http://localhost:8080` (or `http://<pc-ip>:8080` from another device) and finish first-run setup in the browser.
 
 On macOS/Linux, make it executable first: `chmod +x siphon-*`. The binaries are unsigned, so
 Windows SmartScreen or macOS Gatekeeper may warn once. rclone is fetched automatically on
@@ -55,6 +54,20 @@ Environment variables win if both are set.
 `DOWNLOAD_DIRS` powers the in-app folder picker. List each drive or folder you want to save
 into, for example `Movies=/mnt/movies,Backup=/mnt/backup`. In Docker, mount each of those
 paths as a volume.
+
+## First-run setup
+
+On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
+Only setup APIs are available until setup is completed.
+
+Open the app in a browser and choose one of these:
+
+- Create an admin username and password.
+- Run without a password (open mode), only for trusted networks.
+
+Setup mode should be completed before exposing Siphon beyond loopback or a trusted LAN.
+
+If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is configured, those credentials override stored auth state and setup is skipped.
 
 ## Features
 
@@ -86,11 +99,26 @@ Uploads and remote file management are out of scope for now.
 - Login lockout is enabled by default, `loginMaxAttempts=10` and `loginLockoutMinutes=15`. Set `loginMaxAttempts=0` to disable lockout.
 - Sessions expire automatically, `sessionTtlHours=72` by default.
 - For HTTPS behind VPN or reverse proxy, set `trustProxy=true` and `secureCookies=true`.
-- Passwordless mode is still available, leave both password settings blank. Siphon starts with a warning because the UI is open.
+- Password changes are available in-app for store-managed credentials. Env-managed credentials are read-only and skip the setup wizard.
 - Forgot your password, if a hash is configured (`APP_PASSWORD_HASH` or `appPasswordHash`), replace or remove that hash first (or regenerate it with `--hash-password`) because hash settings take precedence over plaintext. Then set a new password or hash and restart Siphon.
 - Siphon runs rclone privately on localhost with random credentials, browsers only talk to Siphon's API, never to rclone directly.
 - Saved passwords are stored by rclone (obscured in its config), not by Siphon. Downloads are restricted to folders you configure.
 - This version does not verify SFTP host keys, run it on a network you trust.
+
+### Breaking change: passwordless upgrades now enter setup mode
+
+Existing installs that previously ran with no password and no env credentials now start in setup mode and block operational APIs until setup is completed. This is intentional and fail-closed.
+
+Offline recovery:
+
+1. Stop Siphon.
+2. Delete `auth.json` from `dataDir`.
+   - macOS default: `~/Library/Application Support/Siphon/auth.json`
+   - Linux default: `~/.local/share/siphon/auth.json`
+   - Windows default: `%APPDATA%\Siphon\auth.json`
+3. Start Siphon again and complete setup.
+
+Deleting `auth.json` is also how you leave open mode.
 
 ## Development
 

@@ -11,11 +11,15 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 28px;
-  width: 320px;
+  width: min(320px, calc(100% - 32px));
   display: flex;
   flex-direction: column;
   gap: 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+}
+
+.login__card--setup {
+  width: min(360px, calc(100% - 32px));
 }
 
 .login__card h1 {
@@ -30,5 +34,9 @@
 }
 
 .login__error {
+  color: var(--danger) !important;
+}
+
+.login__warning {
   color: var(--danger) !important;
 }

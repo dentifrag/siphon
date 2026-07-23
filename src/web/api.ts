@@ -44,8 +44,10 @@ async function request<T>(
 }
 
 export interface AuthStatus {
+  state: 'setup' | 'login' | 'open'
   required: boolean
   authenticated: boolean
+  canChangePassword: boolean
 }
 
 export interface ServerConfig {
@@ -57,17 +59,41 @@ export interface WebApi extends SftpApi {
   authStatus(): Promise<AuthStatus>
   login(username: string, password: string): Promise<void>
   logout(): Promise<void>
+  setup(input: { username: string; password: string } | { mode: 'open' }): Promise<void>
+  changePassword(currentPassword: string, newPassword: string): Promise<void>
   serverConfig(): Promise<ServerConfig>
 }
 
 export function createWebApi(): WebApi {
   return {
-    authStatus: () => request<AuthStatus>('/api/auth-status'),
+    authStatus: async () => {
+      const result = await request<{
+        state: 'setup' | 'open' | 'password'
+        required?: boolean
+        authenticated: boolean
+        canChangePassword: boolean
+      }>('/api/auth-status')
+      return {
+        state: result.state === 'password' ? 'login' : result.state,
+        required: result.required ?? result.state === 'password',
+        authenticated: result.authenticated,
+        canChangePassword: result.canChangePassword
+      }
+    },
     login: async (username: string, password: string) => {
       await request('/api/login', { method: 'POST', body: { username, password } })
     },
     logout: async () => {
       await request('/api/logout', { method: 'POST' })
+    },
+    setup: async (input) => {
+      await request('/api/setup', { method: 'POST', body: input })
+    },
+    changePassword: async (currentPassword: string, newPassword: string) => {
+      await request('/api/change-password', {
+        method: 'POST',
+        body: { currentPassword, newPassword }
+      })
     },
     serverConfig: () => request<ServerConfig>('/api/config'),
 
