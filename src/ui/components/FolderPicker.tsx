@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { FormControl, TextInput } from '@primer/react'
 import type { DownloadRootMeta, LocalDirListing } from '@shared/api'
 import { errorMessage } from '../lib/format'
 import { isTextInputFocused } from '../lib/keyboard'
@@ -130,16 +131,20 @@ export function FolderPicker(props: FolderPickerProps) {
 
         {newFolder !== null && (
           <div className="folder-picker__newfolder">
-            <input
-              autoFocus
-              value={newFolder}
-              placeholder="Folder name"
-              onChange={(e) => setNewFolder(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') createFolder()
-                if (e.key === 'Escape') setNewFolder(null)
-              }}
-            />
+            <FormControl className="form-field--grow">
+              <FormControl.Label visuallyHidden>Folder name</FormControl.Label>
+              <TextInput
+                block
+                autoFocus
+                value={newFolder}
+                placeholder="Folder name"
+                onChange={(e) => setNewFolder(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createFolder()
+                  if (e.key === 'Escape') setNewFolder(null)
+                }}
+              />
+            </FormControl>
             <button type="button" className="btn btn--small btn--primary" onClick={createFolder}>
               Create
             </button>
