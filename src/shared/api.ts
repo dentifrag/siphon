@@ -25,7 +25,6 @@ export interface DownloadEnqueueInput {
 export interface UploadEnqueueInput {
   localPath: string
   remoteDir: string
-  segments: number
 }
 
 export interface ConnectionProfileMeta {

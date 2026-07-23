@@ -44,7 +44,6 @@ describe('expandUpload', () => {
       isDir: false,
       size: 500,
       remoteDir: 'dest',
-      segments: 4,
       jobRemote: '_ul-file'
     })
 
@@ -57,8 +56,9 @@ describe('expandUpload', () => {
       displayName: 'file.bin',
       localPath: '/root/file.bin',
       size: 500,
-      segments: 4,
+      segments: 1,
       direction: 'upload',
+      uploadRemoteDir: 'dest',
       cleanupRemote: '_ul-file'
     })
     expect(client.deleteRemote).not.toHaveBeenCalled()
@@ -77,7 +77,6 @@ describe('expandUpload', () => {
       isDir: true,
       size: 0,
       remoteDir: 'dest',
-      segments: 4,
       jobRemote: '_ul-dir'
     })
 
@@ -91,8 +90,9 @@ describe('expandUpload', () => {
       displayName: 'movies/a.mkv',
       localPath: '/root/movies/a.mkv',
       size: 10,
-      segments: 4,
+      segments: 1,
       direction: 'upload',
+      uploadRemoteDir: 'dest',
       cleanupRemote: '_ul-dir'
     })
     expect(manager.enqueue).toHaveBeenNthCalledWith(2, {
@@ -103,8 +103,9 @@ describe('expandUpload', () => {
       displayName: 'movies/sub/b.mkv',
       localPath: '/root/movies/sub/b.mkv',
       size: 20,
-      segments: 4,
+      segments: 1,
       direction: 'upload',
+      uploadRemoteDir: 'dest',
       cleanupRemote: '_ul-dir'
     })
     expect(client.deleteRemote).not.toHaveBeenCalled()
@@ -120,7 +121,6 @@ describe('expandUpload', () => {
       isDir: true,
       size: 0,
       remoteDir: 'dest',
-      segments: 4,
       jobRemote: '_ul-empty'
     })
 
@@ -140,7 +140,6 @@ describe('expandUpload', () => {
         isDir: true,
         size: 0,
         remoteDir: 'dest',
-        segments: 4,
         jobRemote: '_ul-fail'
       })
     ).rejects.toThrow('boom')
@@ -158,7 +157,6 @@ describe('expandUpload', () => {
       isDir: false,
       size: 500,
       remoteDir: '',
-      segments: 4,
       jobRemote: '_ul-root'
     })
 
@@ -166,5 +164,6 @@ describe('expandUpload', () => {
     const call = (manager.enqueue as unknown as { mock: { calls: RcloneEnqueueInput[][] } }).mock
       .calls[0][0]
     expect(call.dstRemote).toBe('file.bin')
+    expect(call.uploadRemoteDir).toBe('')
   })
 })

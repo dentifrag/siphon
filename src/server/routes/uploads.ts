@@ -16,7 +16,6 @@ export interface ExpandUploadInput {
   isDir: boolean
   size: number
   remoteDir: string
-  segments: number
   jobRemote: string
 }
 
@@ -26,7 +25,9 @@ export async function expandUpload(
   scope: FsScope,
   input: ExpandUploadInput
 ): Promise<TransferProgress[]> {
-  const { resolved, isDir, size, remoteDir, segments, jobRemote } = input
+  const { resolved, isDir, size, remoteDir, jobRemote } = input
+  // SFTP uploads are single-stream (see README); segments is always 1.
+  const segments = 1
 
   if (isDir) {
     const dirBaseName = safeBaseName(basename(resolved))
@@ -55,6 +56,7 @@ export async function expandUpload(
         size: file.size,
         segments,
         direction: 'upload',
+        uploadRemoteDir: remoteDir,
         cleanupRemote: jobRemote
       })
     })
@@ -75,6 +77,7 @@ export async function expandUpload(
       size,
       segments,
       direction: 'upload',
+      uploadRemoteDir: remoteDir,
       cleanupRemote: jobRemote
     })
   ]
@@ -118,7 +121,6 @@ export function registerUploadRoutes(
       isDir: stats.isDirectory(),
       size: stats.isDirectory() ? 0 : stats.size,
       remoteDir,
-      segments: input.segments,
       jobRemote
     })
   })

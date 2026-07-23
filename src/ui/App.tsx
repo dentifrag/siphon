@@ -88,7 +88,6 @@ export default function App({ canChangePassword }: AppProps) {
   const [passwordNotice, setPasswordNotice] = useState<string | null>(null)
 
   const cwdRef = useRef(cwd)
-  const uploadDestRef = useRef<Map<string, string>>(new Map())
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navigateToRef = useRef<(dir: string) => Promise<boolean>>(async () => false)
 
@@ -117,7 +116,6 @@ export default function App({ canChangePassword }: AppProps) {
       }
       if (ev.type === 'remove') {
         setTransfers((prev) => prev.filter((t) => t.id !== ev.id))
-        uploadDestRef.current.delete(ev.id)
         return
       }
       const update = ev.transfer
@@ -129,18 +127,16 @@ export default function App({ canChangePassword }: AppProps) {
         return next
       })
 
-      if (update.direction === 'upload') {
-        const destDir = uploadDestRef.current.get(update.id)
-        const terminal =
-          update.status === 'completed' || update.status === 'error' || update.status === 'canceled'
-        if (update.status === 'completed' && destDir !== undefined && destDir === cwdRef.current) {
-          if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
-          refreshTimerRef.current = setTimeout(() => {
-            refreshTimerRef.current = null
-            navigateToRef.current(cwdRef.current)
-          }, 600)
-        }
-        if (terminal) uploadDestRef.current.delete(update.id)
+      if (
+        update.direction === 'upload' &&
+        update.status === 'completed' &&
+        update.uploadRemoteDir === cwdRef.current
+      ) {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+        refreshTimerRef.current = setTimeout(() => {
+          refreshTimerRef.current = null
+          navigateToRef.current(cwdRef.current)
+        }, 600)
       }
     })
   }, [])
@@ -338,20 +334,17 @@ export default function App({ canChangePassword }: AppProps) {
         try {
           const enqueued = await window.api.enqueueUpload({
             localPath,
-            remoteDir: destDir,
-            segments
+            remoteDir: destDir
           })
           if (enqueued.length === 0) {
             setBrowseError('That folder has no files to upload.')
-          } else {
-            for (const transfer of enqueued) uploadDestRef.current.set(transfer.id, destDir)
           }
         } catch (error) {
           setBrowseError(errorMessage(error))
         }
       }
     },
-    [cwd, segments]
+    [cwd]
   )
 
   const handleClearFinished = useCallback(async () => {
