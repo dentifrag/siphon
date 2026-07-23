@@ -64,6 +64,9 @@ export async function listDirs(
 ): Promise<LocalDirListing> {
   const target = requested && requested.trim() !== '' ? requested : fallbackDir
   let canonical = await resolvePath(scope, target)
+  if (canonical === null && target !== fallbackDir) {
+    canonical = await resolvePath(scope, fallbackDir)
+  }
   if (canonical === null) throw new Error('That folder is not accessible.')
 
   let dirents: Dirent[]
