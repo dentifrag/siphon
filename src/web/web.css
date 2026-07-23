@@ -29,17 +29,6 @@
   font-size: 13px;
 }
 
-.login__card input {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
-}
-
 .login__error {
   color: var(--danger) !important;
-}
-
-.login__card .btn {
-  margin-top: 4px;
 }

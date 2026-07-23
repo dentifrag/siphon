@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FormControl, TextInput } from '@primer/react'
+import { Button, Dialog, FormControl, TextInput } from '@primer/react'
+import { ArrowUpIcon, FileDirectoryFillIcon, FileIcon } from '@primer/octicons-react'
 import type { DownloadRootMeta, LocalDirListing } from '@shared/api'
 import { errorMessage } from '../lib/format'
 import { isTextInputFocused } from '../lib/keyboard'
@@ -46,10 +47,6 @@ export function FolderPicker(props: FolderPickerProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        onClose()
-        return
-      }
       if (isTextInputFocused()) return
       if (dirs.length === 0) return
 
@@ -66,7 +63,7 @@ export function FolderPicker(props: FolderPickerProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, dirs, focusIndex, load])
+  }, [dirs, focusIndex, load])
 
   const createFolder = useCallback(async () => {
     if (!listing || !newFolder || !newFolder.trim()) {
@@ -83,124 +80,119 @@ export function FolderPicker(props: FolderPickerProps) {
   }, [listing, newFolder, load])
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal folder-picker" onClick={(e) => e.stopPropagation()}>
-        <div className="modal__header">
-          <h2>Choose download folder</h2>
-          <button type="button" className="btn btn--icon" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
-        </div>
-
-        {roots.length > 1 && (
-          <div className="folder-picker__roots">
-            {roots.map((root) => (
-              <button
-                key={root.path}
-                type="button"
-                className="chip"
-                onClick={() => load(root.path)}
-              >
-                {root.name}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="folder-picker__bar">
-          <button
-            type="button"
-            className="btn btn--small"
-            disabled={!listing || listing.parent === null || loading}
-            onClick={() => listing?.parent && load(listing.parent)}
-          >
-            ↑ Up
-          </button>
-          <span className="folder-picker__path" title={listing?.path ?? ''}>
-            {listing?.path ?? '…'}
-          </span>
-          <button
-            type="button"
-            className="btn btn--small"
-            disabled={!listing || loading}
-            onClick={() => setNewFolder('')}
-          >
-            New folder
-          </button>
-        </div>
-
-        {newFolder !== null && (
-          <div className="folder-picker__newfolder">
-            <FormControl className="form-field--grow">
-              <FormControl.Label visuallyHidden>Folder name</FormControl.Label>
-              <TextInput
-                block
-                autoFocus
-                value={newFolder}
-                placeholder="Folder name"
-                onChange={(e) => setNewFolder(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') createFolder()
-                  if (e.key === 'Escape') setNewFolder(null)
-                }}
-              />
-            </FormControl>
-            <button type="button" className="btn btn--small btn--primary" onClick={createFolder}>
-              Create
-            </button>
-            <button type="button" className="btn btn--small" onClick={() => setNewFolder(null)}>
-              Cancel
-            </button>
-          </div>
-        )}
-
-        <div className="folder-picker__list">
-          {error ? (
-            <p className="banner banner--error">{error}</p>
-          ) : loading ? (
-            <p className="empty">Loading…</p>
-          ) : listing && listing.entries.length === 0 ? (
-            <p className="empty">This folder is empty.</p>
-          ) : (
-            <ul>
-              {listing?.entries.map((entry) =>
-                entry.isDir ? (
-                  <li key={entry.path} className={entry.path === focusedPath ? 'is-focused' : undefined}>
-                    <button type="button" onClick={() => load(entry.path)}>
-                      <span className="file-icon">📁</span>
-                      {entry.name}
-                    </button>
-                  </li>
-                ) : (
-                  <li key={entry.path} className="is-disabled">
-                    <span className="file-icon">📄</span>
-                    {entry.name}
-                  </li>
-                )
-              )}
-            </ul>
-          )}
-        </div>
-
-        <div className="modal__footer">
-          <span className="folder-picker__hint">
-            Files will download into this folder.
-          </span>
-          <div className="modal__footer-actions">
-            <button type="button" className="btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={!listing}
-              onClick={() => listing && onChoose(listing.path)}
+    <Dialog
+      title="Choose download folder"
+      width="large"
+      onClose={() => onClose()}
+      footerButtons={[
+        { content: 'Cancel', onClick: () => onClose() },
+        {
+          content: 'Use this folder',
+          buttonType: 'primary',
+          disabled: !listing,
+          onClick: () => {
+            if (listing) onChoose(listing.path)
+          }
+        }
+      ]}
+    >
+      {roots.length > 1 && (
+        <div className="folder-picker__roots">
+          {roots.map((root) => (
+            <Button
+              key={root.path}
+              size="small"
+              variant="invisible"
+              onClick={() => load(root.path)}
             >
-              Use this folder
-            </button>
-          </div>
+              {root.name}
+            </Button>
+          ))}
         </div>
+      )}
+
+      <div className="folder-picker__bar">
+        <Button
+          size="small"
+          leadingVisual={ArrowUpIcon}
+          disabled={!listing || listing.parent === null || loading}
+          onClick={() => listing?.parent && load(listing.parent)}
+        >
+          Up
+        </Button>
+        <span className="folder-picker__path" title={listing?.path ?? ''}>
+          {listing?.path ?? '…'}
+        </span>
+        <Button
+          size="small"
+          disabled={!listing || loading}
+          onClick={() => setNewFolder('')}
+        >
+          New folder
+        </Button>
       </div>
-    </div>
+
+      {newFolder !== null && (
+        <div className="folder-picker__newfolder">
+          <FormControl className="form-field--grow">
+            <FormControl.Label visuallyHidden>Folder name</FormControl.Label>
+            <TextInput
+              block
+              autoFocus
+              value={newFolder}
+              placeholder="Folder name"
+              onChange={(e) => setNewFolder(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') createFolder()
+                if (e.key === 'Escape') setNewFolder(null)
+              }}
+            />
+          </FormControl>
+          <Button size="small" variant="primary" onClick={createFolder}>
+            Create
+          </Button>
+          <Button size="small" onClick={() => setNewFolder(null)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      <div className="folder-picker__list">
+        {error ? (
+          <p className="banner banner--error">{error}</p>
+        ) : loading ? (
+          <p className="empty">Loading…</p>
+        ) : listing && listing.entries.length === 0 ? (
+          <p className="empty">This folder is empty.</p>
+        ) : (
+          <ul>
+            {listing?.entries.map((entry) =>
+              entry.isDir ? (
+                <li
+                  key={entry.path}
+                  className={entry.path === focusedPath ? 'is-focused' : undefined}
+                >
+                  <button type="button" onClick={() => load(entry.path)}>
+                    <span className="file-icon">
+                      <FileDirectoryFillIcon />
+                    </span>
+                    {entry.name}
+                  </button>
+                </li>
+              ) : (
+                <li key={entry.path} className="is-disabled">
+                  <span className="file-icon">
+                    <FileIcon />
+                  </span>
+                  {entry.name}
+                </li>
+              )
+            )}
+          </ul>
+        )}
+      </div>
+
+      <p className="folder-picker__hint">Files will download into this folder.</p>
+    </Dialog>
   )
 }
