@@ -1,5 +1,6 @@
 import type {
   ConnectionConfig,
+  DownloadEvent,
   RemoteEntry,
   RemoteStat,
   TransferProgress
@@ -90,7 +91,20 @@ export function createWebApi(): WebApi {
     clearFinishedDownloads: async () => {
       await request('/api/downloads/clear-finished', { method: 'POST' })
     },
+    clearAllDownloads: async () => {
+      await request('/api/downloads/clear-all', { method: 'POST' })
+    },
+    removeDownload: (id: string) =>
+      request<{ removed: boolean }>('/api/downloads/remove', { method: 'POST', body: { id } }).then(
+        (r) => r.removed
+      ),
     listDownloads: () => request<TransferProgress[]>('/api/downloads'),
+    getMaxConcurrentDownloads: () =>
+      request<{ max: number }>('/api/downloads/concurrency').then((r) => r.max),
+    setMaxConcurrentDownloads: (max: number) =>
+      request<{ max: number }>('/api/downloads/concurrency', { method: 'POST', body: { max } }).then(
+        (r) => r.max
+      ),
     defaultDownloadDir: async () => {
       const config = await request<ServerConfig>('/api/config')
       return config.downloadDir
@@ -118,11 +132,11 @@ export function createWebApi(): WebApi {
         method: 'POST',
         body: { id }
       }),
-    onDownloadUpdate: (callback: (transfer: TransferProgress) => void) => {
+    onDownloadUpdate: (callback: (event: DownloadEvent) => void) => {
       const source = new EventSource('/api/events', { withCredentials: true })
       source.onmessage = (event) => {
         try {
-          callback(JSON.parse(event.data) as TransferProgress)
+          callback(JSON.parse(event.data) as DownloadEvent)
         } catch {}
       }
       return () => source.close()

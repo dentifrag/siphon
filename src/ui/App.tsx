@@ -10,6 +10,14 @@ import { errorMessage } from './lib/format'
 
 type ConnState = 'disconnected' | 'connecting' | 'connected'
 
+const MAX_CONCURRENT_STORAGE_KEY = 'siphon.maxConcurrentDownloads'
+
+function loadStoredMaxConcurrent(): number {
+  const stored = Number.parseInt(localStorage.getItem(MAX_CONCURRENT_STORAGE_KEY) ?? '', 10)
+  if (!Number.isFinite(stored)) return 3
+  return Math.max(1, Math.min(8, stored))
+}
+
 export default function App() {
   const [form, setForm] = useState<ConnectionForm>(defaultConnectionForm)
   const [segments, setSegments] = useState(4)
@@ -25,6 +33,7 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const [transfers, setTransfers] = useState<TransferProgress[]>([])
+  const [maxConcurrent, setMaxConcurrent] = useState<number>(loadStoredMaxConcurrent)
 
   const [profiles, setProfiles] = useState<ConnectionProfileMeta[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState('')
@@ -39,7 +48,16 @@ export default function App() {
     window.api.listDownloads().then(setTransfers).catch(() => undefined)
     window.api.listProfiles().then(setProfiles).catch(() => undefined)
 
-    return window.api.onDownloadUpdate((update) => {
+    return window.api.onDownloadUpdate((ev) => {
+      if (ev.type === 'reset') {
+        setTransfers(ev.transfers)
+        return
+      }
+      if (ev.type === 'remove') {
+        setTransfers((prev) => prev.filter((t) => t.id !== ev.id))
+        return
+      }
+      const update = ev.transfer
       setTransfers((prev) => {
         const index = prev.findIndex((t) => t.id === update.id)
         if (index === -1) return [...prev, update]
@@ -49,6 +67,10 @@ export default function App() {
       })
     })
   }, [])
+
+  useEffect(() => {
+    window.api.setMaxConcurrentDownloads(maxConcurrent).catch(() => undefined)
+  }, [maxConcurrent])
 
   const navigateTo = useCallback(async (dir: string) => {
     setBrowseLoading(true)
@@ -155,9 +177,7 @@ export default function App() {
   )
 
   const handleDownloadSelected = useCallback(async () => {
-    const targets = entries.filter(
-      (entry) => entry.type !== 'directory' && selected.has(entry.path)
-    )
+    const targets = entries.filter((entry) => selected.has(entry.path))
     for (const entry of targets) {
       await enqueue(entry.path)
     }
@@ -166,8 +186,20 @@ export default function App() {
 
   const handleClearFinished = useCallback(async () => {
     await window.api.clearFinishedDownloads()
-    const list = await window.api.listDownloads()
-    setTransfers(list)
+  }, [])
+
+  const handleClearAll = useCallback(async () => {
+    await window.api.clearAllDownloads()
+  }, [])
+
+  const handleRemoveDownload = useCallback(async (id: string) => {
+    const removed = await window.api.removeDownload(id)
+    if (removed) setTransfers((prev) => prev.filter((t) => t.id !== id))
+  }, [])
+
+  const handleMaxConcurrentChange = useCallback((max: number) => {
+    localStorage.setItem(MAX_CONCURRENT_STORAGE_KEY, String(max))
+    setMaxConcurrent(max)
   }, [])
 
   const connected = connState === 'connected'
@@ -209,6 +241,7 @@ export default function App() {
           error={browseError}
           selected={selected}
           canDownload={downloadDir !== ''}
+          suspended={pickerOpen}
           onNavigate={navigateTo}
           onRefresh={() => navigateTo(cwd)}
           onSelectionChange={setSelected}
@@ -218,8 +251,12 @@ export default function App() {
 
         <TransferQueue
           transfers={transfers}
+          maxConcurrent={maxConcurrent}
+          onMaxConcurrentChange={handleMaxConcurrentChange}
           onCancel={(id) => window.api.cancelDownload(id)}
+          onRemove={handleRemoveDownload}
           onClearFinished={handleClearFinished}
+          onClearAll={handleClearAll}
         />
       </div>
 

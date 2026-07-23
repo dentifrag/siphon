@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DownloadRootMeta, LocalDirListing } from '@shared/api'
 import { errorMessage } from '../lib/format'
+import { isTextInputFocused } from '../lib/keyboard'
 
 interface FolderPickerProps {
   initialPath: string
@@ -15,6 +16,10 @@ export function FolderPicker(props: FolderPickerProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [newFolder, setNewFolder] = useState<string | null>(null)
+  const [focusIndex, setFocusIndex] = useState<number | null>(null)
+
+  const dirs = useMemo(() => listing?.entries.filter((entry) => entry.isDir) ?? [], [listing])
+  const focusedPath = focusIndex !== null ? dirs[focusIndex]?.path : undefined
 
   const load = useCallback(async (path?: string) => {
     setLoading(true)
@@ -35,12 +40,32 @@ export function FolderPicker(props: FolderPickerProps) {
   }, [initialPath, load])
 
   useEffect(() => {
+    setFocusIndex(dirs.length > 0 ? 0 : null)
+  }, [dirs])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (isTextInputFocused()) return
+      if (dirs.length === 0) return
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setFocusIndex((i) => Math.min((i ?? -1) + 1, dirs.length - 1))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setFocusIndex((i) => Math.max((i ?? 1) - 1, 0))
+      } else if (e.key === 'Enter') {
+        const dir = focusIndex !== null ? dirs[focusIndex] : undefined
+        if (dir) load(dir.path)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, dirs, focusIndex, load])
 
   const createFolder = useCallback(async () => {
     if (!listing || !newFolder || !newFolder.trim()) {
@@ -129,18 +154,25 @@ export function FolderPicker(props: FolderPickerProps) {
             <p className="banner banner--error">{error}</p>
           ) : loading ? (
             <p className="empty">Loading…</p>
-          ) : listing && listing.dirs.length === 0 ? (
-            <p className="empty">No subfolders here.</p>
+          ) : listing && listing.entries.length === 0 ? (
+            <p className="empty">This folder is empty.</p>
           ) : (
             <ul>
-              {listing?.dirs.map((dir) => (
-                <li key={dir.path}>
-                  <button type="button" onClick={() => load(dir.path)}>
-                    <span className="file-icon">📁</span>
-                    {dir.name}
-                  </button>
-                </li>
-              ))}
+              {listing?.entries.map((entry) =>
+                entry.isDir ? (
+                  <li key={entry.path} className={entry.path === focusedPath ? 'is-focused' : undefined}>
+                    <button type="button" onClick={() => load(entry.path)}>
+                      <span className="file-icon">📁</span>
+                      {entry.name}
+                    </button>
+                  </li>
+                ) : (
+                  <li key={entry.path} className="is-disabled">
+                    <span className="file-icon">📄</span>
+                    {entry.name}
+                  </li>
+                )
+              )}
             </ul>
           )}
         </div>

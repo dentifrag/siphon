@@ -28,8 +28,11 @@ export interface RemoteStat {
 
 export type TransferStatus = 'queued' | 'downloading' | 'completed' | 'error' | 'canceled'
 
+export type TransferKind = 'file' | 'directory'
+
 export interface TransferProgress {
   id: string
+  kind: TransferKind
   remotePath: string
   localPath: string
   size: number
@@ -40,3 +43,8 @@ export interface TransferProgress {
   status: TransferStatus
   error?: string
 }
+
+export type DownloadEvent =
+  | { type: 'update'; transfer: TransferProgress }
+  | { type: 'remove'; id: string }
+  | { type: 'reset'; transfers: TransferProgress[] }

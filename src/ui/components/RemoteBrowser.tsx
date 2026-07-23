@@ -4,6 +4,7 @@ import type { RemoteEntry } from '@shared/types'
 import { breadcrumbs, parentDir } from '../lib/path'
 import { formatBytes, formatMtime } from '../lib/format'
 import { sortEntries, type SortKey, type SortState } from '../lib/sort'
+import { isTextInputFocused } from '../lib/keyboard'
 
 interface RemoteBrowserProps {
   connected: boolean
@@ -13,6 +14,7 @@ interface RemoteBrowserProps {
   error: string | null
   selected: Set<string>
   canDownload: boolean
+  suspended: boolean
   onNavigate: (dir: string) => void
   onRefresh: () => void
   onSelectionChange: (next: Set<string>) => void
@@ -35,6 +37,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     error,
     selected,
     canDownload,
+    suspended,
     onNavigate,
     onRefresh,
     onSelectionChange,
@@ -42,8 +45,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     onDownloadEntry
   } = props
 
-  const files = entries.filter((entry) => entry.type !== 'directory')
-  const selectedFileCount = files.filter((entry) => selected.has(entry.path)).length
+  const selectedCount = entries.filter((entry) => selected.has(entry.path)).length
 
   const anchorRef = useRef<number | null>(null)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -95,10 +97,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
         return
       }
       const [lo, hi] = from <= toIndex ? [from, toIndex] : [toIndex, from]
-      const range = sortedEntries
-        .slice(lo, hi + 1)
-        .filter((entry) => entry.type !== 'directory')
-        .map((entry) => entry.path)
+      const range = sortedEntries.slice(lo, hi + 1).map((entry) => entry.path)
       onSelectionChange(new Set(range))
     },
     [sortedEntries, onSelectionChange]
@@ -106,10 +105,6 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
 
   const handleRowClick = useCallback(
     (event: MouseEvent, entry: RemoteEntry, index: number) => {
-      if (entry.type === 'directory') {
-        onNavigate(entry.path)
-        return
-      }
       if (event.shiftKey) {
         selectRange(index)
         return
@@ -125,13 +120,13 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
       onSelectionChange(new Set([entry.path]))
       anchorRef.current = index
     },
-    [onNavigate, onSelectionChange, selectRange, selected]
+    [onSelectionChange, selectRange, selected]
   )
 
   const handleContextMenu = useCallback(
     (event: MouseEvent, entry: RemoteEntry, index: number) => {
       event.preventDefault()
-      if (entry.type !== 'directory' && !selected.has(entry.path)) {
+      if (!selected.has(entry.path)) {
         onSelectionChange(new Set([entry.path]))
         anchorRef.current = index
       }
@@ -139,6 +134,67 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     },
     [onSelectionChange, selected]
   )
+
+  useEffect(() => {
+    if (!connected || suspended) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (loading) return
+      if (menu) return
+      if (isTextInputFocused()) return
+
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (sortedEntries.length === 0) return
+        e.preventDefault()
+        const current = anchorRef.current
+        const next =
+          current === null
+            ? 0
+            : e.key === 'ArrowDown'
+              ? Math.min(current + 1, sortedEntries.length - 1)
+              : Math.max(current - 1, 0)
+        anchorRef.current = next
+        onSelectionChange(new Set([sortedEntries[next].path]))
+      } else if (e.key === 'Enter') {
+        const current = anchorRef.current
+        const entry = current !== null ? sortedEntries[current] : undefined
+        if (!entry) return
+        e.preventDefault()
+        if (entry.type === 'directory') onNavigate(entry.path)
+        else onDownloadSelected()
+      } else if (e.key === 'Backspace') {
+        if (cwd === '/') return
+        e.preventDefault()
+        onNavigate(parentDir(cwd))
+      } else if (e.key === ' ') {
+        const current = anchorRef.current
+        const entry = current !== null ? sortedEntries[current] : undefined
+        if (!entry) return
+        e.preventDefault()
+        const next = new Set(selected)
+        if (next.has(entry.path)) next.delete(entry.path)
+        else next.add(entry.path)
+        onSelectionChange(next)
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        onSelectionChange(new Set(sortedEntries.map((entry) => entry.path)))
+      } else if (e.key === 'Escape') {
+        onSelectionChange(new Set())
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    connected,
+    suspended,
+    loading,
+    menu,
+    sortedEntries,
+    selected,
+    cwd,
+    onNavigate,
+    onSelectionChange,
+    onDownloadSelected
+  ])
 
   return (
     <section className="panel browser">
@@ -179,11 +235,11 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           <button
             type="button"
             className="btn btn--primary"
-            disabled={selectedFileCount === 0 || !canDownload}
+            disabled={selectedCount === 0 || !canDownload}
             title={canDownload ? '' : 'Choose a download folder first'}
             onClick={onDownloadSelected}
           >
-            Download{selectedFileCount > 0 ? ` (${selectedFileCount})` : ''}
+            Download{selectedCount > 0 ? ` (${selectedCount})` : ''}
           </button>
         </div>
       </div>
@@ -250,7 +306,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           style={{ left: menu.x, top: menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          {menu.entry.type === 'directory' ? (
+          {menu.entry.type === 'directory' && (
             <li>
               <button
                 type="button"
@@ -262,21 +318,20 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                 Open
               </button>
             </li>
-          ) : (
-            <li>
-              <button
-                type="button"
-                disabled={!canDownload}
-                title={canDownload ? '' : 'Choose a download folder first'}
-                onClick={() => {
-                  onDownloadSelected()
-                  closeMenu()
-                }}
-              >
-                Download{selectedFileCount > 1 ? ` (${selectedFileCount})` : ''}
-              </button>
-            </li>
           )}
+          <li>
+            <button
+              type="button"
+              disabled={!canDownload}
+              title={canDownload ? '' : 'Choose a download folder first'}
+              onClick={() => {
+                onDownloadSelected()
+                closeMenu()
+              }}
+            >
+              Download{selectedCount > 1 ? ` (${selectedCount})` : ''}
+            </button>
+          </li>
         </ul>
       )}
     </section>

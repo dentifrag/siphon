@@ -19,7 +19,6 @@ export function registerDownloadRoutes(
     const srcRemote = uiToRemotePath(input.remotePath)
     const item = await client.stat(session.remoteFs(), srcRemote)
     if (!item) throw httpError(404, 'File not found.')
-    if (item.IsDir) throw httpError(400, 'Folder downloads are not supported yet. Select a file.')
 
     const requested = input.downloadDir?.trim()
     let targetDir = config.defaultDir
@@ -28,17 +27,35 @@ export function registerDownloadRoutes(
       if (!resolved) throw httpError(400, 'That download folder is not accessible.')
       targetDir = resolved
     }
-    const fileName = safeBaseName(input.remotePath)
+    const baseName = safeBaseName(input.remotePath)
 
     const jobRemote = `_dl-${randomUUID()}`
     await client.cloneRemote(session.remoteName(), jobRemote)
+
+    if (item.IsDir) {
+      const localPath = join(targetDir, baseName)
+      return manager.enqueue({
+        kind: 'directory',
+        srcFs: srcRemote ? `${jobRemote}:${srcRemote}` : `${jobRemote}:`,
+        srcRemote: '',
+        dstFs: localPath,
+        dstRemote: '',
+        displayName: input.remotePath,
+        localPath,
+        size: 0,
+        segments: input.segments,
+        cleanupRemote: jobRemote
+      })
+    }
+
     return manager.enqueue({
+      kind: 'file',
       srcFs: `${jobRemote}:`,
       srcRemote,
       dstFs: targetDir,
-      dstRemote: fileName,
+      dstRemote: baseName,
       displayName: input.remotePath,
-      localPath: join(targetDir, fileName),
+      localPath: join(targetDir, baseName),
       size: item.Size < 0 ? 0 : item.Size,
       segments: input.segments,
       cleanupRemote: jobRemote
@@ -60,6 +77,23 @@ export function registerDownloadRoutes(
     return { ok: true }
   })
 
+  app.post('/api/downloads/clear-all', async () => {
+    manager.clearAll()
+    return { ok: true }
+  })
+
+  app.post('/api/downloads/remove', async (req) => {
+    const removed = manager.remove((req.body as { id: string }).id)
+    return { removed }
+  })
+
+  app.get('/api/downloads/concurrency', async () => ({ max: manager.getMaxConcurrent() }))
+
+  app.post('/api/downloads/concurrency', async (req) => {
+    const { max } = req.body as { max: number }
+    return { max: manager.setMaxConcurrent(max) }
+  })
+
   app.get('/api/downloads', async () => manager.list())
 
   app.get('/api/events', (req, reply) => {
@@ -74,12 +108,14 @@ export function registerDownloadRoutes(
     const send = (payload: unknown): void => {
       raw.write(`data: ${JSON.stringify(payload)}\n\n`)
     }
-    for (const transfer of manager.list()) send(transfer)
-    const unsubscribe = manager.onUpdate(send)
+    send({ type: 'reset', transfers: manager.list() })
+    const offUpdate = manager.onUpdate((transfer) => send({ type: 'update', transfer }))
+    const offRemove = manager.onRemove((id) => send({ type: 'remove', id }))
     const ping = setInterval(() => raw.write(': ping\n\n'), 25000)
     req.raw.on('close', () => {
       clearInterval(ping)
-      unsubscribe()
+      offUpdate()
+      offRemove()
     })
   })
 }

@@ -139,6 +139,10 @@ body {
   max-width: 96px;
 }
 
+.field--concurrent {
+  max-width: 96px;
+}
+
 .field--note p {
   margin: 4px 0 0;
   color: var(--muted);
@@ -458,6 +462,12 @@ body {
   font-size: 13px;
 }
 
+.queue__header-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .queue__body {
   flex: 1;
   min-height: 0;
@@ -682,8 +692,7 @@ body {
 }
 
 .folder-picker__list {
-  flex: 1;
-  min-height: 160px;
+  height: 320px;
   overflow: auto;
   padding: 0 8px;
   border-top: 1px solid var(--border);
@@ -712,6 +721,19 @@ body {
 
 .folder-picker__list li button:hover {
   background: var(--row-hover);
+}
+
+.folder-picker__list li.is-focused button {
+  background: var(--selected);
+}
+
+.folder-picker__list li.is-disabled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  color: var(--muted);
+  cursor: default;
 }
 
 .folder-picker__hint {
