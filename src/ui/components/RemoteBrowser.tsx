@@ -295,9 +295,13 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                     <td className="col-actions" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu
                         open={openMenuPath === entry.path}
-                        onOpenChange={(open) =>
+                        onOpenChange={(open) => {
+                          if (open && !selected.has(entry.path)) {
+                            onSelectionChange(new Set([entry.path]))
+                            anchorRef.current = index
+                          }
                           setOpenMenuPath(open ? entry.path : null)
-                        }
+                        }}
                       >
                         <ActionMenu.Anchor>
                           <IconButton

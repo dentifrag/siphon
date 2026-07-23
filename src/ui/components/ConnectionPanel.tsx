@@ -205,10 +205,13 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
           onChange={(e) => onSegmentsChange(clampSegments(e.target.value))}
         />
       </FormControl>
-      <label className="form-field form-field--grow">
-        <span className="form-field__label">Download folder</span>
+      <div className="form-field form-field--grow">
+        <label className="form-field__label" htmlFor="download-dir">
+          Download folder
+        </label>
         <div className="dir-picker">
           <TextInput
+            id="download-dir"
             className="dir-picker__input"
             block
             value={downloadDir}
@@ -219,7 +222,7 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
             Choose…
           </Button>
         </div>
-      </label>
+      </div>
     </>
   )
 
