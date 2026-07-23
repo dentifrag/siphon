@@ -83,7 +83,7 @@ Uploads and remote file management are out of scope for now.
 - Sessions expire automatically, `sessionTtlHours=72` by default.
 - For HTTPS behind VPN or reverse proxy, set `trustProxy=true` and `secureCookies=true`.
 - Passwordless mode is still available, leave both password settings blank. Siphon starts with a warning because the UI is open.
-- Forgot your password, set a new `APP_PASSWORD`, or update `appPassword` or `appPasswordHash` in `config.json`, then restart Siphon.
+- Forgot your password, if a hash is configured (`APP_PASSWORD_HASH` or `appPasswordHash`), replace or remove that hash first (or regenerate it with `--hash-password`) because hash settings take precedence over plaintext. Then set a new password or hash and restart Siphon.
 - Siphon runs rclone privately on localhost with random credentials, browsers only talk to Siphon's API, never to rclone directly.
 - Saved passwords are stored by rclone (obscured in its config), not by Siphon. Downloads are restricted to folders you configure.
 - This version does not verify SFTP host keys, run it on a network you trust.

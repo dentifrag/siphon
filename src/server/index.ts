@@ -1,7 +1,6 @@
 import Fastify from 'fastify'
 import { dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
-import { createInterface } from 'node:readline/promises'
 import { loadConfig } from './config'
 import { AuthService, hashPassword } from './auth'
 import { LoginLimiter } from './loginLimiter'
@@ -15,24 +14,65 @@ function isLoopbackHost(host: string): boolean {
 }
 
 async function readPasswordFromPrompt(): Promise<string> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout
-  })
+  if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== 'function') {
+    throw new Error('Interactive password input requires a TTY')
+  }
+  const stdin = process.stdin
+  const stdout = process.stdout
+  const wasRaw = stdin.isRaw
+  stdin.setEncoding('utf8')
+  stdin.resume()
+  stdout.write('Password: ')
+  stdin.setRawMode(true)
   try {
-    return await rl.question('Password: ')
+    return await new Promise<string>((resolve, reject) => {
+      let password = ''
+      const onData = (chunk: string): void => {
+        for (const char of chunk) {
+          if (char === '\u0003') {
+            stdin.off('data', onData)
+            reject(new Error('Canceled'))
+            return
+          }
+          if (char === '\r' || char === '\n') {
+            stdin.off('data', onData)
+            stdout.write('\n')
+            resolve(password)
+            return
+          }
+          if (char === '\u007f' || char === '\b') {
+            password = password.slice(0, -1)
+            continue
+          }
+          password += char
+        }
+      }
+      stdin.on('data', onData)
+    })
   } finally {
-    rl.close()
+    stdin.setRawMode(wasRaw)
+    stdin.pause()
   }
 }
 
+async function readPasswordFromStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString('utf8').replace(/[\r\n]+$/, '')
+}
+
 async function main(): Promise<void> {
-  const hashIndex = process.argv.indexOf('--hash-password')
-  if (hashIndex >= 0) {
-    const argValue = process.argv[hashIndex + 1]
-    const password = argValue && !argValue.startsWith('--') ? argValue : await readPasswordFromPrompt()
-    process.stdout.write(`${hashPassword(password)}\n`)
-    process.exit(0)
+  if (process.argv.includes('--hash-password')) {
+    const password = process.stdin.isTTY ? await readPasswordFromPrompt() : await readPasswordFromStdin()
+    await new Promise<void>((resolve, reject) => {
+      process.stdout.write(`${hashPassword(password)}\n`, (error) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+    return
   }
 
   const { config, configPath, created } = loadConfig()

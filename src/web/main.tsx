@@ -58,6 +58,7 @@ function Root(): React.JSX.Element {
           <TextInput
             type="text"
             block
+            aria-label="Username"
             autoComplete="username"
             autoFocus
             value={username}
@@ -67,6 +68,7 @@ function Root(): React.JSX.Element {
           <TextInput
             type="password"
             block
+            aria-label="Password"
             value={password}
             placeholder="Password"
             onChange={(e) => setPassword(e.target.value)}

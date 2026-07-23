@@ -21,15 +21,18 @@ export function sessionCookieName(secure: boolean): string {
   return secure ? SECURE_COOKIE : STANDARD_COOKIE
 }
 
-function readSessionId(req: FastifyRequest): string | undefined {
-  return req.cookies?.[SECURE_COOKIE] ?? req.cookies?.[STANDARD_COOKIE]
+function readSessionIds(req: FastifyRequest): string[] {
+  const values = [req.cookies?.[SECURE_COOKIE], req.cookies?.[STANDARD_COOKIE]].filter(
+    (value): value is string => Boolean(value)
+  )
+  return Array.from(new Set(values))
 }
 
 export function authGuard(auth: AuthService) {
   return (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void => {
     if (!req.url.startsWith('/api/')) return done()
     if (req.url.startsWith('/api/login') || req.url.startsWith('/api/auth-status')) return done()
-    if (!auth.isValid(readSessionId(req))) {
+    if (!readSessionIds(req).some((sid) => auth.isValid(sid))) {
       reply.header('Cache-Control', 'no-store').code(401).send({ error: 'Unauthorized' })
       return
     }
@@ -76,7 +79,7 @@ export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter
   })
 
   app.post('/api/logout', async (req, reply) => {
-    auth.logout(readSessionId(req))
+    for (const sid of readSessionIds(req)) auth.logout(sid)
     reply.clearCookie(STANDARD_COOKIE, { path: '/' })
     reply.clearCookie(SECURE_COOKIE, { path: '/', secure: true })
     return { ok: true }
@@ -86,7 +89,7 @@ export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter
     reply.header('Cache-Control', 'no-store')
     return {
       required: auth.enabled,
-      authenticated: auth.isValid(readSessionId(req))
+      authenticated: readSessionIds(req).some((sid) => auth.isValid(sid))
     }
   })
 }
