@@ -112,6 +112,9 @@ export function registerUploadRoutes(
     }
 
     const remoteDir = uiToRemotePath(input.remoteDir)
+    if (remoteDir.split('/').some((seg) => seg === '..')) {
+      throw httpError(400, 'That destination folder is not allowed.')
+    }
     const jobRemote = `_ul-${randomUUID()}`
     await client.cloneRemote(session.remoteName(), jobRemote)
 

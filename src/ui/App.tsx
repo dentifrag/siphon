@@ -127,17 +127,17 @@ export default function App({ canChangePassword }: AppProps) {
         return next
       })
 
-      if (
-        update.direction === 'upload' &&
-        update.status === 'completed' &&
-        update.uploadRemoteDir === cwdRef.current
-      ) {
-        const target = update.uploadRemoteDir
-        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
-        refreshTimerRef.current = setTimeout(() => {
-          refreshTimerRef.current = null
-          if (cwdRef.current === target) navigateToRef.current(target)
-        }, 600)
+      if (update.direction === 'upload' && update.status === 'completed') {
+        const uploadDir = update.uploadRemoteDir
+        // Server-normalized uploadRemoteDir (uiToRemotePath) strips leading slashes; match that here.
+        const cwdNorm = cwdRef.current.replace(/^\/+/, '')
+        if (uploadDir !== undefined && uploadDir === cwdNorm) {
+          if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+          refreshTimerRef.current = setTimeout(() => {
+            refreshTimerRef.current = null
+            if (cwdRef.current.replace(/^\/+/, '') === uploadDir) navigateToRef.current(cwdRef.current)
+          }, 600)
+        }
       }
     })
   }, [])

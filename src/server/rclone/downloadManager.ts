@@ -305,7 +305,8 @@ export class RcloneDownloadManager extends EventEmitter {
           t.progress.status = 'canceled'
         } else {
           t.progress.status = 'error'
-          t.progress.error = job.error || 'Download failed.'
+          t.progress.error =
+            job.error || (t.progress.direction === 'upload' ? 'Upload failed.' : 'Download failed.')
         }
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0
