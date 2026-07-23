@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Dialog, FormControl, SegmentedControl, TextInput } from '@primer/react'
 import type { RemoteEntry, TransferProgress } from '@shared/types'
 import type { ConnectionProfileMeta, SaveProfileInput } from '@shared/api'
@@ -77,6 +77,7 @@ export default function App({ canChangePassword }: AppProps) {
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [rememberSecret, setRememberSecret] = useState(true)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<'chooseDir' | 'chooseItems'>('chooseDir')
   const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
@@ -85,6 +86,20 @@ export default function App({ canChangePassword }: AppProps) {
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [passwordNotice, setPasswordNotice] = useState<string | null>(null)
+
+  const cwdRef = useRef(cwd)
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const navigateToRef = useRef<(dir: string) => Promise<boolean>>(async () => false)
+
+  useEffect(() => {
+    cwdRef.current = cwd
+  }, [cwd])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     window.api
@@ -111,6 +126,19 @@ export default function App({ canChangePassword }: AppProps) {
         next[index] = update
         return next
       })
+
+      if (update.direction === 'upload' && update.status === 'completed') {
+        const uploadDir = update.uploadRemoteDir
+        // Server-normalized uploadRemoteDir (uiToRemotePath) strips leading slashes; match that here.
+        const cwdNorm = cwdRef.current.replace(/^\/+/, '')
+        if (uploadDir !== undefined && uploadDir === cwdNorm) {
+          if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+          refreshTimerRef.current = setTimeout(() => {
+            refreshTimerRef.current = null
+            if (cwdRef.current.replace(/^\/+/, '') === uploadDir) navigateToRef.current(cwdRef.current)
+          }, 600)
+        }
+      }
     })
   }, [])
 
@@ -135,6 +163,10 @@ export default function App({ canChangePassword }: AppProps) {
       setBrowseLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    navigateToRef.current = navigateTo
+  }, [navigateTo])
 
   useEffect(() => {
     window.api
@@ -295,6 +327,27 @@ export default function App({ canChangePassword }: AppProps) {
     setSelected(new Set())
   }, [entries, selected, enqueue])
 
+  const handleUploadSelected = useCallback(
+    async (localPaths: string[]) => {
+      setPickerOpen(false)
+      const destDir = cwd
+      for (const localPath of localPaths) {
+        try {
+          const enqueued = await window.api.enqueueUpload({
+            localPath,
+            remoteDir: destDir
+          })
+          if (enqueued.length === 0) {
+            setBrowseError('That folder has no files to upload.')
+          }
+        } catch (error) {
+          setBrowseError(errorMessage(error))
+        }
+      }
+    },
+    [cwd]
+  )
+
   const handleClearFinished = useCallback(async () => {
     await window.api.clearFinishedDownloads()
   }, [])
@@ -370,7 +423,10 @@ export default function App({ canChangePassword }: AppProps) {
         segments={segments}
         onSegmentsChange={setSegments}
         downloadDir={downloadDir}
-        onBrowseServer={() => setPickerOpen(true)}
+        onBrowseServer={() => {
+          setPickerMode('chooseDir')
+          setPickerOpen(true)
+        }}
         onDownloadDirChange={setDownloadDir}
         profiles={profiles}
         selectedProfileId={selectedProfileId}
@@ -412,6 +468,10 @@ export default function App({ canChangePassword }: AppProps) {
           onSelectionChange={setSelected}
           onDownloadSelected={handleDownloadSelected}
           onDownloadEntry={(entry) => enqueue(entry.path)}
+          onUpload={() => {
+            setPickerMode('chooseItems')
+            setPickerOpen(true)
+          }}
         />
 
         <TransferQueue
@@ -428,9 +488,14 @@ export default function App({ canChangePassword }: AppProps) {
       {pickerOpen && (
         <FolderPicker
           initialPath={downloadDir}
+          mode={pickerMode}
           onClose={() => setPickerOpen(false)}
-          onChoose={(path) => {
-            setDownloadDir(path)
+          onChoose={(paths) => {
+            if (pickerMode === 'chooseItems') {
+              void handleUploadSelected(paths)
+              return
+            }
+            setDownloadDir(paths[0])
             setPickerOpen(false)
           }}
         />

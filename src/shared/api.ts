@@ -22,6 +22,11 @@ export interface DownloadEnqueueInput {
   segments: number
 }
 
+export interface UploadEnqueueInput {
+  localPath: string
+  remoteDir: string
+}
+
 export interface ConnectionProfileMeta {
   id: string
   name: string
@@ -83,6 +88,7 @@ export interface SftpApi {
   list(dir: string): Promise<RemoteEntry[]>
   stat(path: string): Promise<RemoteStat>
   enqueueDownload(input: DownloadEnqueueInput): Promise<TransferProgress[]>
+  enqueueUpload(input: UploadEnqueueInput): Promise<TransferProgress[]>
   cancelDownload(id: string): Promise<void>
   cancelAllDownloads(): Promise<void>
   clearFinishedDownloads(): Promise<void>

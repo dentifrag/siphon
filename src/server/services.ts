@@ -28,7 +28,7 @@ export async function createServices(
 async function removeEphemeralRemotes(client: RcloneClient): Promise<void> {
   const names = await client.listRemotes().catch(() => [] as string[])
   for (const name of names) {
-    if (name === '_session' || name.startsWith('_dl-')) {
+    if (name === '_session' || name.startsWith('_dl-') || name.startsWith('_ul-')) {
       await client.deleteRemote(name).catch(() => undefined)
     }
   }

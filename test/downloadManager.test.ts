@@ -33,6 +33,24 @@ function enqueueInput(overrides: Partial<RcloneEnqueueInput> = {}): RcloneEnqueu
   }
 }
 
+describe('RcloneDownloadManager direction', () => {
+  it('defaults direction to download and round-trips an explicit upload direction through list()', () => {
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      copyFileAsync: vi.fn().mockReturnValue(new Promise(() => {}))
+    } as unknown as RcloneClient
+    const manager = new RcloneDownloadManager(client)
+
+    const downloadTransfer = manager.enqueue(enqueueInput())
+    expect(downloadTransfer.direction).toBe('download')
+    expect(manager.list().find((t) => t.id === downloadTransfer.id)?.direction).toBe('download')
+
+    const uploadTransfer = manager.enqueue(enqueueInput({ direction: 'upload' }))
+    expect(uploadTransfer.direction).toBe('upload')
+    expect(manager.list().find((t) => t.id === uploadTransfer.id)?.direction).toBe('upload')
+  })
+})
+
 describe('RcloneDownloadManager cancellation race', () => {
   it('stops and cleans up a job that starts after the user already canceled', async () => {
     const startJob = deferred<number>()

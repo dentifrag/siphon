@@ -53,7 +53,12 @@ Environment variables win if both are set.
 
 `DOWNLOAD_DIRS` powers the in-app folder picker. List each drive or folder you want to save
 into, for example `Movies=/mnt/movies,Backup=/mnt/backup`. In Docker, mount each of those
-paths as a volume.
+paths as a volume. The same folders scope which local files can be uploaded, since uploads read
+from the server's local disk into the remote folder you are browsing.
+
+SFTP uploads run single-stream per file (rclone can't multi-thread a single-file SFTP upload).
+Overall upload throughput across multiple files comes from the Concurrent setting in the
+transfer queue.
 
 ## First-run setup
 
@@ -74,10 +79,10 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 - Connect over SFTP with a password or private key.
 - Browse remote folders with sorting, multi-select, and right-click download.
 - Fast parallel downloads (1 to 16 streams) with live progress and speed.
+- Upload files and folders that already exist on the Siphon server's local disk into the
+  remote folder you are browsing.
 - Downloads keep running on the server even if you close the tab or your phone.
 - Save connections so you don't retype credentials, and pick a save folder per download.
-
-Uploads and remote file management are out of scope for now.
 
 ## Keep it running on boot
 

@@ -15,6 +15,8 @@ export interface RcloneEnqueueInput {
   size: number
   segments: number
   cleanupRemote?: string
+  direction?: 'download' | 'upload'
+  uploadRemoteDir?: string
 }
 
 interface InternalTransfer {
@@ -93,7 +95,9 @@ export class RcloneDownloadManager extends EventEmitter {
       speedBytesPerSec: 0,
       activeSegments: 0,
       segments: input.segments,
-      status: 'queued'
+      status: 'queued',
+      direction: input.direction ?? 'download',
+      uploadRemoteDir: input.uploadRemoteDir
     }
     this.transfers.set(id, {
       progress,
@@ -301,7 +305,8 @@ export class RcloneDownloadManager extends EventEmitter {
           t.progress.status = 'canceled'
         } else {
           t.progress.status = 'error'
-          t.progress.error = job.error || 'Download failed.'
+          t.progress.error =
+            job.error || (t.progress.direction === 'upload' ? 'Upload failed.' : 'Download failed.')
         }
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0

@@ -1,4 +1,5 @@
 import { Button, Label, ProgressBar } from '@primer/react'
+import { ArrowDownIcon, ArrowUpIcon } from '@primer/octicons-react'
 import type { TransferProgress, TransferStatus } from '@shared/types'
 import { formatBytes, formatEta, formatPercent, formatSpeed } from '../lib/format'
 
@@ -18,6 +19,14 @@ const STATUS_LABELS: Record<TransferStatus, string> = {
   completed: 'Completed',
   error: 'Error',
   canceled: 'Canceled'
+}
+
+function statusLabel(transfer: TransferProgress): string {
+  const isUpload = transfer.direction === 'upload'
+  if (transfer.status === 'downloading') {
+    return isUpload ? 'Uploading' : 'Downloading'
+  }
+  return `${isUpload ? 'Upload' : 'Download'} ${STATUS_LABELS[transfer.status].toLowerCase()}`
 }
 
 const STATUS_VARIANTS: Record<
@@ -104,6 +113,7 @@ export function TransferQueue(props: TransferQueueProps) {
             {transfers.map((transfer) => {
               const percent = formatPercent(transfer.transferred, transfer.size)
               const active = transfer.status === 'downloading'
+              const isUpload = transfer.direction === 'upload'
               const canceling = transfer.canceling === true && transfer.status === 'downloading'
               const eta =
                 active && !canceling && transfer.size > 0 && transfer.speedBytesPerSec > 0
@@ -113,10 +123,15 @@ export function TransferQueue(props: TransferQueueProps) {
                 <li key={transfer.id} className="transfer">
                   <div className="transfer__top">
                     <span className="transfer__name" title={transfer.remotePath}>
+                      {isUpload ? (
+                        <ArrowUpIcon aria-label="Upload" />
+                      ) : (
+                        <ArrowDownIcon aria-label="Download" />
+                      )}
                       {baseName(transfer.localPath || transfer.remotePath)}
                     </span>
                     <Label variant={STATUS_VARIANTS[transfer.status]}>
-                      {STATUS_LABELS[transfer.status]}
+                      {statusLabel(transfer)}
                     </Label>
                   </div>
 
@@ -139,8 +154,8 @@ export function TransferQueue(props: TransferQueueProps) {
                     ) : (
                       active && (
                         <span>
-                          {formatSpeed(transfer.speedBytesPerSec)} · {transfer.activeSegments}/
-                          {transfer.segments} segments
+                          {formatSpeed(transfer.speedBytesPerSec)}
+                          {!isUpload ? ` · ${transfer.activeSegments}/${transfer.segments} segments` : ''}
                           {eta ? ` · ~${eta} left` : ''}
                         </span>
                       )

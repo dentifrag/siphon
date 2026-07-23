@@ -40,6 +40,8 @@ export interface TransferProgress {
   status: TransferStatus
   canceling?: boolean
   error?: string
+  direction?: 'download' | 'upload'
+  uploadRemoteDir?: string
 }
 
 export type DownloadEvent =

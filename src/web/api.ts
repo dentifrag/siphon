@@ -14,7 +14,8 @@ import type {
   ResolvedProfile,
   SaveProfileInput,
   SessionStatus,
-  SftpApi
+  SftpApi,
+  UploadEnqueueInput
 } from '@shared/api'
 
 async function request<T>(
@@ -110,6 +111,8 @@ export function createWebApi(): WebApi {
     stat: (path: string) => request<RemoteStat>(`/api/stat?path=${encodeURIComponent(path)}`),
     enqueueDownload: (input: DownloadEnqueueInput) =>
       request<TransferProgress[]>('/api/download', { method: 'POST', body: input }),
+    enqueueUpload: (input: UploadEnqueueInput) =>
+      request<TransferProgress[]>('/api/upload', { method: 'POST', body: input }),
     cancelDownload: async (id: string) => {
       await request('/api/download/cancel', { method: 'POST', body: { id } })
     },

@@ -6,6 +6,7 @@ import { registerSystemRoutes } from './routes/system'
 import { registerConnectionRoutes } from './routes/connection'
 import { registerBrowseRoutes } from './routes/browse'
 import { registerDownloadRoutes } from './routes/downloads'
+import { registerUploadRoutes } from './routes/uploads'
 import { registerProfileRoutes } from './routes/profiles'
 import { registerStatic } from './routes/static'
 
@@ -17,6 +18,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   registerConnectionRoutes(app, ctx)
   registerBrowseRoutes(app, ctx)
   registerDownloadRoutes(app, ctx)
+  registerUploadRoutes(app, ctx)
   registerProfileRoutes(app, ctx)
   await registerStatic(app, ctx)
 }
