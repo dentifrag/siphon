@@ -76,8 +76,13 @@ describe('listDirs', () => {
     expect(listing.parent).toBe(join(base, 'driveA'))
   })
 
-  it('throws for a path outside the roots when confined', async () => {
-    await expect(listDirs(confined, '/etc', join(base, 'driveA'))).rejects.toThrow()
+  it('falls back to the fallback folder when the requested path is outside the roots when confined', async () => {
+    const listing = await listDirs(confined, '/etc', join(base, 'driveA'))
+    expect(listing.path).toBe(join(base, 'driveA'))
+  })
+
+  it('throws when both requested and fallback paths are outside the roots when confined', async () => {
+    await expect(listDirs(confined, '/etc', '/etc')).rejects.toThrow()
   })
 
   it('walks upward past the roots when unconfined', async () => {
