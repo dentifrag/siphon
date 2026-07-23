@@ -12,6 +12,7 @@ import { errorMessage } from './lib/format'
 type ConnState = 'disconnected' | 'connecting' | 'connected'
 
 const MAX_CONCURRENT_STORAGE_KEY = 'siphon.maxConcurrentDownloads'
+const CONNECTION_STORAGE_KEY = 'siphon.connection'
 
 function loadStoredMaxConcurrent(): number {
   const stored = Number.parseInt(localStorage.getItem(MAX_CONCURRENT_STORAGE_KEY) ?? '', 10)
@@ -98,6 +99,23 @@ export default function App() {
       .then(async (status) => {
         if (!status.connected) return
         setConnState('connected')
+        try {
+          const raw = localStorage.getItem(CONNECTION_STORAGE_KEY)
+          if (raw) {
+            const saved = JSON.parse(raw)
+            setForm((prev) => ({
+              ...prev,
+              host: saved.host ?? prev.host,
+              port: saved.port ?? prev.port,
+              username: saved.username ?? prev.username,
+              authMethod: saved.authMethod ?? prev.authMethod,
+              privateKeyPath: saved.privateKeyPath ?? prev.privateKeyPath
+            }))
+            if (saved.profileId) setSelectedProfileId(saved.profileId)
+          }
+        } catch {
+          // ignore malformed stored connection
+        }
         const storedCwd = localStorage.getItem('siphon.cwd') || '/'
         const ok = await navigateTo(storedCwd)
         if (!ok) await navigateTo('/')
@@ -114,6 +132,17 @@ export default function App() {
         selectedProfileId || undefined
       )
       setConnState('connected')
+      localStorage.setItem(
+        CONNECTION_STORAGE_KEY,
+        JSON.stringify({
+          host: form.host,
+          port: form.port,
+          username: form.username,
+          authMethod: form.authMethod,
+          privateKeyPath: form.privateKeyPath,
+          profileId: selectedProfileId
+        })
+      )
       await navigateTo(result.home || '/')
     } catch (error) {
       setConnState('disconnected')
@@ -125,6 +154,7 @@ export default function App() {
     try {
       await window.api.disconnect()
     } finally {
+      localStorage.removeItem(CONNECTION_STORAGE_KEY)
       setConnState('disconnected')
       setEntries([])
       setCwd('/')
