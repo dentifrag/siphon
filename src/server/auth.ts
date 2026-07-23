@@ -1,4 +1,6 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import type { AuthStoreState } from './authStore'
+import { verifyScryptPassword } from './passwordHash'
 
 const DEFAULT_N = 16_384
 const DEFAULT_R = 8
@@ -25,72 +27,117 @@ export function hashPassword(plain: string): string {
 }
 
 export function verifyPassword(plain: string, stored: string): boolean {
-  try {
-    const parts = stored.split('$')
-    if (parts.length !== 6 || parts[0] !== 'scrypt') return false
+  return verifyScryptPassword(plain, stored)
+}
 
-    const n = Number.parseInt(parts[1], 10)
-    const r = Number.parseInt(parts[2], 10)
-    const p = Number.parseInt(parts[3], 10)
-    if (!Number.isInteger(n) || n <= 1) return false
-    if (!Number.isInteger(r) || r <= 0) return false
-    if (!Number.isInteger(p) || p <= 0) return false
+export type AuthState = 'setup' | 'open' | 'password'
 
-    const salt = Buffer.from(parts[4], 'base64')
-    const expected = Buffer.from(parts[5], 'base64')
-    if (salt.length === 0 || expected.length === 0) return false
+export interface AuthStoreWriter {
+  write(state: AuthStoreState): Promise<void>
+}
 
-    const actual = scryptSync(plain, salt, expected.length, { N: n, r, p })
-    if (actual.length !== expected.length) return false
-    return timingSafeEqual(actual, expected)
-  } catch {
-    return false
+export type AuthStartup =
+  | { mode: 'setup' }
+  | { mode: 'open' }
+  | { mode: 'password'; username: string; passwordHash: string; canChangePassword: boolean }
+
+export interface AuthSetupPasswordInput {
+  username: string
+  password: string
+}
+
+export interface AuthSetupOpenInput {
+  mode: 'open'
+}
+
+export type AuthSetupInput = AuthSetupPasswordInput | AuthSetupOpenInput
+
+export interface AuthServiceOptions {
+  startup: AuthStartup
+  store: AuthStoreWriter
+  sessionTtlMs: number
+  now?: () => number
+}
+
+export class AuthAlreadyConfiguredError extends Error {
+  constructor() {
+    super('Already configured')
   }
 }
 
-export interface AuthServiceOptions {
-  username: string | null
-  password: string | null
-  passwordHash: string | null
-  sessionTtlMs: number
-  now?: () => number
+export class AuthNotPasswordModeError extends Error {
+  constructor() {
+    super('Not in password mode')
+  }
+}
+
+export class AuthPasswordChangeNotAllowedError extends Error {
+  constructor() {
+    super('Password changes are not allowed')
+  }
+}
+
+export class AuthCurrentPasswordMismatchError extends Error {
+  constructor() {
+    super('Current password is incorrect')
+  }
 }
 
 export class AuthService {
   private readonly sessions = new Map<string, number>()
   private readonly now: () => number
+  private stateValue: AuthState
+  private usernameValue: string | null
+  private passwordHashValue: string | null
+  private canChangePasswordValue: boolean
+  private mutationQueue: Promise<void> = Promise.resolve()
 
-  constructor(
-    private readonly options: AuthServiceOptions
-  ) {
+  constructor(private readonly options: AuthServiceOptions) {
     this.now = options.now ?? Date.now
+    if (options.startup.mode === 'setup') {
+      this.stateValue = 'setup'
+      this.usernameValue = null
+      this.passwordHashValue = null
+      this.canChangePasswordValue = false
+      return
+    }
+    if (options.startup.mode === 'open') {
+      this.stateValue = 'open'
+      this.usernameValue = null
+      this.passwordHashValue = null
+      this.canChangePasswordValue = false
+      return
+    }
+    this.stateValue = 'password'
+    this.usernameValue = options.startup.username
+    this.passwordHashValue = options.startup.passwordHash
+    this.canChangePasswordValue = options.startup.canChangePassword
+  }
+
+  get state(): AuthState {
+    return this.stateValue
+  }
+
+  get canChangePassword(): boolean {
+    return this.stateValue === 'password' && this.canChangePasswordValue
   }
 
   get enabled(): boolean {
-    return Boolean(this.options.password) || Boolean(this.options.passwordHash)
+    return this.stateValue === 'password'
   }
 
-  login(username: string, password: string): string | null {
-    if (!this.enabled) return null
-
-    const expectedUser = this.options.username ?? 'admin'
-    const expectedPassword = this.options.password ?? ''
-
-    const userOk = safeEqualStr(username, expectedUser)
-    const passOk = this.options.passwordHash
-      ? verifyPassword(password, this.options.passwordHash)
-      : safeEqualStr(password, expectedPassword)
-
-    if (!(userOk && passOk)) return null
-
-    this.pruneExpired(this.now())
-    const sid = randomBytes(32).toString('base64url')
-    this.sessions.set(sid, this.now() + this.options.sessionTtlMs)
-    return sid
+  async login(username: string, password: string): Promise<string | null> {
+    return this.withMutationLock(async () => {
+      if (this.stateValue !== 'password' || !this.usernameValue || !this.passwordHashValue) return null
+      const userOk = safeEqualStr(username, this.usernameValue)
+      const passOk = verifyPassword(password, this.passwordHashValue)
+      if (!(userOk && passOk)) return null
+      return this.createSession()
+    })
   }
 
   isValid(sid: string | undefined): boolean {
-    if (!this.enabled) return true
+    if (this.stateValue !== 'password') return true
     if (!sid) return false
 
     const now = this.now()
@@ -108,9 +155,81 @@ export class AuthService {
     if (sid) this.sessions.delete(sid)
   }
 
+  async completeSetup(input: AuthSetupInput): Promise<string | null> {
+    return this.withMutationLock(async () => {
+      if (this.stateValue !== 'setup') {
+        throw new AuthAlreadyConfiguredError()
+      }
+      if (isSetupOpenInput(input)) {
+        await this.options.store.write({ mode: 'open' })
+        this.stateValue = 'open'
+        this.usernameValue = null
+        this.passwordHashValue = null
+        this.canChangePasswordValue = false
+        this.sessions.clear()
+        return null
+      }
+
+      const passwordHash = hashPassword(input.password)
+      await this.options.store.write({
+        mode: 'password',
+        username: input.username,
+        passwordHash
+      })
+      this.stateValue = 'password'
+      this.usernameValue = input.username
+      this.passwordHashValue = passwordHash
+      this.canChangePasswordValue = true
+      return this.createSession()
+    })
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<string> {
+    return this.withMutationLock(async () => {
+      if (this.stateValue !== 'password' || !this.usernameValue || !this.passwordHashValue) {
+        throw new AuthNotPasswordModeError()
+      }
+      if (!this.canChangePasswordValue) {
+        throw new AuthPasswordChangeNotAllowedError()
+      }
+      if (!verifyPassword(currentPassword, this.passwordHashValue)) {
+        throw new AuthCurrentPasswordMismatchError()
+      }
+      const nextHash = hashPassword(newPassword)
+      await this.options.store.write({
+        mode: 'password',
+        username: this.usernameValue,
+        passwordHash: nextHash
+      })
+      this.passwordHashValue = nextHash
+      this.sessions.clear()
+      return this.createSession()
+    })
+  }
+
+  private createSession(): string {
+    this.pruneExpired(this.now())
+    const sid = randomBytes(32).toString('base64url')
+    this.sessions.set(sid, this.now() + this.options.sessionTtlMs)
+    return sid
+  }
+
+  private async withMutationLock<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.mutationQueue.then(task, task)
+    this.mutationQueue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
   private pruneExpired(now: number): void {
     for (const [sid, expiresAt] of this.sessions) {
       if (expiresAt <= now) this.sessions.delete(sid)
     }
   }
+}
+
+function isSetupOpenInput(input: AuthSetupInput): input is AuthSetupOpenInput {
+  return (input as { mode?: string }).mode === 'open'
 }

@@ -1,8 +1,9 @@
 import Fastify from 'fastify'
 import { dirname } from 'node:path'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { loadConfig } from './config'
-import { AuthService, hashPassword } from './auth'
+import { AuthService, hashPassword, type AuthStartup } from './auth'
+import { AuthStore } from './authStore'
 import { LoginLimiter } from './loginLimiter'
 import { createServices } from './services'
 import { ConnectionSession } from './session'
@@ -77,10 +78,38 @@ async function main(): Promise<void> {
 
   const { config, configPath, created } = loadConfig()
   const sessionTtlMs = config.sessionTtlHours * 60 * 60 * 1_000
+  const authStore = new AuthStore(config.dataDir)
+  const hasEnvCredential = Boolean(config.appPassword) || Boolean(config.appPasswordHash)
+
+  let startup: AuthStartup
+  if (hasEnvCredential) {
+    const username = config.appUsername ?? 'admin'
+    const passwordHash = config.appPasswordHash ?? hashPassword(config.appPassword ?? '')
+    startup = { mode: 'password', username, passwordHash, canChangePassword: false }
+  } else {
+    let stored
+    try {
+      stored = await authStore.read()
+    } catch (error) {
+      throw new Error(
+        `Failed to read auth state from ${authStore.path()}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+    if (!stored) startup = { mode: 'setup' }
+    else if (stored.mode === 'open') startup = { mode: 'open' }
+    else {
+      startup = {
+        mode: 'password',
+        username: stored.username,
+        passwordHash: stored.passwordHash,
+        canChangePassword: true
+      }
+    }
+  }
+
   const auth = new AuthService({
-    username: config.appUsername,
-    password: config.appPassword,
-    passwordHash: config.appPasswordHash,
+    startup,
+    store: authStore,
     sessionTtlMs
   })
   const limiter = new LoginLimiter({
@@ -117,16 +146,27 @@ async function main(): Promise<void> {
     app.log.info(`Config file: ${configPath}`)
   }
 
-  if (auth.enabled) {
-    app.log.info(`Authentication enabled (username: ${config.appUsername ?? 'admin'})`)
-    app.log.info(`Auth network settings: secureCookies=${config.secureCookies}, trustProxy=${config.trustProxy}`)
-    if (config.secureCookies === 'auto' && !config.trustProxy) {
-      app.log.info('For HTTPS behind a proxy, set secureCookies=true or enable trustProxy.')
-    }
-  } else {
-    app.log.warn('No password set: the web UI is unauthenticated. Set a password to protect it.')
+  if (hasEnvCredential && existsSync(authStore.path())) {
+    app.log.warn(
+      `Auth store found at ${authStore.path()}, but APP_PASSWORD or APP_PASSWORD_HASH is set. Stored auth is dormant until env credentials are removed.`
+    )
+  }
+
+  app.log.info(`Auth state: ${auth.state} (canChangePassword=${auth.canChangePassword})`)
+  app.log.info(`Auth network settings: secureCookies=${config.secureCookies}, trustProxy=${config.trustProxy}`)
+  if (config.secureCookies === 'auto' && !config.trustProxy) {
+    app.log.info('For HTTPS behind a proxy, set secureCookies=true or enable trustProxy.')
+  }
+
+  if (auth.state === 'setup') {
+    app.log.warn('Setup mode: operational API routes are blocked until setup is completed.')
     if (!isLoopbackHost(config.host)) {
-      app.log.warn('Warning: unauthenticated UI is listening on a non-local interface.')
+      app.log.warn('During setup, bind to loopback only unless your network is fully trusted.')
+    }
+  } else if (auth.state === 'open') {
+    app.log.warn('Open mode is enabled. The web UI is unauthenticated.')
+    if (!isLoopbackHost(config.host)) {
+      app.log.warn('Warning: open mode UI is listening on a non-local interface.')
     }
   }
 
@@ -137,6 +177,9 @@ async function main(): Promise<void> {
     app.log.info(`Downloads default to ${config.defaultDir}; the folder picker can browse the whole computer.`)
   }
   app.log.info(`Open http://localhost:${config.port} in your browser.`)
+  if (auth.state === 'setup') {
+    app.log.warn(`Open http://localhost:${config.port} to finish setup before exposing Siphon to the internet.`)
+  }
 }
 
 main().catch((error) => {
