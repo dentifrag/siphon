@@ -1,8 +1,8 @@
-import type { SftpApi } from '@shared/api'
+import type { WebApi } from './api'
 
 declare global {
   interface Window {
-    api: SftpApi
+    api: WebApi
   }
 }
 

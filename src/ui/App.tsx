@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { SegmentedControl } from '@primer/react'
+import { Button, Dialog, FormControl, SegmentedControl, TextInput } from '@primer/react'
 import type { RemoteEntry, TransferProgress } from '@shared/types'
 import type { ConnectionProfileMeta, SaveProfileInput } from '@shared/api'
 import { ConnectionPanel } from './components/ConnectionPanel'
@@ -52,7 +52,11 @@ function parseStoredConnection(raw: string): StoredConnection | null {
   }
 }
 
-export default function App() {
+interface AppProps {
+  canChangePassword: boolean
+}
+
+export default function App({ canChangePassword }: AppProps) {
   const [form, setForm] = useState<ConnectionForm>(defaultConnectionForm)
   const [segments, setSegments] = useState(4)
   const [downloadDir, setDownloadDir] = useState('')
@@ -74,6 +78,13 @@ export default function App() {
   const [rememberSecret, setRememberSecret] = useState(true)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [passwordNotice, setPasswordNotice] = useState<string | null>(null)
 
   useEffect(() => {
     window.api
@@ -304,10 +315,49 @@ export default function App() {
 
   const connected = connState === 'connected'
 
+  const closePasswordDialog = useCallback(() => {
+    setPasswordDialogOpen(false)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmNewPassword('')
+    setPasswordError(null)
+    setPasswordSubmitting(false)
+  }, [])
+
+  const submitPasswordChange = useCallback(async () => {
+    if (newPassword.length < 8 || newPassword.length > 256) {
+      setPasswordError('New password must be 8 to 256 characters.')
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('New passwords do not match.')
+      return
+    }
+    setPasswordSubmitting(true)
+    setPasswordError(null)
+    try {
+      await window.api.changePassword(currentPassword, newPassword)
+      closePasswordDialog()
+      setPasswordNotice('Password updated.')
+      window.setTimeout(() => setPasswordNotice(null), 3_000)
+    } catch (error) {
+      setPasswordError(errorMessage(error))
+      setPasswordSubmitting(false)
+    }
+  }, [closePasswordDialog, confirmNewPassword, currentPassword, newPassword])
+
   return (
     <div className={connected ? 'app app--connected' : 'app'}>
       <header className="app__bar">
         <h1>Siphon</h1>
+        <div className="app__bar-actions">
+          {passwordNotice && <span className="app__notice">{passwordNotice}</span>}
+          {canChangePassword && (
+            <Button size="small" variant="default" onClick={() => setPasswordDialogOpen(true)}>
+              Change password
+            </Button>
+          )}
+        </div>
       </header>
 
       <ConnectionPanel
@@ -384,6 +434,59 @@ export default function App() {
             setPickerOpen(false)
           }}
         />
+      )}
+
+      {passwordDialogOpen && (
+        <Dialog
+          title="Change password"
+          onClose={closePasswordDialog}
+          footerButtons={[
+            { content: 'Cancel', disabled: passwordSubmitting, onClick: closePasswordDialog },
+            {
+              content: passwordSubmitting ? 'Saving…' : 'Update password',
+              buttonType: 'primary',
+              disabled: passwordSubmitting,
+              onClick: () => void submitPasswordChange()
+            }
+          ]}
+        >
+          <div className="password-dialog">
+            <FormControl>
+              <FormControl.Label>Current password</FormControl.Label>
+              <TextInput
+                block
+                type="password"
+                aria-label="Current password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </FormControl>
+            <FormControl>
+              <FormControl.Label>New password</FormControl.Label>
+              <TextInput
+                block
+                type="password"
+                aria-label="New password"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </FormControl>
+            <FormControl>
+              <FormControl.Label>Confirm new password</FormControl.Label>
+              <TextInput
+                block
+                type="password"
+                aria-label="Confirm new password"
+                autoComplete="new-password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+              />
+            </FormControl>
+            {passwordError && <p className="banner banner--error">{passwordError}</p>}
+          </div>
+        </Dialog>
       )}
     </div>
   )

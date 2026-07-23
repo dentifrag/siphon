@@ -18,6 +18,10 @@
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
 }
 
+.login__card--setup {
+  width: 360px;
+}
+
 .login__card h1 {
   margin: 0;
   font-size: 18px;
@@ -30,5 +34,9 @@
 }
 
 .login__error {
+  color: var(--danger) !important;
+}
+
+.login__warning {
   color: var(--danger) !important;
 }
