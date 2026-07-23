@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
+import { BaseStyles, ThemeProvider } from '@primer/react'
+import '@primer/primitives/dist/css/functional/themes/light.css'
+import '@primer/primitives/dist/css/functional/themes/dark.css'
 import App from '../ui/App'
 import '../ui/index.css'
 import './web.css'
@@ -72,6 +75,10 @@ function Root(): React.JSX.Element {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <Root />
+    <ThemeProvider colorMode="auto">
+      <BaseStyles>
+        <Root />
+      </BaseStyles>
+    </ThemeProvider>
   </React.StrictMode>
 )
