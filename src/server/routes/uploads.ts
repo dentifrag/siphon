@@ -22,7 +22,6 @@ export interface ExpandUploadInput {
 export async function expandUpload(
   client: RcloneClient,
   manager: RcloneDownloadManager,
-  scope: FsScope,
   input: ExpandUploadInput
 ): Promise<TransferProgress[]> {
   const { resolved, isDir, size, remoteDir, jobRemote } = input
@@ -33,7 +32,7 @@ export async function expandUpload(
     const dirBaseName = safeBaseName(basename(resolved))
     let files
     try {
-      files = await listFilesRecursive(scope, resolved)
+      files = await listFilesRecursive(resolved)
     } catch (err) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw err
@@ -116,7 +115,7 @@ export function registerUploadRoutes(
     const jobRemote = `_ul-${randomUUID()}`
     await client.cloneRemote(session.remoteName(), jobRemote)
 
-    return expandUpload(client, manager, scope, {
+    return expandUpload(client, manager, {
       resolved,
       isDir: stats.isDirectory(),
       size: stats.isDirectory() ? 0 : stats.size,

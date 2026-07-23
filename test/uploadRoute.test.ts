@@ -3,7 +3,6 @@ import { expandUpload } from '../src/server/routes/uploads'
 import type { RcloneClient } from '../src/server/rclone/client'
 import type { RcloneDownloadManager, RcloneEnqueueInput } from '../src/server/rclone/downloadManager'
 import type { TransferProgress } from '../src/shared/types'
-import type { FsScope } from '../src/server/localFs'
 
 const listFilesRecursive = vi.fn()
 
@@ -32,14 +31,12 @@ function makeManager() {
   return { enqueue } as unknown as RcloneDownloadManager
 }
 
-const scope: FsScope = { roots: [{ name: 'root', path: '/root' }], confined: true }
-
 describe('expandUpload', () => {
   it('enqueues one file transfer for a single file', async () => {
     const client = { deleteRemote: vi.fn() } as unknown as RcloneClient
     const manager = makeManager()
 
-    const result = await expandUpload(client, manager, scope, {
+    const result = await expandUpload(client, manager, {
       resolved: '/root/file.bin',
       isDir: false,
       size: 500,
@@ -72,7 +69,7 @@ describe('expandUpload', () => {
       { relPath: 'sub/b.mkv', size: 20 }
     ])
 
-    const result = await expandUpload(client, manager, scope, {
+    const result = await expandUpload(client, manager, {
       resolved: '/root/movies',
       isDir: true,
       size: 0,
@@ -80,7 +77,7 @@ describe('expandUpload', () => {
       jobRemote: '_ul-dir'
     })
 
-    expect(listFilesRecursive).toHaveBeenCalledWith(scope, '/root/movies')
+    expect(listFilesRecursive).toHaveBeenCalledWith('/root/movies')
     expect(result).toHaveLength(2)
     expect(manager.enqueue).toHaveBeenNthCalledWith(1, {
       srcFs: '/root/movies',
@@ -116,7 +113,7 @@ describe('expandUpload', () => {
     const manager = makeManager()
     listFilesRecursive.mockResolvedValueOnce([])
 
-    const result = await expandUpload(client, manager, scope, {
+    const result = await expandUpload(client, manager, {
       resolved: '/root/empty',
       isDir: true,
       size: 0,
@@ -135,7 +132,7 @@ describe('expandUpload', () => {
     listFilesRecursive.mockRejectedValueOnce(new Error('boom'))
 
     await expect(
-      expandUpload(client, manager, scope, {
+      expandUpload(client, manager, {
         resolved: '/root/movies',
         isDir: true,
         size: 0,
@@ -152,7 +149,7 @@ describe('expandUpload', () => {
     const client = { deleteRemote: vi.fn() } as unknown as RcloneClient
     const manager = makeManager()
 
-    const result = await expandUpload(client, manager, scope, {
+    const result = await expandUpload(client, manager, {
       resolved: '/root/file.bin',
       isDir: false,
       size: 500,

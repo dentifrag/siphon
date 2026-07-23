@@ -140,8 +140,7 @@ describe('listFilesRecursive', () => {
         symlinksCreated = false
       }
 
-      const scope: FsScope = { confined: true, roots: [{ name: 'up', path: uploadRoot }] }
-      const files = await listFilesRecursive(scope, uploadRoot)
+      const files = await listFilesRecursive(uploadRoot)
 
       expect(files.sort((a, b) => a.relPath.localeCompare(b.relPath))).toEqual([
         { relPath: 'a.txt', size: 5 },

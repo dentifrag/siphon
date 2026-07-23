@@ -132,10 +132,11 @@ export default function App({ canChangePassword }: AppProps) {
         update.status === 'completed' &&
         update.uploadRemoteDir === cwdRef.current
       ) {
+        const target = update.uploadRemoteDir
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
         refreshTimerRef.current = setTimeout(() => {
           refreshTimerRef.current = null
-          navigateToRef.current(cwdRef.current)
+          if (cwdRef.current === target) navigateToRef.current(target)
         }, 600)
       }
     })
