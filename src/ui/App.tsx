@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { SegmentedControl } from '@primer/react'
 import type { RemoteEntry, TransferProgress } from '@shared/types'
 import type { ConnectionProfileMeta, SaveProfileInput } from '@shared/api'
 import { ConnectionPanel } from './components/ConnectionPanel'
@@ -251,25 +252,20 @@ export default function App() {
         onRememberSecretChange={setRememberSecret}
       />
 
-      <nav className="mobile-tabs" role="tablist" aria-label="View">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mobileTab === 'files'}
-          className={mobileTab === 'files' ? 'is-active' : ''}
-          onClick={() => setMobileTab('files')}
+      <nav className="mobile-tabs">
+        <SegmentedControl
+          aria-label="View"
+          fullWidth
+          onChange={(index) => setMobileTab(index === 0 ? 'files' : 'transfers')}
         >
-          Files
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mobileTab === 'transfers'}
-          className={mobileTab === 'transfers' ? 'is-active' : ''}
-          onClick={() => setMobileTab('transfers')}
-        >
-          Transfers{transfers.length > 0 ? ` (${transfers.length})` : ''}
-        </button>
+          <SegmentedControl.Button selected={mobileTab === 'files'}>Files</SegmentedControl.Button>
+          <SegmentedControl.Button
+            selected={mobileTab === 'transfers'}
+            count={transfers.length || undefined}
+          >
+            Transfers
+          </SegmentedControl.Button>
+        </SegmentedControl>
       </nav>
 
       <div className={`workspace workspace--${mobileTab}`}>

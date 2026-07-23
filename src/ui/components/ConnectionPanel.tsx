@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Button } from '@primer/react'
+import { ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react'
 import type { AuthMethod } from '@shared/types'
 import type { ConnectionProfileMeta } from '@shared/api'
 import type { ConnectionForm } from '../lib/types'
@@ -65,7 +67,7 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
     .join(' ')
 
   const credentials = (
-    <div className="connection__credentials">
+    <div className="connection__credentials" id="connection-details" hidden={connected && !detailsOpen}>
       <div className="connection__row connection__saved">
         <label className="field field--grow">
           <span>Saved sites</span>
@@ -95,17 +97,16 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
             />
             Remember password
           </label>
-          <button type="button" className="btn" disabled={!canSave} onClick={onSaveProfile}>
+          <Button variant="default" disabled={!canSave} onClick={onSaveProfile}>
             Save
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger"
+          </Button>
+          <Button
+            variant="danger"
             disabled={!selectedProfileId || connecting}
             onClick={onDeleteProfile}
           >
             Delete
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -213,9 +214,9 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
             placeholder="Server download folder (or subfolder)"
             onChange={(e) => onDownloadDirChange(e.target.value)}
           />
-          <button type="button" className="btn" onClick={onBrowseServer}>
+          <Button variant="default" onClick={onBrowseServer}>
             Choose…
-          </button>
+          </Button>
         </div>
       </label>
     </>
@@ -226,25 +227,24 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
       {connected ? (
         <>
           <div className="connection__row connection__bar">
-            <button
-              type="button"
+            <Button
+              variant="invisible"
               className="connection__toggle"
               aria-expanded={detailsOpen}
+              aria-controls="connection-details"
+              trailingVisual={detailsOpen ? ChevronUpIcon : ChevronDownIcon}
               onClick={() => setDetailsOpen((open) => !open)}
             >
               <span className="connection__bar-id">{form.host.trim() || 'Connected'}</span>
-              <span className="connection__caret" aria-hidden="true">
-                {detailsOpen ? '▴' : '▾'}
-              </span>
-            </button>
+            </Button>
             {sessionSettings}
             <div className="connection__actions">
-              <button type="button" className="btn btn--danger" onClick={onDisconnect}>
+              <Button variant="danger" onClick={onDisconnect}>
                 Disconnect
-              </button>
+              </Button>
             </div>
           </div>
-          {detailsOpen && credentials}
+          {credentials}
         </>
       ) : (
         <>
@@ -252,14 +252,13 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
           <div className="connection__row connection__row--settings connection__settings">
             {sessionSettings}
             <div className="connection__actions">
-              <button
-                type="button"
-                className="btn btn--primary"
+              <Button
+                variant="primary"
                 disabled={!canConnect}
                 onClick={onConnect}
               >
                 {connecting ? 'Connecting…' : 'Connect'}
-              </button>
+              </Button>
             </div>
           </div>
         </>

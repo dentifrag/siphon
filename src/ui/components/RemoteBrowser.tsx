@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
+import { Button, IconButton } from '@primer/react'
+import { ArrowUpIcon, FileDirectoryFillIcon, FileIcon } from '@primer/octicons-react'
 import type { RemoteEntry } from '@shared/types'
 import { breadcrumbs, parentDir } from '../lib/path'
 import { formatBytes, formatMtime } from '../lib/format'
@@ -213,15 +215,12 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   return (
     <section className="panel browser">
       <div className="browser__toolbar">
-        <button
-          type="button"
-          className="btn btn--icon"
-          title="Up one level"
+        <IconButton
+          icon={ArrowUpIcon}
+          aria-label="Up one level"
           disabled={!connected || cwd === '/'}
           onClick={() => onNavigate(parentDir(cwd))}
-        >
-          ↑
-        </button>
+        />
         <nav className="breadcrumbs">
           {breadcrumbs(cwd).map((crumb, index) => (
             <span key={crumb.path} className="breadcrumbs__item">
@@ -238,23 +237,22 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           ))}
         </nav>
         <div className="browser__toolbar-actions">
-          <button
-            type="button"
-            className="btn"
+          <Button
+            variant="default"
             disabled={!connected || loading}
             onClick={onRefresh}
           >
             Refresh
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary"
+          </Button>
+          <Button
+            variant="primary"
+            count={selectedCount || undefined}
             disabled={selectedCount === 0 || !canDownload}
             title={canDownload ? '' : 'Choose a download folder first'}
             onClick={onDownloadSelected}
           >
-            Download{selectedCount > 0 ? ` (${selectedCount})` : ''}
-          </button>
+            Download
+          </Button>
         </div>
       </div>
 
@@ -300,7 +298,13 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                     <td className="col-name">
                       <span className={`file-name${isDir ? ' file-name--dir' : ''}`}>
                         <span className="file-icon">
-                          {isDir ? '📁' : entry.type === 'symlink' ? '🔗' : '📄'}
+                          {isDir ? (
+                            <FileDirectoryFillIcon />
+                          ) : entry.type === 'symlink' ? (
+                            '🔗'
+                          ) : (
+                            <FileIcon />
+                          )}
                         </span>
                         {entry.name}
                       </span>

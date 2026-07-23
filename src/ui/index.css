@@ -221,12 +221,6 @@ body {
   background: var(--accent-emphasis-hover);
 }
 
-.btn--danger {
-  background: var(--panel);
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
 .btn--small {
   padding: 3px 8px;
   font-size: 12px;
@@ -796,13 +790,12 @@ body {
   max-width: 240px;
 }
 
-.connection__caret {
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .connection__credentials {
   display: contents;
+}
+
+.connection__credentials[hidden] {
+  display: none;
 }
 
 .mobile-tabs {
@@ -837,23 +830,6 @@ body {
     top: 0;
     z-index: 5;
     background: var(--panel);
-  }
-
-  .mobile-tabs button {
-    flex: 1;
-    min-height: 42px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--panel);
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .mobile-tabs button.is-active {
-    background: var(--accent-emphasis);
-    color: var(--on-emphasis);
-    border-color: var(--accent-emphasis);
   }
 
   /* Single-pane workspace inside the fixed app shell; the active pane scrolls */

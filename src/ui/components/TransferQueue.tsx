@@ -1,3 +1,4 @@
+import { Button } from '@primer/react'
 import type { TransferProgress, TransferStatus } from '@shared/types'
 import { formatBytes, formatEta, formatPercent, formatSpeed } from '../lib/format'
 
@@ -59,22 +60,20 @@ export function TransferQueue(props: TransferQueueProps) {
               onChange={(e) => onMaxConcurrentChange(clampConcurrent(e.target.value))}
             />
           </label>
-          <button
-            type="button"
-            className="btn"
+          <Button
+            variant="default"
             disabled={transfers.length === 0}
             onClick={onClearAll}
           >
             Clear all
-          </button>
-          <button
-            type="button"
-            className="btn"
+          </Button>
+          <Button
+            variant="default"
             disabled={!hasFinished}
             onClick={onClearFinished}
           >
             Clear finished
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -131,22 +130,14 @@ export function TransferQueue(props: TransferQueueProps) {
                     <span className="transfer__actions">
                       {(transfer.status === 'downloading' || transfer.status === 'queued') &&
                         !canceling && (
-                          <button
-                            type="button"
-                            className="btn btn--small"
-                            onClick={() => onCancel(transfer.id)}
-                          >
+                          <Button size="small" onClick={() => onCancel(transfer.id)}>
                             Cancel
-                          </button>
+                          </Button>
                         )}
                       {transfer.status !== 'downloading' && (
-                        <button
-                          type="button"
-                          className="btn btn--small"
-                          onClick={() => onRemove(transfer.id)}
-                        >
+                        <Button size="small" onClick={() => onRemove(transfer.id)}>
                           Remove
-                        </button>
+                        </Button>
                       )}
                     </span>
                   </div>
