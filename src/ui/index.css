@@ -471,6 +471,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
 }
@@ -759,24 +761,116 @@ body {
   color: var(--muted);
 }
 
+/* Connection bar (compact, shown once connected) --------------------------- */
+.connection__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.connection__toggle:hover {
+  background: var(--row-hover);
+}
+
+.connection__bar-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.connection__caret {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.connection__credentials {
+  display: contents;
+}
+
+.mobile-tabs {
+  display: none;
+}
+
 /* Responsive layout -------------------------------------------------------- */
 @media (max-width: 768px) {
-  .workspace {
-    flex-direction: column;
+  .app:not(:has(.connection--connected)) {
+    height: auto;
+    min-height: 100dvh;
     overflow-y: auto;
   }
 
-  .browser {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    flex: 1 1 50%;
-    min-height: 160px;
+  .app:not(:has(.connection--connected)) .mobile-tabs,
+  .app:not(:has(.connection--connected)) .workspace {
+    display: none;
   }
 
-  .queue {
+  .dir-picker {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* Files / Transfers tab switcher */
+  .mobile-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--panel);
+  }
+
+  .mobile-tabs button {
+    flex: 1;
+    min-height: 42px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .mobile-tabs button.is-active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  /* Single-pane workspace inside the fixed app shell; the active pane scrolls */
+  .workspace {
+    flex-direction: column;
+  }
+
+  .workspace .browser,
+  .workspace .queue {
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
-    flex: 1 1 50%;
-    min-height: 160px;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .workspace--files .queue {
+    display: none;
+  }
+
+  .workspace--transfers .browser {
+    display: none;
+  }
+
+  .browser__body,
+  .queue__body {
+    overflow: auto;
   }
 
   .col-mtime {

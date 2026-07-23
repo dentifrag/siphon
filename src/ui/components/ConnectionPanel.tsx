@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { AuthMethod } from '@shared/types'
 import type { ConnectionProfileMeta } from '@shared/api'
 import type { ConnectionForm } from '../lib/types'
@@ -57,9 +58,14 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
   const disabled = connected || connecting
   const canConnect = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
   const canSave = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
-  return (
-    <section className="panel connection">
+  const sectionClass = ['panel', 'connection', connected ? 'connection--connected' : '']
+    .filter(Boolean)
+    .join(' ')
+
+  const credentials = (
+    <div className="connection__credentials">
       <div className="connection__row connection__saved">
         <label className="field field--grow">
           <span>Saved sites</span>
@@ -184,48 +190,80 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
           </>
         )}
       </div>
+    </div>
+  )
 
-      <div className="connection__row connection__row--settings">
-        <label className="field field--segments">
-          <span>Segments</span>
+  const sessionSettings = (
+    <>
+      <label className="field field--segments">
+        <span>Segments</span>
+        <input
+          type="number"
+          min={1}
+          max={16}
+          value={segments}
+          onChange={(e) => onSegmentsChange(clampSegments(e.target.value))}
+        />
+      </label>
+      <label className="field field--grow">
+        <span>Download folder</span>
+        <div className="dir-picker">
           <input
-            type="number"
-            min={1}
-            max={16}
-            value={segments}
-            onChange={(e) => onSegmentsChange(clampSegments(e.target.value))}
+            value={downloadDir}
+            placeholder="Server download folder (or subfolder)"
+            onChange={(e) => onDownloadDirChange(e.target.value)}
           />
-        </label>
-        <label className="field field--grow">
-          <span>Download folder</span>
-          <div className="dir-picker">
-            <input
-              value={downloadDir}
-              placeholder="Server download folder (or subfolder)"
-              onChange={(e) => onDownloadDirChange(e.target.value)}
-            />
-            <button type="button" className="btn" onClick={onBrowseServer}>
-              Choose…
-            </button>
-          </div>
-        </label>
-        <div className="connection__actions">
-          {connected ? (
-            <button type="button" className="btn btn--danger" onClick={onDisconnect}>
-              Disconnect
-            </button>
-          ) : (
+          <button type="button" className="btn" onClick={onBrowseServer}>
+            Choose…
+          </button>
+        </div>
+      </label>
+    </>
+  )
+
+  return (
+    <section className={sectionClass}>
+      {connected ? (
+        <>
+          <div className="connection__row connection__bar">
             <button
               type="button"
-              className="btn btn--primary"
-              disabled={!canConnect}
-              onClick={onConnect}
+              className="connection__toggle"
+              aria-expanded={detailsOpen}
+              onClick={() => setDetailsOpen((open) => !open)}
             >
-              {connecting ? 'Connecting…' : 'Connect'}
+              <span className="connection__bar-id">{form.host.trim() || 'Connected'}</span>
+              <span className="connection__caret" aria-hidden="true">
+                {detailsOpen ? '▴' : '▾'}
+              </span>
             </button>
-          )}
-        </div>
-      </div>
+            {sessionSettings}
+            <div className="connection__actions">
+              <button type="button" className="btn btn--danger" onClick={onDisconnect}>
+                Disconnect
+              </button>
+            </div>
+          </div>
+          {detailsOpen && credentials}
+        </>
+      ) : (
+        <>
+          {credentials}
+          <div className="connection__row connection__row--settings connection__settings">
+            {sessionSettings}
+            <div className="connection__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={!canConnect}
+                onClick={onConnect}
+              >
+                {connecting ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {error && <p className="banner banner--error">{error}</p>}
     </section>

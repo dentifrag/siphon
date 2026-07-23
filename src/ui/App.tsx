@@ -39,6 +39,7 @@ export default function App() {
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [rememberSecret, setRememberSecret] = useState(true)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
 
   useEffect(() => {
     window.api
@@ -250,7 +251,28 @@ export default function App() {
         onRememberSecretChange={setRememberSecret}
       />
 
-      <div className="workspace">
+      <nav className="mobile-tabs" role="tablist" aria-label="View">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileTab === 'files'}
+          className={mobileTab === 'files' ? 'is-active' : ''}
+          onClick={() => setMobileTab('files')}
+        >
+          Files
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileTab === 'transfers'}
+          className={mobileTab === 'transfers' ? 'is-active' : ''}
+          onClick={() => setMobileTab('transfers')}
+        >
+          Transfers{transfers.length > 0 ? ` (${transfers.length})` : ''}
+        </button>
+      </nav>
+
+      <div className={`workspace workspace--${mobileTab}`}>
         <RemoteBrowser
           connected={connected}
           cwd={cwd}
