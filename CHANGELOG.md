@@ -7,11 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
-
-## [1.0.0] - 2026-07-24
-
-Initial public release.
+The first public release. These entries move under a dated `## [1.0.0]` heading once the
+`v1.0.0` tag is published.
 
 ### Added
 
@@ -25,6 +22,3 @@ Initial public release.
 - Optional open (unauthenticated) mode for trusted networks.
 - Docker image with rclone bundled, plus single-file binaries for Windows, macOS, and Linux.
 - Windows service installer for running Siphon at boot.
-
-[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/dentifrag/siphon/releases/tag/v1.0.0

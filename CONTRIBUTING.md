@@ -6,7 +6,8 @@ when you open a pull request.
 
 ## Prerequisites
 
-- **Node.js 20 or newer** (the project builds and packages against Node 22).
+- **Node.js `^20.19` or `>=22.12`** (required by the Vite and oxlint dev tooling; the project
+  builds and packages against Node 22).
 - **rclone** on your `PATH`, or point Siphon at a binary with the `RCLONE_PATH` environment
   variable. rclone does the actual transfer work; Siphon is the front end.
 - An SFTP server to test against (any box you can reach over SSH works).

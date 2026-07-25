@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for taking the time to file a bug. Please do not report security
-        vulnerabilities here; follow the [security policy](../SECURITY.md) instead.
+        vulnerabilities here; follow the [security policy](https://github.com/dentifrag/siphon/security/policy) instead.
   - type: textarea
     id: what-happened
     attributes:

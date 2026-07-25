@@ -49,7 +49,10 @@ Some behavior is intentional and documented rather than a vulnerability:
   out in the README.
 - "Open mode" intentionally serves the UI without authentication for trusted LAN use. Do not
   expose an open-mode instance to untrusted networks.
-- Downloads and uploads are restricted to the folders you configure via `DOWNLOAD_DIRS`.
+- By default, with neither `DOWNLOAD_DIRS` nor `DOWNLOAD_DIR` set, Siphon is unconfined: the
+  folder picker can browse the whole machine and transfers can target any absolute path on the
+  server. Set `DOWNLOAD_DIRS` to restrict downloads and uploads to specific folders, and enable
+  authentication before exposing Siphon.
 
 If you are unsure whether something is in scope, report it privately and we will figure it out
 together.
