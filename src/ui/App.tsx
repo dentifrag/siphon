@@ -8,49 +8,16 @@ import { TransferQueue } from './components/TransferQueue'
 import { FolderPicker } from './components/FolderPicker'
 import { defaultConnectionForm, toConnectionConfig, type ConnectionForm } from './lib/types'
 import { errorMessage } from './lib/format'
+import {
+  CONNECTION_STORAGE_KEY,
+  MAX_CONCURRENT_STORAGE_KEY,
+  loadStoredMaxConcurrent,
+  parseStoredConnection,
+  type StoredConnection
+} from './lib/storage'
+import { applyDownloadEvent } from './lib/transfers'
 
 type ConnState = 'disconnected' | 'connecting' | 'connected'
-type StoredConnection = {
-  host: string
-  port: string
-  username: string
-  authMethod: ConnectionForm['authMethod']
-  privateKeyPath: string
-  profileId: string
-}
-
-const MAX_CONCURRENT_STORAGE_KEY = 'siphon.maxConcurrentDownloads'
-const CONNECTION_STORAGE_KEY = 'siphon.connection'
-
-function loadStoredMaxConcurrent(): number {
-  const stored = Number.parseInt(localStorage.getItem(MAX_CONCURRENT_STORAGE_KEY) ?? '', 10)
-  if (!Number.isFinite(stored)) return 3
-  return Math.max(1, Math.min(8, stored))
-}
-
-function parseStoredConnection(raw: string): StoredConnection | null {
-  const parsed: unknown = JSON.parse(raw)
-  if (!parsed || typeof parsed !== 'object') return null
-  const saved = parsed as Record<string, unknown>
-  if (
-    typeof saved.host !== 'string' ||
-    typeof saved.port !== 'string' ||
-    typeof saved.username !== 'string' ||
-    (saved.authMethod !== 'password' && saved.authMethod !== 'privateKey') ||
-    typeof saved.privateKeyPath !== 'string' ||
-    typeof saved.profileId !== 'string'
-  ) {
-    return null
-  }
-  return {
-    host: saved.host,
-    port: saved.port,
-    username: saved.username,
-    authMethod: saved.authMethod,
-    privateKeyPath: saved.privateKeyPath,
-    profileId: saved.profileId
-  }
-}
 
 interface AppProps {
   canChangePassword: boolean
@@ -116,26 +83,11 @@ export default function App({ canChangePassword }: AppProps) {
       .catch(() => undefined)
 
     return window.api.onDownloadUpdate((ev) => {
-      if (ev.type === 'reset') {
-        setTransfers(ev.transfers)
-        return
-      }
-      if (ev.type === 'remove') {
-        setTransfers((prev) => prev.filter((t) => t.id !== ev.id))
-        return
-      }
+      setTransfers((prev) => applyDownloadEvent(prev, ev))
+      if (ev.type !== 'update') return
       const update = ev.transfer
-      setTransfers((prev) => {
-        const index = prev.findIndex((t) => t.id === update.id)
-        if (index === -1) return [...prev, update]
-        const next = prev.slice()
-        next[index] = update
-        return next
-      })
-
       if (update.direction === 'upload' && update.status === 'completed') {
         const uploadDir = update.uploadRemoteDir
-        // Server-normalized uploadRemoteDir (uiToRemotePath) strips leading slashes; match that here.
         const cwdNorm = cwdRef.current.replace(/^\/+/, '')
         if (uploadDir !== undefined && uploadDir === cwdNorm) {
           if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
