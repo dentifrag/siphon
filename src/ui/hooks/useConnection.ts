@@ -133,11 +133,14 @@ export function useConnection({
   const handleDisconnect = useCallback(async () => {
     try {
       await window.api.disconnect()
-    } finally {
-      localStorage.removeItem(CONNECTION_STORAGE_KEY)
-      setConnState('disconnected')
-      onDisconnected()
+    } catch {
+      // ignore: we still reset local state below regardless of server-side outcome
     }
+    try {
+      localStorage.removeItem(CONNECTION_STORAGE_KEY)
+    } catch {}
+    setConnState('disconnected')
+    onDisconnected()
   }, [onDisconnected])
 
   const handleSelectProfile = useCallback(

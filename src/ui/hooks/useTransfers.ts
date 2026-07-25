@@ -65,20 +65,24 @@ export function useTransfers({ navigateTo, getCwd }: UseTransfersOptions): UseTr
   }, [])
 
   const handleCancelDownload = useCallback((id: string) => {
-    window.api.cancelDownload(id)
+    window.api.cancelDownload(id).catch(() => undefined)
   }, [])
 
   const handleRemoveDownload = useCallback(async (id: string) => {
-    const removed = await window.api.removeDownload(id)
-    if (removed) setTransfers((prev) => prev.filter((t) => t.id !== id))
+    try {
+      const removed = await window.api.removeDownload(id)
+      if (removed) setTransfers((prev) => prev.filter((t) => t.id !== id))
+    } catch {
+      // ignore: leave the transfer list as-is if the removal request fails
+    }
   }, [])
 
   const handleClearFinished = useCallback(async () => {
-    await window.api.clearFinishedDownloads()
+    await window.api.clearFinishedDownloads().catch(() => undefined)
   }, [])
 
   const handleClearAll = useCallback(async () => {
-    await window.api.clearAllDownloads()
+    await window.api.clearAllDownloads().catch(() => undefined)
   }, [])
 
   return {
