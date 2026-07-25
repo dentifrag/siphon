@@ -127,7 +127,10 @@ const PASSWORD_MIN = 8
 const PASSWORD_MAX = 256
 const PASSWORD_CHANGE_DISABLED = 'Password changes are disabled for this configuration.'
 
-export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter }: RouteContext): void {
+export function registerAuthRoutes(
+  app: FastifyInstance,
+  { auth, config, limiter }: RouteContext
+): void {
   app.post('/api/login', async (req, reply) => {
     const body = (req.body ?? {}) as { username?: string; password?: string }
     reply.header('Cache-Control', 'no-store')
@@ -235,7 +238,9 @@ export function registerAuthRoutes(app: FastifyInstance, { auth, config, limiter
     const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : ''
     const newPassword = typeof body.newPassword === 'string' ? body.newPassword : ''
     if (currentPassword.length < 1 || currentPassword.length > PASSWORD_MAX) {
-      return reply.code(400).send({ error: `Current password must be 1 to ${PASSWORD_MAX} characters.` })
+      return reply
+        .code(400)
+        .send({ error: `Current password must be 1 to ${PASSWORD_MAX} characters.` })
     }
     if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
       return reply

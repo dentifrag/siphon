@@ -44,7 +44,10 @@ function findOnPath(exe: string): string | null {
   const finder = platform() === 'win32' ? 'where' : 'which'
   const result = spawnSync(finder, [exe], { encoding: 'utf8' })
   if (result.status === 0) {
-    const first = result.stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean)
+    const first = result.stdout
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find(Boolean)
     if (first && existsSync(first)) return first
   }
   if (platform() !== 'win32') {
@@ -102,7 +105,10 @@ async function downloadRclone(destPath: string): Promise<string> {
   if (!res.ok || !res.body) {
     throw new RcloneUnavailableError(helpText(`the download server returned HTTP ${res.status}`))
   }
-  await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(tmpZip))
+  await pipeline(
+    Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+    createWriteStream(tmpZip)
+  )
 
   mkdirSync(tmpDir, { recursive: true })
   const unzip = spawnSync('unzip', ['-o', '-q', tmpZip, '-d', tmpDir], { encoding: 'utf8' })
@@ -114,7 +120,8 @@ async function downloadRclone(destPath: string): Promise<string> {
 
   const exe = platform() === 'win32' ? 'rclone.exe' : 'rclone'
   const extracted = findExtractedBinary(tmpDir, exe)
-  if (!extracted) throw new RcloneUnavailableError(helpText('the downloaded archive had no rclone binary'))
+  if (!extracted)
+    throw new RcloneUnavailableError(helpText('the downloaded archive had no rclone binary'))
 
   mkdirSync(dirname(destPath), { recursive: true })
   const { copyFileSync } = await import('node:fs')

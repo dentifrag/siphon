@@ -61,9 +61,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   const toggleSort = useCallback((key: SortKey) => {
     anchorRef.current = null
     setSort((prev) =>
-      prev.key === key
-        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: 'asc' }
+      prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }
     )
   }, [])
 
@@ -220,18 +218,10 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           ))}
         </nav>
         <div className="browser__toolbar-actions">
-          <Button
-            variant="default"
-            disabled={!connected || loading}
-            onClick={onRefresh}
-          >
+          <Button variant="default" disabled={!connected || loading} onClick={onRefresh}>
             Refresh
           </Button>
-          <Button
-            variant="default"
-            disabled={!connected || loading}
-            onClick={onUpload}
-          >
+          <Button variant="default" disabled={!connected || loading} onClick={onUpload}>
             Upload
           </Button>
           <Button
@@ -280,9 +270,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                     key={entry.path}
                     className={isSelected ? 'is-selected' : undefined}
                     onClick={(e) => handleRowClick(e, entry, index)}
-                    onDoubleClick={() =>
-                      isDir ? onNavigate(entry.path) : onDownloadEntry(entry)
-                    }
+                    onDoubleClick={() => (isDir ? onNavigate(entry.path) : onDownloadEntry(entry))}
                     onContextMenu={(e) => handleContextMenu(e, entry, index)}
                   >
                     <td className="col-name">

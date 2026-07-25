@@ -1,0 +1,75 @@
+name: Bug report
+description: Report something that is not working as expected.
+title: '[Bug]: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please do not report security
+        vulnerabilities here; follow the [security policy](https://github.com/dentifrag/siphon/security/policy) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected to happen.
+      placeholder: When I do X, Y happens instead of Z.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the problem?
+      placeholder: |
+        1. Connect to '...'
+        2. Browse to '...'
+        3. Click '...'
+        4. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running Siphon?
+      options:
+        - Docker
+        - Single-file binary (Windows)
+        - Single-file binary (macOS)
+        - Single-file binary (Linux)
+        - From source (npm)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Siphon version
+      description: Release version, or commit SHA if running from source.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: input
+    id: rclone-version
+    attributes:
+      label: rclone version
+      description: Output of `rclone version` (first line).
+      placeholder: rclone v1.xx.x
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant server logs. This is automatically formatted, so no backticks needed.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through the security policy).
+          required: true

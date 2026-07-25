@@ -2,6 +2,17 @@
   "name": "siphon",
   "version": "1.0.0",
   "description": "A self-hosted web UI for rclone: browse remotes and pull files onto your server.",
+  "homepage": "https://github.com/dentifrag/siphon#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dentifrag/siphon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dentifrag/siphon/issues"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "main": "dist-server/index.cjs",
   "scripts": {
     "dev": "vite --config vite.web.config.ts",
@@ -12,6 +23,10 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "web:server": "tsx watch src/server/index.ts",
     "web:dev": "vite --config vite.web.config.ts",
     "web:build": "vite build --config vite.web.config.ts",
@@ -58,6 +73,8 @@
     "@vitejs/plugin-react": "^4.7.0",
     "@yao-pkg/pkg": "^6.21.0",
     "esbuild": "^0.25.0",
+    "oxlint": "^1.74.0",
+    "prettier": "^3.9.5",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",

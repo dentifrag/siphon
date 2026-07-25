@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FastifyRequest } from 'fastify'
 import { sameOrigin } from '../src/server/routes/auth'
 
-function req(input: {
-  origin?: string
-  host?: string
-  hostname?: string
-}): FastifyRequest {
+function req(input: { origin?: string; host?: string; hostname?: string }): FastifyRequest {
   return {
     headers: {
       origin: input.origin,

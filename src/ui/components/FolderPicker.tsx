@@ -43,7 +43,10 @@ export function FolderPicker(props: FolderPickerProps) {
   }, [])
 
   useEffect(() => {
-    window.api.listDownloadRoots().then(setRoots).catch(() => undefined)
+    window.api
+      .listDownloadRoots()
+      .then(setRoots)
+      .catch(() => undefined)
     load(initialPath || undefined)
   }, [initialPath, load])
 
@@ -161,11 +164,7 @@ export function FolderPicker(props: FolderPickerProps) {
           {listing?.path ?? '…'}
         </span>
         {mode !== 'chooseItems' && (
-          <Button
-            size="small"
-            disabled={!listing || loading}
-            onClick={() => setNewFolder('')}
-          >
+          <Button size="small" disabled={!listing || loading} onClick={() => setNewFolder('')}>
             New folder
           </Button>
         )}

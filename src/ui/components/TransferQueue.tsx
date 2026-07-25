@@ -29,10 +29,7 @@ function statusLabel(transfer: TransferProgress): string {
   return `${isUpload ? 'Upload' : 'Download'} ${STATUS_LABELS[transfer.status].toLowerCase()}`
 }
 
-const STATUS_VARIANTS: Record<
-  TransferStatus,
-  'accent' | 'success' | 'danger' | 'secondary'
-> = {
+const STATUS_VARIANTS: Record<TransferStatus, 'accent' | 'success' | 'danger' | 'secondary'> = {
   queued: 'secondary',
   downloading: 'accent',
   completed: 'success',
@@ -88,18 +85,10 @@ export function TransferQueue(props: TransferQueueProps) {
               onChange={(e) => onMaxConcurrentChange(clampConcurrent(e.target.value))}
             />
           </label>
-          <Button
-            variant="default"
-            disabled={transfers.length === 0}
-            onClick={onClearAll}
-          >
+          <Button variant="default" disabled={transfers.length === 0} onClick={onClearAll}>
             Clear all
           </Button>
-          <Button
-            variant="default"
-            disabled={!hasFinished}
-            onClick={onClearFinished}
-          >
+          <Button variant="default" disabled={!hasFinished} onClick={onClearFinished}>
             Clear finished
           </Button>
         </div>
@@ -146,8 +135,8 @@ export function TransferQueue(props: TransferQueueProps) {
 
                   <div className="transfer__meta">
                     <span>
-                      {formatBytes(transfer.transferred)} / {formatBytes(transfer.size)} (
-                      {percent}%)
+                      {formatBytes(transfer.transferred)} / {formatBytes(transfer.size)} ({percent}
+                      %)
                     </span>
                     {canceling ? (
                       <span>Canceling…</span>
@@ -155,7 +144,9 @@ export function TransferQueue(props: TransferQueueProps) {
                       active && (
                         <span>
                           {formatSpeed(transfer.speedBytesPerSec)}
-                          {!isUpload ? ` · ${transfer.activeSegments}/${transfer.segments} segments` : ''}
+                          {!isUpload
+                            ? ` · ${transfer.activeSegments}/${transfer.segments} segments`
+                            : ''}
                           {eta ? ` · ~${eta} left` : ''}
                         </span>
                       )

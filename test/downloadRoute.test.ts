@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { expandDownload } from '../src/server/routes/downloads'
 import type { RcloneClient, RcloneListEntry } from '../src/server/rclone/client'
-import type { RcloneDownloadManager, RcloneEnqueueInput } from '../src/server/rclone/downloadManager'
+import type {
+  RcloneDownloadManager,
+  RcloneEnqueueInput
+} from '../src/server/rclone/downloadManager'
 import type { TransferProgress } from '../src/shared/types'
 
 function makeManager() {

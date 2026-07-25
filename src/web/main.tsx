@@ -183,7 +183,13 @@ function Root(): React.JSX.Element {
           <Button type="submit" variant="primary" block disabled={submitting}>
             {submitting ? 'Saving…' : 'Create admin account'}
           </Button>
-          <Button type="button" variant="default" block disabled={submitting} onClick={enableOpenMode}>
+          <Button
+            type="button"
+            variant="default"
+            block
+            disabled={submitting}
+            onClick={enableOpenMode}
+          >
             Run without a password
           </Button>
         </form>

@@ -18,10 +18,7 @@ import type {
   UploadEnqueueInput
 } from '@shared/api'
 
-async function request<T>(
-  path: string,
-  options?: { method?: string; body?: unknown }
-): Promise<T> {
+async function request<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> {
   const response = await fetch(path, {
     method: options?.method ?? 'GET',
     headers: options?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -133,9 +130,10 @@ export function createWebApi(): WebApi {
     getMaxConcurrentDownloads: () =>
       request<{ max: number }>('/api/downloads/concurrency').then((r) => r.max),
     setMaxConcurrentDownloads: (max: number) =>
-      request<{ max: number }>('/api/downloads/concurrency', { method: 'POST', body: { max } }).then(
-        (r) => r.max
-      ),
+      request<{ max: number }>('/api/downloads/concurrency', {
+        method: 'POST',
+        body: { max }
+      }).then((r) => r.max),
     defaultDownloadDir: async () => {
       const config = await request<ServerConfig>('/api/config')
       return config.downloadDir

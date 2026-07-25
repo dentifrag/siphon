@@ -4,7 +4,10 @@ import fastifyStatic from '@fastify/static'
 import type { FastifyInstance } from 'fastify'
 import type { RouteContext } from '../context'
 
-export async function registerStatic(app: FastifyInstance, { execDir }: RouteContext): Promise<void> {
+export async function registerStatic(
+  app: FastifyInstance,
+  { execDir }: RouteContext
+): Promise<void> {
   const webDir = [
     process.env.WEB_DIR,
     join(__dirname, '..', 'dist-web'),

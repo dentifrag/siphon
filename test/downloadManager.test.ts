@@ -56,7 +56,9 @@ describe('RcloneDownloadManager cancellation race', () => {
     const startJob = deferred<number>()
     const jobStop = vi.fn().mockResolvedValue(undefined)
     const deleteRemote = vi.fn().mockResolvedValue(undefined)
-    const jobStatus = vi.fn().mockResolvedValue({ finished: false, success: false, error: '', id: 1 })
+    const jobStatus = vi
+      .fn()
+      .mockResolvedValue({ finished: false, success: false, error: '', id: 1 })
 
     const client = {
       coreStatsDelete: vi.fn().mockResolvedValue(undefined),
@@ -104,7 +106,9 @@ describe('RcloneDownloadManager concurrency', () => {
         jobStatuses.set(id, { finished: false, success: false, error: '' })
         return id
       }),
-      jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+      jobStatus: vi
+        .fn()
+        .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
       jobStop: vi.fn().mockResolvedValue(undefined),
       deleteRemote: vi.fn().mockResolvedValue(undefined)
     } as unknown as RcloneClient
@@ -207,7 +211,9 @@ describe('RcloneDownloadManager remove and clearAll', () => {
           jobStatuses.set(id, { finished: false, success: false, error: '' })
           return id
         }),
-        jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+        jobStatus: vi
+          .fn()
+          .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
         jobStop,
         deleteRemote
       } as unknown as RcloneClient
@@ -276,7 +282,9 @@ describe('RcloneDownloadManager removal signal', () => {
           jobStatuses.set(id, { finished: false, success: false, error: '' })
           return id
         }),
-        jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+        jobStatus: vi
+          .fn()
+          .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
         jobStop: vi.fn().mockResolvedValue(undefined),
         deleteRemote: vi.fn().mockResolvedValue(undefined)
       } as unknown as RcloneClient
@@ -328,7 +336,9 @@ describe('RcloneDownloadManager shared-remote refcounting', () => {
         jobStatuses.set(id, { finished: false, success: false, error: '' })
         return id
       }),
-      jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+      jobStatus: vi
+        .fn()
+        .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
       jobStop: vi.fn().mockResolvedValue(undefined),
       deleteRemote
     } as unknown as RcloneClient
@@ -468,5 +478,3 @@ describe('RcloneDownloadManager cancel watchdog', () => {
     expect(deleteRemote).toHaveBeenCalledTimes(1)
   })
 })
-
-

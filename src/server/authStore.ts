@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { isScryptHashFormat } from './passwordHash'
 
-export type AuthStoreState = { mode: 'password'; username: string; passwordHash: string } | { mode: 'open' }
+export type AuthStoreState =
+  { mode: 'password'; username: string; passwordHash: string } | { mode: 'open' }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -13,12 +14,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function validateState(input: unknown): AuthStoreState {
   if (!isRecord(input)) throw new Error('auth.json must contain an object')
   if (input.mode === 'open') {
-    if (Object.keys(input).length !== 1) throw new Error('auth.json open mode has unexpected fields')
+    if (Object.keys(input).length !== 1)
+      throw new Error('auth.json open mode has unexpected fields')
     return { mode: 'open' }
   }
 
   if (input.mode === 'password') {
-    if (Object.keys(input).length !== 3) throw new Error('auth.json password mode has unexpected fields')
+    if (Object.keys(input).length !== 3)
+      throw new Error('auth.json password mode has unexpected fields')
     if (typeof input.username !== 'string' || input.username.trim().length === 0) {
       throw new Error('auth.json password mode requires a non-empty username')
     }
@@ -46,20 +49,26 @@ export class AuthStore {
     try {
       raw = await readFile(path, 'utf8')
     } catch (error) {
-      throw new Error(`Failed reading auth store at ${path}: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(
+        `Failed reading auth store at ${path}: ${error instanceof Error ? error.message : String(error)}`
+      )
     }
 
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
     } catch (error) {
-      throw new Error(`Invalid JSON in auth store at ${path}: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(
+        `Invalid JSON in auth store at ${path}: ${error instanceof Error ? error.message : String(error)}`
+      )
     }
 
     try {
       return validateState(parsed)
     } catch (error) {
-      throw new Error(`Invalid auth store schema at ${path}: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(
+        `Invalid auth store schema at ${path}: ${error instanceof Error ? error.message : String(error)}`
+      )
     }
   }
 

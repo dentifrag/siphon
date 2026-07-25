@@ -128,7 +128,8 @@ export class AuthService {
 
   async login(username: string, password: string): Promise<string | null> {
     return this.withMutationLock(async () => {
-      if (this.stateValue !== 'password' || !this.usernameValue || !this.passwordHashValue) return null
+      if (this.stateValue !== 'password' || !this.usernameValue || !this.passwordHashValue)
+        return null
       const userOk = safeEqualStr(username, this.usernameValue)
       const passOk = verifyPassword(password, this.passwordHashValue)
       if (!(userOk && passOk)) return null

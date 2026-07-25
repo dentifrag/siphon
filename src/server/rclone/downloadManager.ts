@@ -138,6 +138,7 @@ export class RcloneDownloadManager extends EventEmitter {
   }
 
   cancelAll(): void {
+    // eslint-disable-next-line unicorn/no-useless-spread -- snapshot: cancel() mutates this.order during iteration
     for (const id of [...this.order]) this.cancel(id)
   }
 
@@ -151,6 +152,7 @@ export class RcloneDownloadManager extends EventEmitter {
   }
 
   clearFinished(): void {
+    // eslint-disable-next-line unicorn/no-useless-spread -- snapshot: remove() mutates this.order during iteration
     for (const id of [...this.order]) {
       const status = this.transfers.get(id)?.progress.status
       if (status === 'completed' || status === 'canceled' || status === 'error') this.remove(id)
@@ -158,6 +160,7 @@ export class RcloneDownloadManager extends EventEmitter {
   }
 
   clearAll(): void {
+    // eslint-disable-next-line unicorn/no-useless-spread -- snapshot: this.order is mutated during iteration
     for (const id of [...this.order]) {
       const t = this.transfers.get(id)
       if (!t) continue
@@ -254,6 +257,7 @@ export class RcloneDownloadManager extends EventEmitter {
   private startTicker(): void {
     if (this.ticker) return
     this.ticker = setInterval(() => {
+      // eslint-disable-next-line unicorn/no-useless-spread -- snapshot: poll() mutates this.activeIds during iteration
       for (const id of [...this.activeIds]) void this.poll(id)
     }, POLL_INTERVAL_MS)
   }

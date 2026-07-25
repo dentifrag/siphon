@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { expandUpload } from '../src/server/routes/uploads'
 import type { RcloneClient } from '../src/server/rclone/client'
-import type { RcloneDownloadManager, RcloneEnqueueInput } from '../src/server/rclone/downloadManager'
+import type {
+  RcloneDownloadManager,
+  RcloneEnqueueInput
+} from '../src/server/rclone/downloadManager'
 import type { TransferProgress } from '../src/shared/types'
 
 const listFilesRecursive = vi.fn()

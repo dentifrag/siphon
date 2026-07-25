@@ -121,6 +121,7 @@ async function parentOf(scope: FsScope, canonical: string): Promise<string | nul
 
 export async function makeDir(scope: FsScope, parentPath: string, name: string): Promise<string> {
   const cleanName = name.trim()
+  // eslint-disable-next-line no-control-regex -- intentional: reject NUL and path separators in folder names
   if (!cleanName || /[\\/\0]/.test(cleanName) || cleanName === '.' || cleanName === '..') {
     throw new Error('Invalid folder name.')
   }

@@ -57,7 +57,12 @@ export class RcloneClient {
   checkConnection(fs: string): Promise<void> {
     return this.call(
       'operations/list',
-      { fs, remote: '', opt: { noModTime: true }, _config: { ConnectTimeout: '15s', Timeout: '30s' } },
+      {
+        fs,
+        remote: '',
+        opt: { noModTime: true },
+        _config: { ConnectTimeout: '15s', Timeout: '30s' }
+      },
       35_000
     ).then(() => undefined)
   }

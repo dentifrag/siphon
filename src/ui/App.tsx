@@ -106,8 +106,14 @@ export default function App({ canChangePassword }: AppProps) {
       .defaultDownloadDir()
       .then((dir) => setDownloadDir((current) => current || dir))
       .catch(() => undefined)
-    window.api.listDownloads().then(setTransfers).catch(() => undefined)
-    window.api.listProfiles().then(setProfiles).catch(() => undefined)
+    window.api
+      .listDownloads()
+      .then(setTransfers)
+      .catch(() => undefined)
+    window.api
+      .listProfiles()
+      .then(setProfiles)
+      .catch(() => undefined)
 
     return window.api.onDownloadUpdate((ev) => {
       if (ev.type === 'reset') {
@@ -135,7 +141,8 @@ export default function App({ canChangePassword }: AppProps) {
           if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
           refreshTimerRef.current = setTimeout(() => {
             refreshTimerRef.current = null
-            if (cwdRef.current.replace(/^\/+/, '') === uploadDir) navigateToRef.current(cwdRef.current)
+            if (cwdRef.current.replace(/^\/+/, '') === uploadDir)
+              navigateToRef.current(cwdRef.current)
           }, 600)
         }
       }
