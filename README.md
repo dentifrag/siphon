@@ -5,13 +5,10 @@ browser (laptop or phone) and download files straight onto your home server's dr
 fast parallel transfers. Siphon is a small, password-protected front end; rclone does the
 heavy lifting.
 
-<img width="2556" height="1319" alt="image" src="https://github.com/user-attachments/assets/25a10e23-e4a9-4912-9e1e-f120bfcaa1a2" />
-<img width="521" height="985" alt="image" src="https://github.com/user-attachments/assets/c9fa1b7a-88a4-42f0-aa26-e15c913bd416" />
-
 
 ## Quick start
 
-### Docker (recommended for an always-on server)
+### Docker
 
 ```bash
 docker compose up -d --build
