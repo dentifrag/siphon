@@ -38,22 +38,25 @@ describe('App password change dialog', () => {
 
   it('closes the dialog and shows a notice that auto-clears after 3s on success', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    const user = userEvent.setup()
-    installMockWebApi()
-    renderWithProviders(<App canChangePassword={true} />)
-    await openPasswordDialog(user)
+    try {
+      const user = userEvent.setup()
+      installMockWebApi()
+      renderWithProviders(<App canChangePassword={true} />)
+      await openPasswordDialog(user)
 
-    await user.type(screen.getByLabelText('Current password'), 'oldpassword')
-    await user.type(screen.getByLabelText('New password'), 'newlongpassword')
-    await user.type(screen.getByLabelText('Confirm new password'), 'newlongpassword')
-    await user.click(screen.getByRole('button', { name: 'Update password' }))
+      await user.type(screen.getByLabelText('Current password'), 'oldpassword')
+      await user.type(screen.getByLabelText('New password'), 'newlongpassword')
+      await user.type(screen.getByLabelText('Confirm new password'), 'newlongpassword')
+      await user.click(screen.getByRole('button', { name: 'Update password' }))
 
-    await waitFor(() => expect(screen.queryByLabelText('New password')).not.toBeInTheDocument())
-    expect(await screen.findByText('Password updated.')).toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByLabelText('New password')).not.toBeInTheDocument())
+      expect(await screen.findByText('Password updated.')).toBeInTheDocument()
 
-    vi.advanceTimersByTime(3_000)
-    await waitFor(() => expect(screen.queryByText('Password updated.')).not.toBeInTheDocument())
-    vi.useRealTimers()
+      vi.advanceTimersByTime(3_000)
+      await waitFor(() => expect(screen.queryByText('Password updated.')).not.toBeInTheDocument())
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('resets submitting and shows an error when changePassword rejects', async () => {
