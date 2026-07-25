@@ -2,19 +2,27 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 
-const jsdomWindow = (globalThis as unknown as { jsdom?: { window: Window } }).jsdom?.window
-if (jsdomWindow) {
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: jsdomWindow.localStorage,
-    configurable: true,
-    writable: true
-  })
-  Object.defineProperty(globalThis, 'sessionStorage', {
-    value: jsdomWindow.sessionStorage,
-    configurable: true,
-    writable: true
-  })
+interface JsdomGlobal {
+  jsdom?: { window: Window }
 }
+
+const jsdomWindow = (globalThis as unknown as JsdomGlobal).jsdom?.window
+if (!jsdomWindow) {
+  throw new Error(
+    'Expected vitest-environment-jsdom to expose globalThis.jsdom.window; localStorage/sessionStorage cannot be reconciled'
+  )
+}
+
+Object.defineProperty(globalThis, 'localStorage', {
+  value: jsdomWindow.localStorage,
+  configurable: true,
+  writable: true
+})
+Object.defineProperty(globalThis, 'sessionStorage', {
+  value: jsdomWindow.sessionStorage,
+  configurable: true,
+  writable: true
+})
 
 afterEach(() => {
   cleanup()

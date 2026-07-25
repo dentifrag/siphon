@@ -91,18 +91,21 @@ describe('App connection flow', () => {
     })
     const swallowExpectedRejection = () => {}
     process.on('unhandledRejection', swallowExpectedRejection)
-    renderWithProviders(<App canChangePassword={false} />)
-    await fillConnectForm(user)()
-    await user.click(screen.getByRole('button', { name: 'Connect' }))
-    await screen.findByRole('button', { name: 'Disconnect' })
-    localStorage.setItem('siphon.cwd', '/keep-me')
+    try {
+      renderWithProviders(<App canChangePassword={false} />)
+      await fillConnectForm(user)()
+      await user.click(screen.getByRole('button', { name: 'Connect' }))
+      await screen.findByRole('button', { name: 'Disconnect' })
+      localStorage.setItem('siphon.cwd', '/keep-me')
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect' }))
+      await user.click(screen.getByRole('button', { name: 'Disconnect' }))
 
-    expect(await screen.findByRole('button', { name: 'Connect' })).toBeInTheDocument()
-    expect(localStorage.getItem('siphon.connection')).toBeNull()
-    expect(localStorage.getItem('siphon.cwd')).toBe('/keep-me')
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 0))
-    process.off('unhandledRejection', swallowExpectedRejection)
+      expect(await screen.findByRole('button', { name: 'Connect' })).toBeInTheDocument()
+      expect(localStorage.getItem('siphon.connection')).toBeNull()
+      expect(localStorage.getItem('siphon.cwd')).toBe('/keep-me')
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 0))
+    } finally {
+      process.off('unhandledRejection', swallowExpectedRejection)
+    }
   })
 })
