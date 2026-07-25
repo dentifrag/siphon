@@ -15,7 +15,11 @@ function isLoopbackHost(host: string): boolean {
 }
 
 async function readPasswordFromPrompt(): Promise<string> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== 'function') {
+  if (
+    !process.stdin.isTTY ||
+    !process.stdout.isTTY ||
+    typeof process.stdin.setRawMode !== 'function'
+  ) {
     throw new Error('Interactive password input requires a TTY')
   }
   const stdin = process.stdin
@@ -61,12 +65,16 @@ async function readPasswordFromStdin(): Promise<string> {
   for await (const chunk of process.stdin) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
-  return Buffer.concat(chunks).toString('utf8').replace(/[\r\n]+$/, '')
+  return Buffer.concat(chunks)
+    .toString('utf8')
+    .replace(/[\r\n]+$/, '')
 }
 
 async function main(): Promise<void> {
   if (process.argv.includes('--hash-password')) {
-    const password = process.stdin.isTTY ? await readPasswordFromPrompt() : await readPasswordFromStdin()
+    const password = process.stdin.isTTY
+      ? await readPasswordFromPrompt()
+      : await readPasswordFromStdin()
     await new Promise<void>((resolve, reject) => {
       process.stdout.write(`${hashPassword(password)}\n`, (error) => {
         if (error) reject(error)
@@ -153,7 +161,9 @@ async function main(): Promise<void> {
   }
 
   app.log.info(`Auth state: ${auth.state} (canChangePassword=${auth.canChangePassword})`)
-  app.log.info(`Auth network settings: secureCookies=${config.secureCookies}, trustProxy=${config.trustProxy}`)
+  app.log.info(
+    `Auth network settings: secureCookies=${config.secureCookies}, trustProxy=${config.trustProxy}`
+  )
   if (config.secureCookies === 'auto' && !config.trustProxy) {
     app.log.info('For HTTPS behind a proxy, set secureCookies=true or enable trustProxy.')
   }
@@ -172,13 +182,19 @@ async function main(): Promise<void> {
 
   app.log.info(`Engine: rclone (config at ${services.supervisor.configPath})`)
   if (config.confined) {
-    app.log.info(`Download folders: ${config.roots.map((root) => `${root.name} (${root.path})`).join(', ')}`)
+    app.log.info(
+      `Download folders: ${config.roots.map((root) => `${root.name} (${root.path})`).join(', ')}`
+    )
   } else {
-    app.log.info(`Downloads default to ${config.defaultDir}; the folder picker can browse the whole computer.`)
+    app.log.info(
+      `Downloads default to ${config.defaultDir}; the folder picker can browse the whole computer.`
+    )
   }
   app.log.info(`Open http://localhost:${config.port} in your browser.`)
   if (auth.state === 'setup') {
-    app.log.warn(`Open http://localhost:${config.port} to finish setup before exposing Siphon to the internet.`)
+    app.log.warn(
+      `Open http://localhost:${config.port} to finish setup before exposing Siphon to the internet.`
+    )
   }
 }
 

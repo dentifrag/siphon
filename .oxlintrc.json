@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": [
+    "dist",
+    "dist-web",
+    "dist-server",
+    "dist-bin",
+    "out",
+    "release",
+    "node_modules",
+    "windows-service/daemon"
+  ]
+}

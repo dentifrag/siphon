@@ -122,7 +122,9 @@ export class RemoteStore {
     const remotes = await this.readAll()
     const name = input.name.trim() || `${input.username}@${input.host}`
     const existing = remotes.find((r) => r.name === name)
-    const remoteName = existing ? existing.remoteName : uniqueName(sanitizeRemoteName(name), remotes)
+    const remoteName = existing
+      ? existing.remoteName
+      : uniqueName(sanitizeRemoteName(name), remotes)
 
     const params = sftpParameters({
       host: input.host,

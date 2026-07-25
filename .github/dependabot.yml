@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Batch low-risk dev tooling and type updates into single PRs.
+      dev-dependencies:
+        dependency-type: development
+    labels:
+      - dependencies
+
+  # GitHub Actions used in workflows
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - github-actions

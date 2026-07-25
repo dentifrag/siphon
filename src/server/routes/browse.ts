@@ -3,7 +3,10 @@ import type { RouteContext } from '../context'
 import { httpError } from '../http'
 import { remoteType, toRemoteEntry, uiToRemotePath } from '../mapping'
 
-export function registerBrowseRoutes(app: FastifyInstance, { services, session }: RouteContext): void {
+export function registerBrowseRoutes(
+  app: FastifyInstance,
+  { services, session }: RouteContext
+): void {
   app.get('/api/list', async (req) => {
     const dir = (req.query as { path?: string }).path || '/'
     const entries = await services.client.list(session.remoteFs(), uiToRemotePath(dir))

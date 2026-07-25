@@ -22,6 +22,7 @@ export function toRemoteEntry(uiDir: string, entry: RcloneListEntry): RemoteEntr
 }
 
 export function safeBaseName(remotePath: string): string {
+  // eslint-disable-next-line no-control-regex -- intentional: strip NUL and path separators from derived filenames
   const name = posix.basename(remotePath).replace(/[\\/\0]/g, '_')
   return name || 'download'
 }

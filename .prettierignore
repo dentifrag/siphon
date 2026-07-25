@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-web
+dist-server
+dist-bin
+out
+release
+data
+downloads
+coverage
+package-lock.json
+windows-service/daemon
+*.log

@@ -4,14 +4,14 @@ services:
     image: siphon
     container_name: siphon
     ports:
-      - "8080:8080"
+      - '8080:8080'
     environment:
       # Set a password to protect the UI (recommended). Leave empty for open LAN use.
-      APP_PASSWORD: "${APP_PASSWORD:-}"
+      APP_PASSWORD: '${APP_PASSWORD:-}'
       # Download destinations shown in the folder picker. Format:
       #   "Label=/container/path,Other=/container/path2"
       # Each path must be mounted below. Point these at your drives.
-      DOWNLOAD_DIRS: "Downloads=/downloads"
+      DOWNLOAD_DIRS: 'Downloads=/downloads'
     volumes:
       # Saved connection profiles + the rclone config (which holds SFTP secrets).
       - ./data:/data

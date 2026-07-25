@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { hashPassword, verifyPassword } from '../src/server/auth'
-import { isScryptHashFormat, parseScryptHash, validateScryptParams } from '../src/server/passwordHash'
+import {
+  isScryptHashFormat,
+  parseScryptHash,
+  validateScryptParams
+} from '../src/server/passwordHash'
 
 describe('passwordHash parsing and validation', () => {
   it('rejects non-power-of-two N values, including large safe integers', () => {

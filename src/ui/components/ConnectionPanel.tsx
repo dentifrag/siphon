@@ -67,15 +67,18 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
     .join(' ')
 
   const credentials = (
-    <div className="connection__credentials" id="connection-details" hidden={connected && !detailsOpen}>
+    <div
+      className="connection__credentials"
+      id="connection-details"
+      hidden={connected && !detailsOpen}
+    >
       <div className="connection__row connection__saved">
-        <FormControl className="form-field form-field--grow" disabled={disabled || profiles.length === 0}>
+        <FormControl
+          className="form-field form-field--grow"
+          disabled={disabled || profiles.length === 0}
+        >
           <FormControl.Label className="form-field__label">Saved sites</FormControl.Label>
-          <Select
-            block
-            value={selectedProfileId}
-            onChange={(e) => onSelectProfile(e.target.value)}
-          >
+          <Select block value={selectedProfileId} onChange={(e) => onSelectProfile(e.target.value)}>
             <Select.Option value="">
               {profiles.length === 0 ? 'No saved sites yet' : 'New connection…'}
             </Select.Option>
@@ -256,11 +259,7 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
           <div className="connection__row connection__row--settings connection__settings">
             {sessionSettings}
             <div className="connection__actions">
-              <Button
-                variant="primary"
-                disabled={!canConnect}
-                onClick={onConnect}
-              >
+              <Button variant="primary" disabled={!canConnect} onClick={onConnect}>
                 {connecting ? 'Connecting…' : 'Connect'}
               </Button>
             </div>

@@ -19,9 +19,5 @@
     },
     "types": ["node"]
   },
-  "include": [
-    "src/ui/**/*",
-    "src/web/**/*",
-    "src/shared/**/*"
-  ]
+  "include": ["src/ui/**/*", "src/web/**/*", "src/shared/**/*"]
 }

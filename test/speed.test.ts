@@ -8,7 +8,6 @@ describe('rollingSpeed', () => {
   })
 
   it('averages bytes over the elapsed span', () => {
-
     const samples: SpeedSample[] = [
       { time: 0, bytes: 0 },
       { time: 2000, bytes: 10 * 1024 * 1024 }
@@ -17,7 +16,6 @@ describe('rollingSpeed', () => {
   })
 
   it('ignores samples older than the window', () => {
-
     const samples: SpeedSample[] = [
       { time: 0, bytes: 100 * 1024 * 1024 },
       { time: 2000, bytes: 100 * 1024 * 1024 },
@@ -27,7 +25,6 @@ describe('rollingSpeed', () => {
   })
 
   it('is smoother than an instantaneous two-point delta', () => {
-
     const mb = 1024 * 1024
     const samples: SpeedSample[] = [
       { time: 0, bytes: 0 },

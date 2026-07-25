@@ -10,7 +10,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listDirs, listFilesRecursive, makeDir, resolvePath, type FsScope } from '../src/server/localFs'
+import {
+  listDirs,
+  listFilesRecursive,
+  makeDir,
+  resolvePath,
+  type FsScope
+} from '../src/server/localFs'
 
 let base: string
 let confined: FsScope

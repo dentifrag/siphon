@@ -3,7 +3,9 @@ import { helpText, rcloneAssetName } from '../src/server/rclone/binary'
 
 describe('rcloneAssetName', () => {
   it('maps the current platform to an rclone release archive name', () => {
-    expect(rcloneAssetName()).toMatch(/^rclone-current-(windows|osx|linux)-(amd64|arm64|arm-v7)\.zip$/)
+    expect(rcloneAssetName()).toMatch(
+      /^rclone-current-(windows|osx|linux)-(amd64|arm64|arm-v7)\.zip$/
+    )
   })
 })
 

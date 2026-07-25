@@ -62,9 +62,9 @@ describe('AuthService', () => {
       store,
       sessionTtlMs: 5_000
     })
-    await expect(auth.completeSetup({ username: 'admin', password: 'secret-pass' })).rejects.toBeInstanceOf(
-      AuthAlreadyConfiguredError
-    )
+    await expect(
+      auth.completeSetup({ username: 'admin', password: 'secret-pass' })
+    ).rejects.toBeInstanceOf(AuthAlreadyConfiguredError)
     expect(store.writes).toHaveLength(0)
   })
 

@@ -28,9 +28,7 @@ export function toConnectionConfig(form: ConnectionForm): ConnectionConfig {
     username: form.username.trim(),
     authMethod: form.authMethod,
     password: form.authMethod === 'password' ? form.password : undefined,
-    privateKeyPath:
-      form.authMethod === 'privateKey' ? form.privateKeyPath.trim() : undefined,
-    passphrase:
-      form.authMethod === 'privateKey' && form.passphrase ? form.passphrase : undefined
+    privateKeyPath: form.authMethod === 'privateKey' ? form.privateKeyPath.trim() : undefined,
+    passphrase: form.authMethod === 'privateKey' && form.passphrase ? form.passphrase : undefined
   }
 }

@@ -1,5 +1,8 @@
 # Siphon
 
+[![CI](https://github.com/dentifrag/siphon/actions/workflows/ci.yml/badge.svg)](https://github.com/dentifrag/siphon/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A self-hosted web UI for [rclone](https://rclone.org). Browse a remote server from any
 browser (laptop or phone) and download files straight onto your home server's drives, with
 fast parallel transfers. Siphon is a small, password-protected front end; rclone does the
@@ -7,7 +10,6 @@ heavy lifting.
 
 <img width="2556" height="1319" alt="image" src="https://github.com/user-attachments/assets/25a10e23-e4a9-4912-9e1e-f120bfcaa1a2" />
 <img width="521" height="985" alt="image" src="https://github.com/user-attachments/assets/c9fa1b7a-88a4-42f0-aa26-e15c913bd416" />
-
 
 ## Quick start
 
@@ -37,19 +39,19 @@ first run if it isn't already installed.
 Set these as environment variables (Docker) or as keys in `config.json` (single-file app).
 Environment variables win if both are set.
 
-| Setting | `config.json` key | Default | What it does |
-| --- | --- | --- | --- |
-| `APP_USERNAME` | `appUsername` | `admin` when auth is enabled | Login username. Change this from `admin`. |
-| `APP_PASSWORD` | `appPassword` | none | Plaintext password for login. |
-| `APP_PASSWORD_HASH` | `appPasswordHash` | none | Scrypt password hash from `--hash-password`. Takes precedence over `APP_PASSWORD`. |
-| `LOGIN_MAX_ATTEMPTS` | `loginMaxAttempts` | `10` | Failed login attempts before lockout. Set `0` to disable lockout. |
-| `LOGIN_LOCKOUT_MINUTES` | `loginLockoutMinutes` | `15` | Lockout duration after too many failed attempts. |
-| `SESSION_TTL_HOURS` | `sessionTtlHours` | `72` | Session lifetime before re-login is required. |
-| `TRUST_PROXY` | `trustProxy` | `false` | Trust reverse-proxy headers for client IP and protocol. |
-| `SECURE_COOKIES` | `secureCookies` | `auto` | Cookie security mode: `auto`, `true`, `false`. |
-| `DOWNLOAD_DIRS` | `downloadDirs` | `/downloads` | Where files can be saved. `Label=path` pairs, comma-separated. |
-| `PORT` | `port` | `8080` | Web UI port. |
-| `DATA_DIR` | `dataDir` | `./data` | Where saved connections are stored. |
+| Setting                 | `config.json` key     | Default                      | What it does                                                                       |
+| ----------------------- | --------------------- | ---------------------------- | ---------------------------------------------------------------------------------- |
+| `APP_USERNAME`          | `appUsername`         | `admin` when auth is enabled | Login username. Change this from `admin`.                                          |
+| `APP_PASSWORD`          | `appPassword`         | none                         | Plaintext password for login.                                                      |
+| `APP_PASSWORD_HASH`     | `appPasswordHash`     | none                         | Scrypt password hash from `--hash-password`. Takes precedence over `APP_PASSWORD`. |
+| `LOGIN_MAX_ATTEMPTS`    | `loginMaxAttempts`    | `10`                         | Failed login attempts before lockout. Set `0` to disable lockout.                  |
+| `LOGIN_LOCKOUT_MINUTES` | `loginLockoutMinutes` | `15`                         | Lockout duration after too many failed attempts.                                   |
+| `SESSION_TTL_HOURS`     | `sessionTtlHours`     | `72`                         | Session lifetime before re-login is required.                                      |
+| `TRUST_PROXY`           | `trustProxy`          | `false`                      | Trust reverse-proxy headers for client IP and protocol.                            |
+| `SECURE_COOKIES`        | `secureCookies`       | `auto`                       | Cookie security mode: `auto`, `true`, `false`.                                     |
+| `DOWNLOAD_DIRS`         | `downloadDirs`        | `/downloads`                 | Where files can be saved. `Label=path` pairs, comma-separated.                     |
+| `PORT`                  | `port`                | `8080`                       | Web UI port.                                                                       |
+| `DATA_DIR`              | `dataDir`             | `./data`                     | Where saved connections are stored.                                                |
 
 `DOWNLOAD_DIRS` powers the in-app folder picker. List each drive or folder you want to save
 into, for example `Movies=/mnt/movies,Backup=/mnt/backup`. In Docker, mount each of those
@@ -100,7 +102,8 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 ./siphon --hash-password
 ```
 
-  Hashed passwords take precedence over plaintext values.
+Hashed passwords take precedence over plaintext values.
+
 - Login lockout is enabled by default, `loginMaxAttempts=10` and `loginLockoutMinutes=15`. Set `loginMaxAttempts=0` to disable lockout.
 - Sessions expire automatically, `sessionTtlHours=72` by default.
 - For HTTPS behind VPN or reverse proxy, set `trustProxy=true` and `secureCookies=true`.
@@ -132,6 +135,38 @@ npm install
 npm run web:server   # API on :8080 (needs rclone on PATH or set RCLONE_PATH)
 npm run web:dev      # UI on :5174 with hot reload
 npm test             # run the tests
+npm run typecheck    # type-check server + web
+npm run lint         # lint with oxlint
+npm run format       # format with Prettier
 ```
 
 To build the single-file binaries yourself: `npm run package:all` (outputs to `dist-bin/`).
+
+## Project layout
+
+```
+src/
+  server/        Fastify API: auth, config, sessions, request handling
+    routes/      HTTP route handlers (auth, browse, downloads, uploads, ...)
+    rclone/      rclone process supervisor, client, and download manager
+  ui/            React UI built with Primer (components + hooks in lib/)
+  web/           Vite entry point that mounts the UI
+  shared/        Types and the API contract shared between server and UI
+test/            Vitest unit tests
+windows-service/ Windows service install/uninstall scripts
+Dockerfile       Container image (bundles rclone)
+docker-compose.yml
+```
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding
+style, and the checks CI runs. By participating you agree to the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+- Found a security issue? Follow the [security policy](SECURITY.md) and report it privately.
+- Curious what changed between releases? See the [changelog](CHANGELOG.md).
+
+## License
+
+Siphon is released under the [MIT License](LICENSE).

@@ -89,7 +89,8 @@ export function resolveConfig(
   const dataDir = env.DATA_DIR || file.dataDir || dataDefault
   const appPassword = env.APP_PASSWORD || file.appPassword || null
   const appPasswordHash = env.APP_PASSWORD_HASH || file.appPasswordHash || null
-  const appUsername = env.APP_USERNAME || file.appUsername || (appPassword || appPasswordHash ? 'admin' : null)
+  const appUsername =
+    env.APP_USERNAME || file.appUsername || (appPassword || appPasswordHash ? 'admin' : null)
   const loginMaxAttempts = intOrAllowZero(env.LOGIN_MAX_ATTEMPTS, file.loginMaxAttempts, 10)
   const loginLockoutMinutes = intOr(env.LOGIN_LOCKOUT_MINUTES, file.loginLockoutMinutes, 15)
   const sessionTtlHours = intOr(env.SESSION_TTL_HOURS, file.sessionTtlHours, 72)
@@ -104,7 +105,10 @@ export function resolveConfig(
   let roots: DownloadRoot[]
   let defaultDir: string
   if (confined) {
-    roots = parseRoots(dirsSpec, singleDir && singleDir.trim() ? singleDir : join(home, 'Downloads'))
+    roots = parseRoots(
+      dirsSpec,
+      singleDir && singleDir.trim() ? singleDir : join(home, 'Downloads')
+    )
     defaultDir = roots[0].path
   } else {
     roots = openRoots(home)
@@ -145,21 +149,33 @@ function openRoots(home: string): DownloadRoot[] {
   ]
 }
 
-function intOr(envValue: string | undefined, fileValue: number | undefined, fallback: number): number {
+function intOr(
+  envValue: string | undefined,
+  fileValue: number | undefined,
+  fallback: number
+): number {
   const fromEnv = Number.parseInt(envValue ?? '', 10)
   if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv
   if (Number.isInteger(fileValue) && (fileValue as number) > 0) return fileValue as number
   return fallback
 }
 
-function intOrAllowZero(envValue: string | undefined, fileValue: number | undefined, fallback: number): number {
+function intOrAllowZero(
+  envValue: string | undefined,
+  fileValue: number | undefined,
+  fallback: number
+): number {
   const fromEnv = Number.parseInt(envValue ?? '', 10)
   if (Number.isInteger(fromEnv) && fromEnv >= 0) return fromEnv
   if (Number.isInteger(fileValue) && (fileValue as number) >= 0) return fileValue as number
   return fallback
 }
 
-function boolOr(envValue: string | undefined, fileValue: boolean | undefined, fallback: boolean): boolean {
+function boolOr(
+  envValue: string | undefined,
+  fileValue: boolean | undefined,
+  fallback: boolean
+): boolean {
   const normalized = (envValue ?? '').trim().toLowerCase()
   if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true
   if (normalized === 'false' || normalized === '0' || normalized === 'no') return false
@@ -223,25 +239,35 @@ function readFileConfig(path: string): FileConfig {
     const clean: FileConfig = {}
     if (typeof parsed.port === 'number') clean.port = parsed.port
     if (typeof parsed.host === 'string') clean.host = parsed.host
-    if (typeof parsed.appPassword === 'string' && parsed.appPassword) clean.appPassword = parsed.appPassword
+    if (typeof parsed.appPassword === 'string' && parsed.appPassword)
+      clean.appPassword = parsed.appPassword
     if (typeof parsed.appPasswordHash === 'string' && parsed.appPasswordHash) {
       clean.appPasswordHash = parsed.appPasswordHash
     }
-    if (typeof parsed.appUsername === 'string' && parsed.appUsername) clean.appUsername = parsed.appUsername
-    if (typeof parsed.downloadDirs === 'string' && parsed.downloadDirs) clean.downloadDirs = parsed.downloadDirs
+    if (typeof parsed.appUsername === 'string' && parsed.appUsername)
+      clean.appUsername = parsed.appUsername
+    if (typeof parsed.downloadDirs === 'string' && parsed.downloadDirs)
+      clean.downloadDirs = parsed.downloadDirs
     if (typeof parsed.dataDir === 'string' && parsed.dataDir) clean.dataDir = parsed.dataDir
-    if (typeof parsed.loginMaxAttempts === 'number') clean.loginMaxAttempts = parsed.loginMaxAttempts
-    if (typeof parsed.loginLockoutMinutes === 'number') clean.loginLockoutMinutes = parsed.loginLockoutMinutes
+    if (typeof parsed.loginMaxAttempts === 'number')
+      clean.loginMaxAttempts = parsed.loginMaxAttempts
+    if (typeof parsed.loginLockoutMinutes === 'number')
+      clean.loginLockoutMinutes = parsed.loginLockoutMinutes
     if (typeof parsed.sessionTtlHours === 'number') clean.sessionTtlHours = parsed.sessionTtlHours
     if (typeof parsed.trustProxy === 'boolean') clean.trustProxy = parsed.trustProxy
-    if (typeof parsed.secureCookies === 'string' && parsed.secureCookies) clean.secureCookies = parsed.secureCookies
+    if (typeof parsed.secureCookies === 'string' && parsed.secureCookies)
+      clean.secureCookies = parsed.secureCookies
     return clean
   } catch {
     return {}
   }
 }
 
-export function loadConfig(): { config: ServerConfig; configPath: string | null; created: boolean } {
+export function loadConfig(): {
+  config: ServerConfig
+  configPath: string | null
+  created: boolean
+} {
   const path = configFilePath()
   const packaged = isPackaged()
   const baseDir = packaged ? dirname(process.execPath) : process.cwd()
@@ -260,5 +286,9 @@ export function loadConfig(): { config: ServerConfig; configPath: string | null;
     }
   }
 
-  return { config: resolveConfig(file, process.env, baseDir, dataDefault), configPath: path, created }
+  return {
+    config: resolveConfig(file, process.env, baseDir, dataDefault),
+    configPath: path,
+    created
+  }
 }

@@ -2,7 +2,13 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { homedir, platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseRoots, resolveConfig, loadConfig, userDataDir, type FileConfig } from '../src/server/config'
+import {
+  parseRoots,
+  resolveConfig,
+  loadConfig,
+  userDataDir,
+  type FileConfig
+} from '../src/server/config'
 
 describe('userDataDir', () => {
   it('returns a per-user, OS-appropriate app-data path', () => {
@@ -101,34 +107,46 @@ describe('resolveConfig', () => {
   })
 
   it('passes through zero login max attempts', () => {
-    expect(resolveConfig({}, { LOGIN_MAX_ATTEMPTS: '0' } as NodeJS.ProcessEnv, base).loginMaxAttempts).toBe(
-      0
-    )
+    expect(
+      resolveConfig({}, { LOGIN_MAX_ATTEMPTS: '0' } as NodeJS.ProcessEnv, base).loginMaxAttempts
+    ).toBe(0)
     expect(resolveConfig({ loginMaxAttempts: 0 }, {}, base).loginMaxAttempts).toBe(0)
   })
 
   it('normalizes secureCookies values', () => {
-    expect(resolveConfig({}, { SECURE_COOKIES: 'auto' } as NodeJS.ProcessEnv, base).secureCookies).toBe('auto')
-    expect(resolveConfig({}, { SECURE_COOKIES: 'true' } as NodeJS.ProcessEnv, base).secureCookies).toBe('true')
-    expect(resolveConfig({}, { SECURE_COOKIES: 'false' } as NodeJS.ProcessEnv, base).secureCookies).toBe(
-      'false'
-    )
-    expect(resolveConfig({}, { SECURE_COOKIES: 'weird' } as NodeJS.ProcessEnv, base).secureCookies).toBe('auto')
+    expect(
+      resolveConfig({}, { SECURE_COOKIES: 'auto' } as NodeJS.ProcessEnv, base).secureCookies
+    ).toBe('auto')
+    expect(
+      resolveConfig({}, { SECURE_COOKIES: 'true' } as NodeJS.ProcessEnv, base).secureCookies
+    ).toBe('true')
+    expect(
+      resolveConfig({}, { SECURE_COOKIES: 'false' } as NodeJS.ProcessEnv, base).secureCookies
+    ).toBe('false')
+    expect(
+      resolveConfig({}, { SECURE_COOKIES: 'weird' } as NodeJS.ProcessEnv, base).secureCookies
+    ).toBe('auto')
   })
 
   it('parses trustProxy booleans', () => {
     expect(resolveConfig({}, { TRUST_PROXY: '1' } as NodeJS.ProcessEnv, base).trustProxy).toBe(true)
-    expect(resolveConfig({}, { TRUST_PROXY: 'no' } as NodeJS.ProcessEnv, base).trustProxy).toBe(false)
-    expect(resolveConfig({ trustProxy: true }, { TRUST_PROXY: 'wat' } as NodeJS.ProcessEnv, base).trustProxy).toBe(
-      true
+    expect(resolveConfig({}, { TRUST_PROXY: 'no' } as NodeJS.ProcessEnv, base).trustProxy).toBe(
+      false
     )
+    expect(
+      resolveConfig({ trustProxy: true }, { TRUST_PROXY: 'wat' } as NodeJS.ProcessEnv, base)
+        .trustProxy
+    ).toBe(true)
   })
 
   it('uses the provided data default, but lets env and file override it', () => {
     expect(resolveConfig({}, {}, base, '/user/appdata').dataDir).toBe('/user/appdata')
-    expect(resolveConfig({ dataDir: '/from/file' }, {}, base, '/user/appdata').dataDir).toBe('/from/file')
+    expect(resolveConfig({ dataDir: '/from/file' }, {}, base, '/user/appdata').dataDir).toBe(
+      '/from/file'
+    )
     expect(
-      resolveConfig({}, { DATA_DIR: '/from/env' } as NodeJS.ProcessEnv, base, '/user/appdata').dataDir
+      resolveConfig({}, { DATA_DIR: '/from/env' } as NodeJS.ProcessEnv, base, '/user/appdata')
+        .dataDir
     ).toBe('/from/env')
   })
 
