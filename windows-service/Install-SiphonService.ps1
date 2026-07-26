@@ -28,7 +28,9 @@
 #>
 [CmdletBinding()]
 param(
-  [switch]$Build
+  [switch]$Build,
+  # Set automatically when the script relaunches itself elevated; not meant to be passed by hand.
+  [switch]$Elevated
 )
 
 $ServiceName  = 'Siphon'
@@ -41,7 +43,7 @@ $WinswSha256  = '05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0D
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
   Write-Host 'Requesting administrator privileges (approve the UAC prompt)...' -ForegroundColor Yellow
-  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Elevated')
   if ($Build) { $argsList += '-Build' }
   try {
     $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList -PassThru -Wait -ErrorAction Stop
@@ -61,7 +63,35 @@ $exe   = Join-Path $root 'dist-bin\siphon-win-x64.exe'
 $winsw = Join-Path $root 'dist-bin\siphon-service.exe'
 
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
-function Fail($m) { Write-Host "`n[install] $m`n" -ForegroundColor Red; exit 1 }
+
+# When we relaunched ourselves elevated, the new window would otherwise close the instant the
+# script ends - too fast to read the result. Hold it open with a final banner that auto-closes
+# after a timeout (or immediately on a key press). No-op when run from an existing admin shell.
+function Wait-BeforeClose([string]$Message, [string]$Color, [int]$Seconds) {
+  if (-not $Elevated) { return }
+  Write-Host ''
+  Write-Host $Message -ForegroundColor $Color
+  # Prefer an interactive "press a key or wait" countdown, but fall back to a plain timed wait in
+  # hosts that don't expose raw key input - keeping the real delay equal to $Seconds either way.
+  $canReadKey = $false
+  try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { $canReadKey = $false }
+  if ($canReadKey) {
+    Write-Host "This window closes in $Seconds seconds - press any key to close now..." -ForegroundColor DarkGray
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+      try { if ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); break } } catch { break }
+      Start-Sleep -Milliseconds 150
+    }
+  } else {
+    Write-Host "This window closes in $Seconds seconds..." -ForegroundColor DarkGray
+    Start-Sleep -Seconds $Seconds
+  }
+}
+function Fail($m) {
+  Write-Host "`n[install] $m`n" -ForegroundColor Red
+  Wait-BeforeClose 'Install FAILED - review the messages above before this window closes.' 'Red' 120
+  exit 1
+}
 function Get-Sha256($path) { (Get-FileHash $path -Algorithm SHA256).Hash.ToUpperInvariant() }
 
 function Xml-Escape([string]$s) {
@@ -257,6 +287,7 @@ for ($i = 1; $i -le 8 -and -not $ok; $i++) {
 if ($ok) {
   Write-Host "`n[install] OK - Siphon is serving at http://localhost:$port (and http://<this-pc-ip>:$port)." -ForegroundColor Green
   Write-Host "[install] It starts automatically on boot. Manage it in services.msc, or: net stop $ServiceName / net start $ServiceName" -ForegroundColor Green
+  Wait-BeforeClose 'Siphon installed and serving.' 'Green' 20
 } else {
   Write-Host "`n[install] WARN - service installed but http://localhost:$port is not responding (possible startup crash)." -ForegroundColor Red
   $errLog = Join-Path $logPath 'siphon-service.err.log'
@@ -264,5 +295,6 @@ if ($ok) {
     Write-Host "--- last errors ($errLog) ---" -ForegroundColor Yellow
     Get-Content $errLog -Tail 15
   }
+  Wait-BeforeClose 'Install finished with a warning - the service is not serving yet.' 'Red' 120
   exit 1
 }

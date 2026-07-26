@@ -20,7 +20,9 @@
 #>
 [CmdletBinding()]
 param(
-  [switch]$Purge
+  [switch]$Purge,
+  # Set automatically when the script relaunches itself elevated; not meant to be passed by hand.
+  [switch]$Elevated
 )
 
 $ServiceName = 'Siphon'
@@ -29,7 +31,7 @@ $ServiceName = 'Siphon'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
   Write-Host 'Requesting administrator privileges (approve the UAC prompt)...' -ForegroundColor Yellow
-  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Elevated')
   if ($Purge) { $argsList += '-Purge' }
   try {
     $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList -PassThru -Wait -ErrorAction Stop
@@ -46,6 +48,37 @@ $root  = Split-Path -Parent $here
 $winsw = Join-Path $root 'dist-bin\siphon-service.exe'
 
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
+
+# When we relaunched ourselves elevated, the new window would otherwise close the instant the
+# script ends - too fast to read the result. Hold it open with a final banner that auto-closes
+# after a timeout (or immediately on a key press). No-op when run from an existing admin shell.
+function Wait-BeforeClose([string]$Message, [string]$Color, [int]$Seconds) {
+  if (-not $Elevated) { return }
+  Write-Host ''
+  Write-Host $Message -ForegroundColor $Color
+  # Prefer an interactive "press a key or wait" countdown, but fall back to a plain timed wait in
+  # hosts that don't expose raw key input - keeping the real delay equal to $Seconds either way.
+  $canReadKey = $false
+  try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { $canReadKey = $false }
+  if ($canReadKey) {
+    Write-Host "This window closes in $Seconds seconds - press any key to close now..." -ForegroundColor DarkGray
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+      try { if ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); break } } catch { break }
+      Start-Sleep -Milliseconds 150
+    }
+  } else {
+    Write-Host "This window closes in $Seconds seconds..." -ForegroundColor DarkGray
+    Start-Sleep -Seconds $Seconds
+  }
+}
+
+# Any unhandled error still shows before the elevated window disappears.
+trap {
+  Write-Host "`nUNINSTALL FAILED: $($_.Exception.Message)" -ForegroundColor Red
+  Wait-BeforeClose 'Uninstall FAILED - review the messages above before this window closes.' 'Red' 120
+  exit 1
+}
 
 $svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
@@ -85,3 +118,5 @@ if ($Purge) {
     Write-Host "[uninstall] $dataDir does not exist - nothing to purge." -ForegroundColor DarkGray
   }
 }
+
+Wait-BeforeClose 'Uninstall finished.' 'Green' 15

@@ -26,4 +26,33 @@ describe('App max-concurrent-downloads behavior', () => {
     expect(localStorage.getItem(MAX_CONCURRENT_STORAGE_KEY)).toBe('7')
     await waitFor(() => expect(api.setMaxConcurrentDownloads).toHaveBeenCalledWith(7))
   })
+
+  it('lets you clear the field without snapping back to 1 (mobile)', async () => {
+    const api = installMockWebApi()
+    renderWithProviders(<App canChangePassword={false} />)
+    await waitFor(() => expect(api.setMaxConcurrentDownloads).toHaveBeenCalledWith(3))
+    vi.mocked(api.setMaxConcurrentDownloads).mockClear()
+
+    const input = screen.getByLabelText('Concurrent') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '' } })
+
+    expect(input.value).toBe('')
+    expect(api.setMaxConcurrentDownloads).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: '5' } })
+    expect(input.value).toBe('5')
+    await waitFor(() => expect(api.setMaxConcurrentDownloads).toHaveBeenCalledWith(5))
+  })
+
+  it('restores the last valid value on blur when left empty', async () => {
+    const api = installMockWebApi()
+    renderWithProviders(<App canChangePassword={false} />)
+    await waitFor(() => expect(api.setMaxConcurrentDownloads).toHaveBeenCalledWith(3))
+
+    const input = screen.getByLabelText('Concurrent') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(input.value).toBe('3')
+  })
 })
