@@ -5,7 +5,6 @@ import { applyDownloadEvent } from '../lib/transfers'
 
 interface UseTransfersOptions {
   navigateTo: (dir: string) => Promise<boolean>
-  /** Stable ref-based accessor for the live cwd, read at debounce-fire time. */
   getCwd: () => string
 }
 

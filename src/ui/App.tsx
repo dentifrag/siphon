@@ -27,9 +27,6 @@ export default function App({ canChangePassword }: AppProps) {
       .catch(() => undefined)
   }, [])
 
-  // useBrowser's status-restore effect needs to trigger useConnection's restore, but
-  // useConnection needs browser.navigateTo/resetForDisconnect as inputs. Break the cycle
-  // with a ref, same technique the pre-refactor App.tsx used for its navigateToRef.
   const restoreConnectionRef = useRef<() => void>(() => {})
   const onStatusConnected = useCallback(() => restoreConnectionRef.current(), [])
 

@@ -40,7 +40,6 @@ body {
   background: var(--bg);
 }
 
-/* Primer portals overlays at z-index 1, lift them above the app's sticky z-index. */
 #__primerPortalRoot__ {
   z-index: 100;
 }
@@ -85,7 +84,6 @@ body {
   gap: 12px;
 }
 
-/* Panels ------------------------------------------------------------------ */
 .panel {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -241,7 +239,6 @@ body {
   flex: 1;
 }
 
-/* Banners ----------------------------------------------------------------- */
 .banner {
   margin: 4px 0 0;
   padding: 7px 10px;
@@ -261,7 +258,6 @@ body {
   color: var(--accent);
 }
 
-/* Browser ----------------------------------------------------------------- */
 .workspace {
   flex: 1;
   min-height: 0;
@@ -430,7 +426,6 @@ body {
   font-size: 13px;
 }
 
-/* Queue ------------------------------------------------------------------- */
 .queue {
   width: 380px;
   flex-shrink: 0;
@@ -516,14 +511,12 @@ body {
   color: var(--danger);
 }
 
-/* Empty states ------------------------------------------------------------ */
 .empty {
   color: var(--muted);
   text-align: center;
   padding: 24px;
 }
 
-/* Modal + folder picker --------------------------------------------------- */
 .folder-picker__roots {
   display: flex;
   flex-wrap: wrap;
@@ -636,7 +629,6 @@ body {
   color: var(--muted);
 }
 
-/* Connection bar (compact, shown once connected) --------------------------- */
 .connection__toggle {
   display: inline-flex;
   align-items: center;
@@ -673,8 +665,7 @@ body {
   display: none;
 }
 
-/* Responsive layout -------------------------------------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .app:not(.app--connected) {
     height: auto;
     min-height: 100dvh;
@@ -691,7 +682,6 @@ body {
     align-items: stretch;
   }
 
-  /* Files / Transfers tab switcher */
   .mobile-tabs {
     display: flex;
     gap: 6px;
@@ -703,7 +693,6 @@ body {
     background: var(--panel);
   }
 
-  /* Single-pane workspace inside the fixed app shell; the active pane scrolls */
   .workspace {
     flex-direction: column;
   }
@@ -745,6 +734,16 @@ body {
     vertical-align: top;
   }
 
+  .file-table tbody td,
+  .file-table thead th {
+    white-space: normal;
+  }
+
+  .file-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .col-name {
     width: auto;
   }
@@ -756,7 +755,6 @@ body {
   }
 }
 
-/* Touch targets -------------------------------------------------------------- */
 @media (pointer: coarse) {
   .file-table tbody tr {
     min-height: 44px;

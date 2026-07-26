@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Checkbox, FormControl, Select, TextInput } from '@primer/react'
 import { ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react'
 import type { AuthMethod } from '@shared/types'
@@ -61,6 +61,25 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
   const canConnect = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
   const canSave = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
   const [detailsOpen, setDetailsOpen] = useState(false)
+
+  const [segmentsText, setSegmentsText] = useState(String(segments))
+  useEffect(() => {
+    setSegmentsText(String(segments))
+  }, [segments])
+
+  const handleSegmentsChange = (raw: string): void => {
+    const next = raw.replace(/[^0-9]/g, '')
+    setSegmentsText(next)
+    const n = Number.parseInt(next, 10)
+    if (Number.isFinite(n) && n >= 1 && n <= 16) onSegmentsChange(n)
+  }
+
+  const handleSegmentsBlur = (): void => {
+    const n = Number.parseInt(segmentsText, 10)
+    const clamped = Number.isFinite(n) ? Math.max(1, Math.min(16, n)) : segments
+    setSegmentsText(String(clamped))
+    if (clamped !== segments) onSegmentsChange(clamped)
+  }
 
   const sectionClass = ['panel', 'connection', connected ? 'connection--connected' : '']
     .filter(Boolean)
@@ -202,10 +221,12 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
         <TextInput
           block
           type="number"
+          inputMode="numeric"
           min={1}
           max={16}
-          value={segments}
-          onChange={(e) => onSegmentsChange(clampSegments(e.target.value))}
+          value={segmentsText}
+          onChange={(e) => handleSegmentsChange(e.target.value)}
+          onBlur={handleSegmentsBlur}
         />
       </FormControl>
       <div className="form-field form-field--grow">
@@ -270,10 +291,4 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
       {error && <p className="banner banner--error">{error}</p>}
     </section>
   )
-}
-
-function clampSegments(value: string): number {
-  const n = Number.parseInt(value, 10)
-  if (!Number.isFinite(n)) return 1
-  return Math.max(1, Math.min(16, n))
 }
