@@ -33,8 +33,8 @@
     "server:build": "esbuild src/server/index.ts --bundle --platform=node --target=node20 --format=cjs --packages=external --outfile=dist-server/index.cjs",
     "web:build:all": "npm run web:build && npm run server:build",
     "web:start": "node dist-server/index.cjs",
-    "service:install": "node windows-service/install.js",
-    "service:uninstall": "node windows-service/uninstall.js",
+    "service:install": "powershell -NoProfile -ExecutionPolicy Bypass -File windows-service/Install-SiphonService.ps1",
+    "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File windows-service/Uninstall-SiphonService.ps1",
     "package:build": "npm run web:build:all",
     "package:win": "pkg dist-server/index.cjs -c pkg.config.json -t node22-win-x64 -o dist-bin/siphon-win-x64.exe",
     "package:macos-arm64": "pkg dist-server/index.cjs -c pkg.config.json -t node22-macos-arm64 -o dist-bin/siphon-macos-arm64",
@@ -53,9 +53,6 @@
   "author": "dentifrag",
   "license": "MIT",
   "type": "commonjs",
-  "optionalDependencies": {
-    "node-windows": "^1.0.0-beta.8"
-  },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
     "@fastify/static": "^10.1.2",

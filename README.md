@@ -86,8 +86,12 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 ## Keep it running on boot
 
 - **Docker:** already handled (`restart: unless-stopped` in `docker-compose.yml`).
-- **Windows:** run `npm run service:install` from an Administrator PowerShell to install it as a
-  service that starts at boot. See [`windows-service/`](windows-service/) for details.
+- **Windows:** run `npm run service:install` from an Administrator PowerShell (or right-click
+  `windows-service/Install-SiphonService.ps1` > "Run with PowerShell"). It wraps the packaged
+  `dist-bin/siphon-win-x64.exe` in [WinSW](https://github.com/winsw/winsw) as an auto-start
+  service that restarts on failure and rolls its logs - no system Node.js needed at runtime.
+  For a first-time build of the exe, add `-Build`. See [`windows-service/`](windows-service/)
+  for details.
 - **Linux:** point a systemd unit at the binary with `Restart=always`.
 
 ## Authentication and security
@@ -150,7 +154,7 @@ src/
   web/           Vite entry point that mounts the UI
   shared/        Types and the API contract shared between server and UI
 test/            Vitest unit tests
-windows-service/ Windows service install/uninstall scripts
+windows-service/ WinSW-based Windows service install/uninstall (PowerShell)
 Dockerfile       Container image (bundles rclone)
 docker-compose.yml
 ```

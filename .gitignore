@@ -11,4 +11,3 @@ dist-bin
 .DS_Store
 .vscode
 windows-service/service.config.json
-windows-service/daemon
