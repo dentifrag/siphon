@@ -34,8 +34,7 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /tmp/rclone.zip /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
-# Omit optional deps: node-windows (Windows-only service tooling) bundles Windows
-# executables that the Linux runtime never needs.
+# Install production dependencies only (no dev/optional deps needed at runtime).
 RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 COPY --from=build /app/dist-web ./dist-web
 COPY --from=build /app/dist-server ./dist-server
