@@ -45,15 +45,20 @@ function Wait-BeforeClose([string]$Message, [string]$Color, [int]$Seconds) {
   if (-not $Elevated) { return }
   Write-Host ''
   Write-Host $Message -ForegroundColor $Color
-  Write-Host "This window closes in $Seconds seconds - press any key to close now..." -ForegroundColor DarkGray
-  $deadline = (Get-Date).AddSeconds($Seconds)
-  try {
+  # Prefer an interactive "press a key or wait" countdown, but fall back to a plain timed wait in
+  # hosts that don't expose raw key input - keeping the real delay equal to $Seconds either way.
+  $canReadKey = $false
+  try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { $canReadKey = $false }
+  if ($canReadKey) {
+    Write-Host "This window closes in $Seconds seconds - press any key to close now..." -ForegroundColor DarkGray
+    $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
-      if ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); break }
+      try { if ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); break } } catch { break }
       Start-Sleep -Milliseconds 150
     }
-  } catch {
-    Start-Sleep -Seconds ([Math]::Min($Seconds, 10))
+  } else {
+    Write-Host "This window closes in $Seconds seconds..." -ForegroundColor DarkGray
+    Start-Sleep -Seconds $Seconds
   }
 }
 
