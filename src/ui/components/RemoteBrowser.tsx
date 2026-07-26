@@ -286,7 +286,6 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                         </span>
                         {entry.name}
                       </span>
-                      <span className="file-meta">{formatMtime(entry.mtime)}</span>
                     </td>
                     <td className="col-size">{isDir ? '' : formatBytes(entry.size)}</td>
                     <td className="col-mtime">{formatMtime(entry.mtime)}</td>
