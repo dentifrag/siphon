@@ -71,7 +71,9 @@ export function useTransfers({ navigateTo, getCwd }: UseTransfersOptions): UseTr
     try {
       const removed = await window.api.removeDownload(id)
       if (removed) setTransfers((prev) => prev.filter((t) => t.id !== id))
-    } catch {}
+    } catch {
+      // ignore: leave the transfer list as-is if the removal request fails
+    }
   }, [])
 
   const handleClearFinished = useCallback(async () => {

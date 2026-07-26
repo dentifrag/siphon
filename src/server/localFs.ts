@@ -134,6 +134,8 @@ export async function makeDir(scope: FsScope, parentPath: string, name: string):
   return canonicalTarget
 }
 
+// Caller must pass an already-resolved, confined directory; this walker only skips symlinks
+// and does not itself enforce scope.
 export async function listFilesRecursive(
   dir: string
 ): Promise<{ relPath: string; size: number }[]> {

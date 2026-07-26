@@ -80,7 +80,9 @@ export function useConnection({
           setSelectedProfileId(saved.profileId)
         }
       }
-    } catch {}
+    } catch {
+      // ignore malformed stored connection
+    }
   }, [])
 
   const handleConnect = useCallback(async () => {
@@ -128,7 +130,9 @@ export function useConnection({
   const handleDisconnect = useCallback(async () => {
     try {
       await window.api.disconnect()
-    } catch {}
+    } catch {
+      // ignore: we still reset local state below regardless of server-side outcome
+    }
     try {
       localStorage.removeItem(CONNECTION_STORAGE_KEY)
     } catch {}
