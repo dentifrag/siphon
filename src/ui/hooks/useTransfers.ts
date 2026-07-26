@@ -5,7 +5,6 @@ import { applyDownloadEvent } from '../lib/transfers'
 
 interface UseTransfersOptions {
   navigateTo: (dir: string) => Promise<boolean>
-  /** Stable ref-based accessor for the live cwd, read at debounce-fire time. */
   getCwd: () => string
 }
 
@@ -72,9 +71,7 @@ export function useTransfers({ navigateTo, getCwd }: UseTransfersOptions): UseTr
     try {
       const removed = await window.api.removeDownload(id)
       if (removed) setTransfers((prev) => prev.filter((t) => t.id !== id))
-    } catch {
-      // ignore: leave the transfer list as-is if the removal request fails
-    }
+    } catch {}
   }, [])
 
   const handleClearFinished = useCallback(async () => {

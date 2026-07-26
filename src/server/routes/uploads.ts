@@ -25,7 +25,6 @@ export async function expandUpload(
   input: ExpandUploadInput
 ): Promise<TransferProgress[]> {
   const { resolved, isDir, size, remoteDir, jobRemote } = input
-  // SFTP uploads are single-stream (see README); segments is always 1.
   const segments = 1
 
   if (isDir) {

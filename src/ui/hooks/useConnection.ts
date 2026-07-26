@@ -15,9 +15,7 @@ interface UseConnectionOptions {
   downloadDir: string
   onSegmentsChange: (segments: number) => void
   onDownloadDirChange: (dir: string) => void
-  /** Called after a successful connect, with the server-reported home dir. Does not own navigation. */
   onConnected: (home: string) => Promise<boolean>
-  /** Called after disconnect (success or failure) so the browser can reset its own state. */
   onDisconnected: () => void
 }
 
@@ -35,7 +33,6 @@ interface UseConnectionResult {
   handleSelectProfile: (id: string) => Promise<void>
   handleSaveProfile: () => Promise<void>
   handleDeleteProfile: () => Promise<void>
-  /** Restores connState + the persisted form/profile selection from localStorage. */
   restoreConnection: () => void
 }
 
@@ -83,9 +80,7 @@ export function useConnection({
           setSelectedProfileId(saved.profileId)
         }
       }
-    } catch {
-      // ignore malformed stored connection
-    }
+    } catch {}
   }, [])
 
   const handleConnect = useCallback(async () => {
@@ -133,9 +128,7 @@ export function useConnection({
   const handleDisconnect = useCallback(async () => {
     try {
       await window.api.disconnect()
-    } catch {
-      // ignore: we still reset local state below regardless of server-side outcome
-    }
+    } catch {}
     try {
       localStorage.removeItem(CONNECTION_STORAGE_KEY)
     } catch {}

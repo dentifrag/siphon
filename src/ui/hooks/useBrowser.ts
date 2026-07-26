@@ -5,7 +5,6 @@ import { errorMessage } from '../lib/format'
 interface UseBrowserOptions {
   downloadDir: string
   segments: number
-  /** Called when the server reports an already-connected session on mount, before cwd restore. */
   onStatusConnected: () => void
 }
 
@@ -17,7 +16,6 @@ interface UseBrowserResult {
   selected: Set<string>
   setSelected: (next: Set<string>) => void
   navigateTo: (dir: string) => Promise<boolean>
-  /** Stable ref-based accessor for the live cwd, for callers that must read it outside React state timing. */
   getCwd: () => string
   resetForDisconnect: () => void
   enqueue: (remotePath: string) => Promise<void>

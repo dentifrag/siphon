@@ -142,7 +142,6 @@ describe('listFilesRecursive', () => {
         symlinkSync(join(outsideRoot, 'secret.txt'), join(uploadRoot, 'escape.txt'))
         symlinkSync(outsideRoot, join(uploadRoot, 'escape-dir'))
       } catch {
-        // Creating symlinks needs elevated permissions / Developer Mode on Windows.
         symlinksCreated = false
       }
 

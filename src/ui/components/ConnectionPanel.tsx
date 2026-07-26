@@ -62,9 +62,6 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
   const canSave = form.host.trim() !== '' && form.username.trim() !== '' && !connecting
   const [detailsOpen, setDetailsOpen] = useState(false)
 
-  // Keep the segments field editable: mirror the numeric value in a string so the
-  // user can clear it and type a new number instead of it snapping back to 1 on
-  // every keystroke. The parent's clamped value is pushed only for valid entries.
   const [segmentsText, setSegmentsText] = useState(String(segments))
   useEffect(() => {
     setSegmentsText(String(segments))
