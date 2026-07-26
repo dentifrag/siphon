@@ -27,7 +27,7 @@ jobs:
           - os: macos-latest
             script: package:macos-arm64
             artifact: siphon-macos-arm64
-          - os: macos-13
+          - os: macos-latest
             script: package:macos-x64
             artifact: siphon-macos-x64
     runs-on: ${{ matrix.os }}
