@@ -405,10 +405,6 @@ body {
   gap: 6px;
 }
 
-.file-meta {
-  display: none;
-}
-
 .file-name--dir {
   border: none;
   background: none;
@@ -720,14 +716,7 @@ body {
   }
 
   .col-mtime {
-    display: none;
-  }
-
-  .file-meta {
-    display: block;
-    margin-top: 2px;
-    font-size: 11px;
-    color: var(--muted);
+    width: auto;
   }
 
   .file-table tbody td {
