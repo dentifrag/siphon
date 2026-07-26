@@ -674,7 +674,7 @@ body {
 }
 
 /* Responsive layout -------------------------------------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .app:not(.app--connected) {
     height: auto;
     min-height: 100dvh;
@@ -743,6 +743,19 @@ body {
 
   .file-table tbody td {
     vertical-align: top;
+  }
+
+  /* Keep rows within the viewport so long names don't push the row-actions
+     menu off-screen (which makes the list scroll sideways when the menu
+     returns focus to its anchor). */
+  .file-table tbody td,
+  .file-table thead th {
+    white-space: normal;
+  }
+
+  .file-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .col-name {
