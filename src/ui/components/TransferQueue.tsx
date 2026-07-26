@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Button, Label, ProgressBar } from '@primer/react'
 import { ArrowDownIcon, ArrowUpIcon } from '@primer/octicons-react'
 import type { TransferProgress, TransferStatus } from '@shared/types'
@@ -50,12 +51,6 @@ function baseName(path: string): string {
   return parts[parts.length - 1] ?? path
 }
 
-function clampConcurrent(value: string): number {
-  const n = Number.parseInt(value, 10)
-  if (!Number.isFinite(n)) return 1
-  return Math.max(1, Math.min(8, n))
-}
-
 export function TransferQueue(props: TransferQueueProps) {
   const {
     transfers,
@@ -66,6 +61,26 @@ export function TransferQueue(props: TransferQueueProps) {
     onClearFinished,
     onClearAll
   } = props
+
+  const [concurrentText, setConcurrentText] = useState(String(maxConcurrent))
+  useEffect(() => {
+    setConcurrentText(String(maxConcurrent))
+  }, [maxConcurrent])
+
+  const handleConcurrentChange = (raw: string): void => {
+    const next = raw.replace(/[^0-9]/g, '')
+    setConcurrentText(next)
+    const n = Number.parseInt(next, 10)
+    if (Number.isFinite(n) && n >= 1 && n <= 8) onMaxConcurrentChange(n)
+  }
+
+  const handleConcurrentBlur = (): void => {
+    const n = Number.parseInt(concurrentText, 10)
+    const clamped = Number.isFinite(n) ? Math.max(1, Math.min(8, n)) : maxConcurrent
+    setConcurrentText(String(clamped))
+    if (clamped !== maxConcurrent) onMaxConcurrentChange(clamped)
+  }
+
   const hasFinished = transfers.some(
     (t) => t.status === 'completed' || t.status === 'error' || t.status === 'canceled'
   )
@@ -79,10 +94,12 @@ export function TransferQueue(props: TransferQueueProps) {
             <span>Concurrent</span>
             <input
               type="number"
+              inputMode="numeric"
               min={1}
               max={8}
-              value={maxConcurrent}
-              onChange={(e) => onMaxConcurrentChange(clampConcurrent(e.target.value))}
+              value={concurrentText}
+              onChange={(e) => handleConcurrentChange(e.target.value)}
+              onBlur={handleConcurrentBlur}
             />
           </label>
           <Button variant="default" disabled={transfers.length === 0} onClick={onClearAll}>

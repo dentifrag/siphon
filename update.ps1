@@ -8,7 +8,9 @@
   It self-elevates (one UAC prompt) because stopping/starting the service needs admin.
   Steps that aren't needed are skipped (e.g. npm ci only runs when dependencies changed).
 #>
-param([switch]$Force)
+# -Elevated is set automatically when the script relaunches itself for admin rights;
+# it is not meant to be passed by hand.
+param([switch]$Force, [switch]$Elevated)
 
 $ServiceName = 'Siphon'
 
@@ -16,7 +18,7 @@ $ServiceName = 'Siphon'
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
   Write-Host 'Requesting administrator privileges (approve the UAC prompt)...' -ForegroundColor Yellow
-  $relaunch = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"")
+  $relaunch = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-Elevated')
   if ($Force) { $relaunch += '-Force' }
   try {
     $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $relaunch -PassThru -Wait -ErrorAction Stop
@@ -36,6 +38,26 @@ $env:Path = "C:\Program Files\nodejs;" + [System.Environment]::GetEnvironmentVar
 
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 
+# When we relaunched ourselves elevated, the new window would otherwise close the instant the
+# script ends - too fast to read the result. Hold it open with a final banner that auto-closes
+# after a timeout (or immediately on a key press). No-op when run from an existing admin shell.
+function Wait-BeforeClose([string]$Message, [string]$Color, [int]$Seconds) {
+  if (-not $Elevated) { return }
+  Write-Host ''
+  Write-Host $Message -ForegroundColor $Color
+  Write-Host "This window closes in $Seconds seconds - press any key to close now..." -ForegroundColor DarkGray
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  try {
+    while ((Get-Date) -lt $deadline) {
+      if ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown'); break }
+      Start-Sleep -Milliseconds 150
+    }
+  } catch {
+    Start-Sleep -Seconds ([Math]::Min($Seconds, 10))
+  }
+}
+
+$exitCode = 0
 try {
   if (-not (Get-Service $ServiceName -ErrorAction SilentlyContinue)) {
     throw "Service '$ServiceName' is not installed. Install it first (windows-service setup)."
@@ -134,5 +156,13 @@ try {
 catch {
   Write-Host "`nUPDATE FAILED: $($_.Exception.Message)" -ForegroundColor Red
   Write-Host "If the service was left stopped, start it with:  sc start $ServiceName" -ForegroundColor Yellow
-  exit 1
+  $exitCode = 1
 }
+finally {
+  if ($exitCode -eq 0) {
+    Wait-BeforeClose 'Update finished successfully.' 'Green' 20
+  } else {
+    Wait-BeforeClose 'Update FAILED - review the messages above before this window closes.' 'Red' 120
+  }
+}
+exit $exitCode
