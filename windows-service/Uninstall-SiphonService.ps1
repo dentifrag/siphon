@@ -29,10 +29,15 @@ $ServiceName = 'Siphon'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
   Write-Host 'Requesting administrator privileges (approve the UAC prompt)...' -ForegroundColor Yellow
-  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', "`"$PSCommandPath`"")
+  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
   if ($Purge) { $argsList += '-Purge' }
-  Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList
-  return
+  try {
+    $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList -PassThru -Wait -ErrorAction Stop
+  } catch {
+    Write-Host 'Elevation was cancelled - nothing was removed.' -ForegroundColor Red
+    exit 1
+  }
+  exit $proc.ExitCode
 }
 
 $ErrorActionPreference = 'Stop'

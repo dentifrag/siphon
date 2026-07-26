@@ -41,10 +41,15 @@ $WinswSha256  = '05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0D
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
   Write-Host 'Requesting administrator privileges (approve the UAC prompt)...' -ForegroundColor Yellow
-  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', "`"$PSCommandPath`"")
+  $argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
   if ($Build) { $argsList += '-Build' }
-  Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList
-  return
+  try {
+    $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argsList -PassThru -Wait -ErrorAction Stop
+  } catch {
+    Write-Host 'Elevation was cancelled - nothing was installed.' -ForegroundColor Red
+    exit 1
+  }
+  exit $proc.ExitCode
 }
 
 $ErrorActionPreference = 'Stop'
@@ -80,9 +85,9 @@ function Build-SiphonExe {
   # external that import survives into the pkg snapshot and crash-loops the packaged exe at
   # startup with ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING (service shows "Running" but never
   # listens). Bundling compiles it into a static require. Same rationale as update.ps1.
-  Step 'Bundling server (esbuild, deps bundled)'
-  npx esbuild src/server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist-server/index.cjs
-  if ($LASTEXITCODE -ne 0) { Fail 'server esbuild bundle failed.' }
+  Step 'Bundling server (deps bundled)'
+  npm run server:build:bundled
+  if ($LASTEXITCODE -ne 0) { Fail 'server bundle failed.' }
   Step 'Packaging exe (npm run package:win)'; npm run package:win; if ($LASTEXITCODE -ne 0) { Fail 'package:win failed.' }
 }
 
@@ -138,8 +143,7 @@ if (-not (Test-Path $exe)) {
 Standalone exe not found at dist-bin\siphon-win-x64.exe.
 Build it first (from a normal shell with Node.js 20+):
   npm ci
-  npm run web:build
-  npx esbuild src/server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist-server/index.cjs
+  npm run package:build
   npm run package:win
 ...or re-run this installer with  -Build  to do it automatically.
 '@

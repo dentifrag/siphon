@@ -18,17 +18,16 @@ You need the packaged exe at `dist-bin/siphon-win-x64.exe`. Either build it your
 
 ```powershell
 npm ci
-npm run web:build
-npx esbuild src/server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist-server/index.cjs
+npm run package:build
 npm run package:win
 ```
 
 ...or let the installer build it for you with `-Build` (needs Node.js 20+ on PATH).
 
-> The esbuild step above deliberately bundles **all** dependencies (no `--packages=external`).
-> Left external, `@fastify/cookie`'s dynamic `import('cookie')` survives into the packaged exe
-> and crash-loops it at startup (`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`). `update.ps1` and the
-> installer's `-Build` both do it this way.
+> `package:build` runs the **bundled** server build (`server:build:bundled`, no
+> `--packages=external`). Left external, `@fastify/cookie`'s dynamic `import('cookie')` survives
+> into the packaged exe and crash-loops it at startup (`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`).
+> `update.ps1` and the installer's `-Build` build it the same way.
 
 ## Install
 
@@ -55,16 +54,16 @@ Copy the example and edit it (the real file is git-ignored):
 Copy-Item windows-service/service.config.example.json windows-service/service.config.json
 ```
 
-| Key               | Env var             | Default                 | Notes                                                                 |
-| ----------------- | ------------------- | ----------------------- | --------------------------------------------------------------------- |
-| `port`            | `PORT`              | `8080`                  | Web UI port.                                                          |
-| `host`            | `HOST`              | `0.0.0.0`               | Bind address.                                                         |
-| `dataDir`         | `DATA_DIR`          | `C:\ProgramData\Siphon` | Saved profiles, rclone config, and logs live here.                    |
-| `downloadDirs`    | `DOWNLOAD_DIRS`     | _(empty)_               | Empty = browse the whole PC. Limit with `Label=path,Label2=path2`.    |
-| `appUsername`     | `APP_USERNAME`      | _(empty)_               | Login username (defaults to `admin` when a password is set).          |
-| `appPassword`     | `APP_PASSWORD`      | _(empty)_               | Plaintext login password (recommended). Leave blank for open access.  |
-| `appPasswordHash` | `APP_PASSWORD_HASH` | _(empty)_               | scrypt hash instead of plaintext (`./siphon --hash-password`).        |
-| `rclonePath`      | `RCLONE_PATH`       | bundled `rclone.exe`    | Path to rclone. Defaults to `dist-bin/rclone.exe` if present.         |
+| Key               | Env var             | Default                 | Notes                                                                |
+| ----------------- | ------------------- | ----------------------- | -------------------------------------------------------------------- |
+| `port`            | `PORT`              | `8080`                  | Web UI port.                                                         |
+| `host`            | `HOST`              | `0.0.0.0`               | Bind address.                                                        |
+| `dataDir`         | `DATA_DIR`          | `C:\ProgramData\Siphon` | Saved profiles, rclone config, and logs live here.                   |
+| `downloadDirs`    | `DOWNLOAD_DIRS`     | _(empty)_               | Empty = browse the whole PC. Limit with `Label=path,Label2=path2`.   |
+| `appUsername`     | `APP_USERNAME`      | _(empty)_               | Login username (defaults to `admin` when a password is set).         |
+| `appPassword`     | `APP_PASSWORD`      | _(empty)_               | Plaintext login password (recommended). Leave blank for open access. |
+| `appPasswordHash` | `APP_PASSWORD_HASH` | _(empty)_               | scrypt hash instead of plaintext (`./siphon --hash-password`).       |
+| `rclonePath`      | `RCLONE_PATH`       | bundled `rclone.exe`    | Path to rclone. Defaults to `dist-bin/rclone.exe` if present.        |
 
 Only non-empty values are written into the service. Re-run `npm run service:install` after
 editing to apply changes.

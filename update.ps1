@@ -16,10 +16,15 @@ $ServiceName = 'Siphon'
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
   Write-Host 'Requesting administrator privileges (approve the UAC prompt)...' -ForegroundColor Yellow
-  $relaunch = @('-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-File', "`"$PSCommandPath`"")
+  $relaunch = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"")
   if ($Force) { $relaunch += '-Force' }
-  Start-Process powershell.exe -Verb RunAs -ArgumentList $relaunch
-  return
+  try {
+    $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $relaunch -PassThru -Wait -ErrorAction Stop
+  } catch {
+    Write-Host 'Elevation was cancelled - nothing was updated.' -ForegroundColor Red
+    exit 1
+  }
+  exit $proc.ExitCode
 }
 
 $ErrorActionPreference = 'Stop'
@@ -69,9 +74,9 @@ try {
   # at startup with ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING (the service shows "Running" but never
   # listens). Bundling compiles the dynamic import into a static require so the exe boots.
   # Docker / plain `node dist-server/index.cjs` is unaffected either way.
-  Step 'Building server bundle (esbuild, deps bundled)'
-  npx esbuild src/server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist-server/index.cjs
-  if ($LASTEXITCODE -ne 0) { throw 'server esbuild bundle failed.' }
+  Step 'Building server bundle (deps bundled)'
+  npm run server:build:bundled
+  if ($LASTEXITCODE -ne 0) { throw 'server bundle failed.' }
 
   Step "Stopping service '$ServiceName' (releases the locked exe)"
   Stop-Service $ServiceName
@@ -92,18 +97,32 @@ try {
   Step "Starting service '$ServiceName'"
   Start-Service $ServiceName
 
+  # Derive the actual port + log dir from the installed WinSW config (fall back to defaults),
+  # so verification is correct even when service.config.json sets a non-default port/dataDir.
+  $port = 8080
+  $logDir = 'C:\ProgramData\Siphon\logs'
+  $svcXmlPath = Join-Path $root 'dist-bin\siphon-service.xml'
+  if (Test-Path $svcXmlPath) {
+    try {
+      [xml]$svcXml = Get-Content $svcXmlPath -Raw
+      $portEnv = @($svcXml.service.env) | Where-Object { $_.name -eq 'PORT' } | Select-Object -First 1
+      if ($portEnv -and $portEnv.value) { $port = [int]$portEnv.value }
+      if ($svcXml.service.logpath) { $logDir = [string]$svcXml.service.logpath }
+    } catch { }
+  }
+
   Step 'Verifying (the exe must actually serve, not just report Running)'
   $ok = $false
   for ($i = 1; $i -le 6 -and -not $ok; $i++) {
     Start-Sleep 3
     try {
-      $r = Invoke-WebRequest 'http://localhost:8080' -UseBasicParsing -TimeoutSec 8
-      if ($r.StatusCode -eq 200) { $ok = $true; Write-Host 'OK - HTTP 200 at http://localhost:8080' -ForegroundColor Green }
+      $r = Invoke-WebRequest "http://localhost:$port" -UseBasicParsing -TimeoutSec 8
+      if ($r.StatusCode -eq 200) { $ok = $true; Write-Host "OK - HTTP 200 at http://localhost:$port" -ForegroundColor Green }
     } catch { }
   }
   if (-not $ok) {
-    Write-Host 'WARN - service reports Running but http://localhost:8080 is not serving (likely a startup crash).' -ForegroundColor Red
-    $errLog = 'C:\ProgramData\Siphon\logs\siphon-service.err.log'
+    Write-Host "WARN - service reports Running but http://localhost:$port is not serving (likely a startup crash)." -ForegroundColor Red
+    $errLog = Join-Path $logDir 'siphon-service.err.log'
     if (Test-Path $errLog) {
       Write-Host "--- last errors ($errLog) ---" -ForegroundColor Yellow
       Get-Content $errLog -Tail 15
