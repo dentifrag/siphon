@@ -167,6 +167,24 @@ describe('RemoteBrowser smoke tests', () => {
     }
   })
 
+  it('does not announce filter results for an empty folder', () => {
+    vi.useFakeTimers()
+    try {
+      renderBrowser({ entries: [] })
+      const status = screen.getByRole('status')
+
+      fireEvent.change(screen.getByLabelText('Filter this folder'), {
+        target: { value: 'missing' }
+      })
+      act(() => vi.advanceTimersByTime(400))
+
+      expect(status).toBeEmptyDOMElement()
+      expect(screen.getByText('This folder is empty.')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('clears the filter when the current directory changes', () => {
     const { rerender } = renderBrowser()
     const input = screen.getByLabelText('Filter this folder')

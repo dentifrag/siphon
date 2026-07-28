@@ -59,7 +59,10 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   } = props
 
   // Hidden selections still count because downloads operate on the full directory listing.
-  const selectedCount = entries.filter((entry) => selected.has(entry.path)).length
+  const selectedCount = useMemo(
+    () => entries.filter((entry) => selected.has(entry.path)).length,
+    [entries, selected]
+  )
   const isCoarse = useCoarsePointer()
 
   const anchorRef = useRef<number | null>(null)
@@ -97,7 +100,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   }, [entries, filter])
 
   useEffect(() => {
-    if (!connected || loading || error || filter.trim() === '') {
+    if (!connected || loading || error || entries.length === 0 || filter.trim() === '') {
       setAnnouncement('')
       return
     }
