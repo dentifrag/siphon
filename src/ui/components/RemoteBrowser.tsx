@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { ActionList, ActionMenu, Button, IconButton } from '@primer/react'
+import {
+  ActionList,
+  ActionMenu,
+  Button,
+  IconButton,
+  TextInput,
+  VisuallyHidden
+} from '@primer/react'
 import {
   ArrowUpIcon,
   FileDirectoryFillIcon,
   FileIcon,
-  KebabHorizontalIcon
+  KebabHorizontalIcon,
+  SearchIcon
 } from '@primer/octicons-react'
 import type { RemoteEntry } from '@shared/types'
 import { breadcrumbs, parentDir } from '../lib/path'
 import { formatBytes, formatMtime } from '../lib/format'
 import { sortEntries, type SortKey, type SortState } from '../lib/sort'
+import { filterEntries } from '../lib/filter'
 import { isTextInputFocused } from '../lib/keyboard'
 import { useCoarsePointer } from '../lib/useCoarsePointer'
 
@@ -49,14 +58,25 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     onUpload
   } = props
 
+  // Hidden selections still count because downloads operate on the full directory listing.
   const selectedCount = entries.filter((entry) => selected.has(entry.path)).length
   const isCoarse = useCoarsePointer()
 
   const anchorRef = useRef<number | null>(null)
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null)
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' })
+  const [filter, setFilter] = useState('')
+  const [announcement, setAnnouncement] = useState('')
+  const [prevCwd, setPrevCwd] = useState(cwd)
+  const [prevConnected, setPrevConnected] = useState(connected)
+  if (prevCwd !== cwd || prevConnected !== connected) {
+    setPrevCwd(cwd)
+    setPrevConnected(connected)
+    if (prevCwd !== cwd || !connected) setFilter('')
+  }
 
-  const sortedEntries = useMemo(() => sortEntries(entries, sort), [entries, sort])
+  const visibleEntries = useMemo(() => filterEntries(entries, filter), [entries, filter])
+  const sortedEntries = useMemo(() => sortEntries(visibleEntries, sort), [visibleEntries, sort])
 
   const toggleSort = useCallback((key: SortKey) => {
     anchorRef.current = null
@@ -70,7 +90,23 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
 
   useEffect(() => {
     anchorRef.current = null
-  }, [entries])
+    setOpenMenuPath(null)
+  }, [entries, filter])
+
+  useEffect(() => {
+    if (!connected || loading || error || filter.trim() === '') {
+      setAnnouncement('')
+      return
+    }
+    const id = setTimeout(() => {
+      setAnnouncement(
+        sortedEntries.length === 0
+          ? 'No files match that filter.'
+          : `${sortedEntries.length} of ${entries.length} items match.`
+      )
+    }, 400)
+    return () => clearTimeout(id)
+  }, [connected, loading, error, filter, sortedEntries.length, entries.length])
 
   const selectRange = useCallback(
     (toIndex: number) => {
@@ -195,6 +231,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
 
   return (
     <section className="panel browser">
+      <VisuallyHidden role="status">{announcement}</VisuallyHidden>
       <div className="browser__toolbar">
         <IconButton
           icon={ArrowUpIcon}
@@ -217,6 +254,19 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
             </span>
           ))}
         </nav>
+        <TextInput
+          className="browser__filter"
+          aria-label="Filter this folder"
+          placeholder="Filter this folder"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setFilter('')
+          }}
+          disabled={!connected}
+          type="text"
+          leadingVisual={SearchIcon}
+        />
         <div className="browser__toolbar-actions">
           <Button variant="default" disabled={!connected || loading} onClick={onRefresh}>
             Refresh
@@ -245,6 +295,8 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           <p className="empty">Loading…</p>
         ) : entries.length === 0 ? (
           <p className="empty">This folder is empty.</p>
+        ) : sortedEntries.length === 0 ? (
+          <p className="empty">No files match that filter.</p>
         ) : (
           <table className="file-table">
             <thead>
