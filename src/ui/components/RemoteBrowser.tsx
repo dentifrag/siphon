@@ -69,6 +69,9 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   const [announcement, setAnnouncement] = useState('')
   const [prevCwd, setPrevCwd] = useState(cwd)
   const [prevConnected, setPrevConnected] = useState(connected)
+  // Adjusting state during render (React's documented alternative to an Effect) so a stale filter
+  // never paints against a new listing. navigateTo commits cwd and entries together, and a passive
+  // effect would run after paint, flashing the new folder through the old query.
   if (prevCwd !== cwd || prevConnected !== connected) {
     setPrevCwd(cwd)
     setPrevConnected(connected)
