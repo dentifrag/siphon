@@ -283,6 +283,12 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.browser__filter {
+  flex: 0 1 12rem;
+  min-width: 8rem;
+  max-width: 15rem;
+}
+
 .breadcrumbs {
   display: flex;
   align-items: center;

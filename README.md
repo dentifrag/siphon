@@ -76,7 +76,8 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 ## Features
 
 - Connect over SFTP with a password or private key.
-- Browse remote folders with sorting, multi-select, and right-click download.
+- Browse remote folders with current-folder filtering, sorting, multi-select, and right-click
+  download.
 - Fast parallel downloads (1 to 16 streams) with live progress and speed.
 - Upload files and folders that already exist on the Siphon server's local disk into the
   remote folder you are browsing.
