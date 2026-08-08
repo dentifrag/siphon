@@ -41,19 +41,23 @@ export async function expandDownload(
       return []
     }
 
-    return files.map((entry) =>
-      manager.enqueue({
-        srcFs: dirPath ? `${jobRemote}:${dirPath}` : `${jobRemote}:`,
+    const prefix = dirPath ? `${dirPath.replace(/\/+$/, '')}/` : ''
+    return files.map((entry) => {
+      const relativePath = prefix && entry.Path.startsWith(prefix)
+        ? entry.Path.slice(prefix.length)
+        : entry.Path
+      return manager.enqueue({
+        srcFs: `${jobRemote}:`,
         srcRemote: entry.Path,
         dstFs: targetDir,
-        dstRemote: `${wrappingName}/${entry.Path}`,
-        displayName: `${wrappingName}/${entry.Path}`,
-        localPath: join(targetDir, wrappingName, entry.Path),
+        dstRemote: `${wrappingName}/${relativePath}`,
+        displayName: `${wrappingName}/${relativePath}`,
+        localPath: join(targetDir, wrappingName, relativePath),
         size: entry.Size < 0 ? 0 : entry.Size,
         segments,
         cleanupRemote: jobRemote
       })
-    )
+    })
   }
 
   return [

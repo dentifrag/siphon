@@ -35,25 +35,28 @@ describe('expandDownload', () => {
     const deleteRemote = vi.fn().mockResolvedValue(undefined)
     const listRecursiveFiles = vi
       .fn()
-      .mockResolvedValue([listEntry('a.mkv', 10), listEntry('sub/b.mkv', 20)])
+      .mockResolvedValue([
+        listEntry('media/movies/a.mkv', 10),
+        listEntry('media/movies/sub/b.mkv', 20)
+      ])
     const client = { listRecursiveFiles, deleteRemote } as unknown as RcloneClient
     const manager = makeManager()
 
     const result = await expandDownload(client, manager, {
-      item: listEntry('movies', -1, true),
-      remotePath: '/movies',
-      dirPath: 'movies',
+      item: listEntry('media/movies', -1, true),
+      remotePath: '/media/movies',
+      dirPath: 'media/movies',
       wrappingName: 'movies',
       targetDir: '/out',
       segments: 4,
       jobRemote: '_dl-abc'
     })
 
-    expect(listRecursiveFiles).toHaveBeenCalledWith('_dl-abc:', 'movies')
+    expect(listRecursiveFiles).toHaveBeenCalledWith('_dl-abc:', 'media/movies')
     expect(result).toHaveLength(2)
     expect(manager.enqueue).toHaveBeenNthCalledWith(1, {
-      srcFs: '_dl-abc:movies',
-      srcRemote: 'a.mkv',
+      srcFs: '_dl-abc:',
+      srcRemote: 'media/movies/a.mkv',
       dstFs: '/out',
       dstRemote: 'movies/a.mkv',
       displayName: 'movies/a.mkv',
@@ -63,8 +66,8 @@ describe('expandDownload', () => {
       cleanupRemote: '_dl-abc'
     })
     expect(manager.enqueue).toHaveBeenNthCalledWith(2, {
-      srcFs: '_dl-abc:movies',
-      srcRemote: 'sub/b.mkv',
+      srcFs: '_dl-abc:',
+      srcRemote: 'media/movies/sub/b.mkv',
       dstFs: '/out',
       dstRemote: 'movies/sub/b.mkv',
       displayName: 'movies/sub/b.mkv',
