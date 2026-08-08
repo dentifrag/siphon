@@ -43,9 +43,8 @@ export async function expandDownload(
 
     const prefix = dirPath ? `${dirPath.replace(/\/+$/, '')}/` : ''
     return files.map((entry) => {
-      const relativePath = prefix && entry.Path.startsWith(prefix)
-        ? entry.Path.slice(prefix.length)
-        : entry.Path
+      const relativePath =
+        prefix && entry.Path.startsWith(prefix) ? entry.Path.slice(prefix.length) : entry.Path
       return manager.enqueue({
         srcFs: `${jobRemote}:`,
         srcRemote: entry.Path,
