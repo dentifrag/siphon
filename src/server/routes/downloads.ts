@@ -41,7 +41,8 @@ export async function expandDownload(
       return []
     }
 
-    const prefix = dirPath ? `${dirPath.replace(/\/+$/, '')}/` : ''
+    const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
+    const prefix = normalizedDirPath ? `${normalizedDirPath}/` : ''
     if (prefix && files.some((entry) => !entry.Path.startsWith(prefix))) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw new Error('Recursive listing returned a file outside the requested directory.')
