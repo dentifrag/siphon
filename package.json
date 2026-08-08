@@ -60,7 +60,7 @@
     "@primer/octicons-react": "^19.31.0",
     "@primer/primitives": "^11.9.0",
     "@primer/react": "^38.34.0",
-    "fastify": "^5.10.0",
+    "fastify": "^5.11.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
