@@ -122,6 +122,28 @@ describe('expandDownload', () => {
     expect(manager.enqueue).not.toHaveBeenCalled()
   })
 
+  it('rejects recursive entries outside the selected directory', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const listRecursiveFiles = vi.fn().mockResolvedValue([listEntry('other/file.bin', 10)])
+    const client = { listRecursiveFiles, deleteRemote } as unknown as RcloneClient
+    const manager = makeManager()
+
+    await expect(
+      expandDownload(client, manager, {
+        item: listEntry('movies', -1, true),
+        remotePath: '/movies',
+        dirPath: 'movies',
+        wrappingName: 'movies',
+        targetDir: '/out',
+        segments: 4,
+        jobRemote: '_dl-invalid'
+      })
+    ).rejects.toThrow('Recursive listing returned a file outside the requested directory.')
+
+    expect(deleteRemote).toHaveBeenCalledWith('_dl-invalid')
+    expect(manager.enqueue).not.toHaveBeenCalled()
+  })
+
   it('enqueues a single file transfer and returns an array of length 1 for a non-directory item', async () => {
     const client = {
       listRecursiveFiles: vi.fn(),

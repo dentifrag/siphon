@@ -42,9 +42,12 @@ export async function expandDownload(
     }
 
     const prefix = dirPath ? `${dirPath.replace(/\/+$/, '')}/` : ''
+    if (prefix && files.some((entry) => !entry.Path.startsWith(prefix))) {
+      await client.deleteRemote(jobRemote).catch(() => undefined)
+      throw new Error('Recursive listing returned a file outside the requested directory.')
+    }
     return files.map((entry) => {
-      const relativePath =
-        prefix && entry.Path.startsWith(prefix) ? entry.Path.slice(prefix.length) : entry.Path
+      const relativePath = entry.Path.slice(prefix.length)
       return manager.enqueue({
         srcFs: `${jobRemote}:`,
         srcRemote: entry.Path,
