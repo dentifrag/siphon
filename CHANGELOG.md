@@ -14,8 +14,9 @@ _Nothing yet._
 ### Changed
 
 - Raised the development Node.js requirement to `^22.22.2 || ^24.15.0 || >=26.0.0`, following the
-  jsdom 30 upgrade. This affects the dev toolchain only; the built server and packaged binaries
-  still target Node 22.
+  jsdom 30 upgrade. This affects the dev toolchain only. The server bundle is still compiled for
+  Node 20, and the Docker image and packaged binaries still ship Node 22, so running Siphon is
+  unaffected.
 
 ### Fixed
 
