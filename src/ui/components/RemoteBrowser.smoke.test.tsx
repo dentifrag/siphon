@@ -205,4 +205,58 @@ describe('RemoteBrowser smoke tests', () => {
 
     expect(input).toHaveValue('')
   })
+
+  it('anchors the right-click menu to the pointer, not the row kebab button', () => {
+    renderBrowser()
+    const row = screen.getByText('readme.txt').closest('tr')!
+
+    fireEvent.contextMenu(row, { clientX: 120, clientY: 240 })
+
+    const anchor = document.querySelector('.cursor-anchor') as HTMLElement
+    expect(anchor.style.left).toBe('120px')
+    expect(anchor.style.top).toBe('240px')
+    expect(screen.getByRole('menuitem', { name: /Download/ })).toBeInTheDocument()
+    for (const button of screen.getAllByRole('button', { name: 'Row actions' })) {
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+    }
+  })
+
+  it('moves the right-click menu when another row is right-clicked', () => {
+    renderBrowser()
+
+    fireEvent.contextMenu(screen.getByText('readme.txt').closest('tr')!, {
+      clientX: 120,
+      clientY: 240
+    })
+    fireEvent.contextMenu(screen.getByText('docs').closest('tr')!, { clientX: 40, clientY: 60 })
+
+    const anchor = document.querySelector('.cursor-anchor') as HTMLElement
+    expect(anchor.style.left).toBe('40px')
+    expect(anchor.style.top).toBe('60px')
+    expect(screen.getByRole('menuitem', { name: 'Open' })).toBeInTheDocument()
+  })
+
+  it('right-clicking an unselected row selects it', () => {
+    const { onSelectionChange } = renderBrowser()
+
+    fireEvent.contextMenu(screen.getByText('readme.txt').closest('tr')!, {
+      clientX: 10,
+      clientY: 10
+    })
+
+    expect(onSelectionChange).toHaveBeenCalledWith(new Set(['/readme.txt']))
+  })
+
+  it('closes the right-click menu with Escape without clearing the selection', () => {
+    const { onSelectionChange } = renderBrowser({ selected: new Set(['/readme.txt']) })
+    const row = screen.getByText('readme.txt').closest('tr')!
+
+    fireEvent.contextMenu(row, { clientX: 10, clientY: 10 })
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(onSelectionChange).not.toHaveBeenCalled()
+  })
 })
