@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
@@ -28,9 +28,10 @@ export async function expandDownload(
   const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote } = input
 
   if (item.IsDir) {
+    const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
     let files
     try {
-      files = await client.listRecursiveFiles(`${jobRemote}:`, dirPath)
+      files = await client.listRecursiveFiles(`${jobRemote}:`, normalizedDirPath)
     } catch (err) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw err
@@ -41,19 +42,43 @@ export async function expandDownload(
       return []
     }
 
-    return files.map((entry) =>
-      manager.enqueue({
-        srcFs: dirPath ? `${jobRemote}:${dirPath}` : `${jobRemote}:`,
+    const prefix = normalizedDirPath ? `${normalizedDirPath}/` : ''
+    if (prefix && files.some((entry) => !entry.Path.startsWith(prefix))) {
+      await client.deleteRemote(jobRemote).catch(() => undefined)
+      throw new Error('Recursive listing returned a file outside the requested directory.')
+    }
+
+    const destinationRoot = join(targetDir, wrappingName)
+    const plannedFiles = files.map((entry) => {
+      const relativePath = entry.Path.slice(prefix.length)
+      const localPath = join(destinationRoot, relativePath)
+      return { entry, relativePath, localPath }
+    })
+    const hasUnsafePath = plannedFiles.some(
+      ({ relativePath, localPath }) =>
+        !relativePath ||
+        relativePath.startsWith('/') ||
+        relativePath.split('/').includes('..') ||
+        (localPath !== destinationRoot && !localPath.startsWith(`${destinationRoot}${sep}`))
+    )
+    if (hasUnsafePath) {
+      await client.deleteRemote(jobRemote).catch(() => undefined)
+      throw new Error('Recursive listing returned an unsafe file path.')
+    }
+
+    return plannedFiles.map(({ entry, relativePath, localPath }) => {
+      return manager.enqueue({
+        srcFs: `${jobRemote}:`,
         srcRemote: entry.Path,
         dstFs: targetDir,
-        dstRemote: `${wrappingName}/${entry.Path}`,
-        displayName: `${wrappingName}/${entry.Path}`,
-        localPath: join(targetDir, wrappingName, entry.Path),
+        dstRemote: `${wrappingName}/${relativePath}`,
+        displayName: `${wrappingName}/${relativePath}`,
+        localPath,
         size: entry.Size < 0 ? 0 : entry.Size,
         segments,
         cleanupRemote: jobRemote
       })
-    )
+    })
   }
 
   return [

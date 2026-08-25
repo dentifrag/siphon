@@ -17,6 +17,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The right-click menu in the file browser now opens at the pointer instead of the row's
   overflow button on the far right, so it no longer scrolls the list away from the cursor.
+- Downloading a folder now transfers its contents. Files previously failed with an "object not
+  found" error, while folder paths with redundant separators completed without downloading.
 
 ## [1.0.0] - 2026-07-26
 
