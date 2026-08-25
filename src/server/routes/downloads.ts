@@ -28,9 +28,10 @@ export async function expandDownload(
   const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote } = input
 
   if (item.IsDir) {
+    const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
     let files
     try {
-      files = await client.listRecursiveFiles(`${jobRemote}:`, dirPath)
+      files = await client.listRecursiveFiles(`${jobRemote}:`, normalizedDirPath)
     } catch (err) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw err
@@ -41,7 +42,6 @@ export async function expandDownload(
       return []
     }
 
-    const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
     const prefix = normalizedDirPath ? `${normalizedDirPath}/` : ''
     if (prefix && files.some((entry) => !entry.Path.startsWith(prefix))) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
