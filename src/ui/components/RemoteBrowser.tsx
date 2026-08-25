@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { MouseEvent, ReactElement } from 'react'
 import {
   ActionList,
   ActionMenu,
@@ -40,6 +40,12 @@ interface RemoteBrowserProps {
   onUpload: () => void
 }
 
+interface ContextMenuState {
+  path: string
+  x: number
+  y: number
+}
+
 export function RemoteBrowser(props: RemoteBrowserProps) {
   const {
     connected,
@@ -66,7 +72,10 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   const isCoarse = useCoarsePointer()
 
   const anchorRef = useRef<number | null>(null)
+  const cursorAnchorRef = useRef<HTMLDivElement>(null)
+  const contextMenuLabelId = useId()
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' })
   const [filter, setFilter] = useState('')
   const [announcement, setAnnouncement] = useState('')
@@ -97,6 +106,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   useEffect(() => {
     anchorRef.current = null
     setOpenMenuPath(null)
+    setContextMenu(null)
   }, [entries, filter])
 
   useEffect(() => {
@@ -169,7 +179,8 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
         onSelectionChange(new Set([entry.path]))
         anchorRef.current = index
       }
-      setOpenMenuPath(entry.path)
+      setOpenMenuPath(null)
+      setContextMenu({ path: entry.path, x: event.clientX, y: event.clientY })
     },
     [onSelectionChange, selected]
   )
@@ -178,7 +189,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     if (!connected || suspended) return
     const onKey = (e: KeyboardEvent): void => {
       if (loading) return
-      if (openMenuPath !== null) return
+      if (openMenuPath !== null || contextMenu !== null) return
       if (isTextInputFocused()) return
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -227,6 +238,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     suspended,
     loading,
     openMenuPath,
+    contextMenu,
     sortedEntries,
     selected,
     cwd,
@@ -234,6 +246,23 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
     onSelectionChange,
     onDownloadSelected
   ])
+
+  const contextEntry = useMemo(
+    () =>
+      contextMenu ? sortedEntries.find((entry) => entry.path === contextMenu.path) : undefined,
+    [contextMenu, sortedEntries]
+  )
+
+  const renderMenuItems = (entry: RemoteEntry): ReactElement => (
+    <ActionList>
+      {entry.type === 'directory' && (
+        <ActionList.Item onSelect={() => onNavigate(entry.path)}>Open</ActionList.Item>
+      )}
+      <ActionList.Item disabled={!canDownload} onSelect={() => onDownloadSelected()}>
+        Download{selectedCount > 1 ? ` (${selectedCount})` : ''}
+      </ActionList.Item>
+    </ActionList>
+  )
 
   return (
     <section className="panel browser">
@@ -367,19 +396,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                           />
                         </ActionMenu.Anchor>
                         <ActionMenu.Overlay align="end">
-                          <ActionList>
-                            {isDir && (
-                              <ActionList.Item onSelect={() => onNavigate(entry.path)}>
-                                Open
-                              </ActionList.Item>
-                            )}
-                            <ActionList.Item
-                              disabled={!canDownload}
-                              onSelect={() => onDownloadSelected()}
-                            >
-                              Download{selectedCount > 1 ? ` (${selectedCount})` : ''}
-                            </ActionList.Item>
-                          </ActionList>
+                          {renderMenuItems(entry)}
                         </ActionMenu.Overlay>
                       </ActionMenu>
                     </td>
@@ -390,6 +407,36 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           </table>
         )}
       </div>
+
+      <div
+        ref={cursorAnchorRef}
+        className="cursor-anchor"
+        style={{ left: contextMenu?.x ?? 0, top: contextMenu?.y ?? 0 }}
+        aria-hidden="true"
+      />
+      {contextEntry && contextMenu && (
+        <>
+          <VisuallyHidden id={contextMenuLabelId}>
+            {`Actions for ${contextEntry.name}`}
+          </VisuallyHidden>
+          <ActionMenu
+            key={`${contextMenu.path}:${contextMenu.x}:${contextMenu.y}`}
+            anchorRef={cursorAnchorRef}
+            open
+            onOpenChange={(open) => {
+              if (!open) setContextMenu(null)
+            }}
+          >
+            <ActionMenu.Overlay
+              align="start"
+              displayInViewport
+              aria-labelledby={contextMenuLabelId}
+            >
+              {renderMenuItems(contextEntry)}
+            </ActionMenu.Overlay>
+          </ActionMenu>
+        </>
+      )}
     </section>
   )
 }
