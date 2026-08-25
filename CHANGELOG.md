@@ -7,6 +7,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.0.2] - 2026-08-25
+
 ### Changed
 
 - Raised the development Node.js requirement to `^22.22.2 || ^24.15.0 || >=26.0.0`, following the
@@ -19,6 +23,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   overflow button on the far right, so it no longer scrolls the list away from the cursor.
 - Downloading a folder now transfers its contents. Files previously failed with an "object not
   found" error, while folder paths with redundant separators completed without downloading.
+
+## [1.0.1] - 2026-07-28
+
+### Added
+
+- A quick filter for the current folder in the remote browser.
+
+### Changed
+
+- The macOS x64 release binary is now built on an arm64 runner, since Intel runners are scarce.
 
 ## [1.0.0] - 2026-07-26
 
@@ -37,5 +51,7 @@ The first public release.
 - Docker image with rclone bundled, plus single-file binaries for Windows, macOS, and Linux.
 - Windows service installer for running Siphon at boot.
 
-[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/dentifrag/siphon/compare/1.0.2...HEAD
+[1.0.2]: https://github.com/dentifrag/siphon/compare/1.0.1...1.0.2
+[1.0.1]: https://github.com/dentifrag/siphon/compare/v1.0.0...1.0.1
 [1.0.0]: https://github.com/dentifrag/siphon/releases/tag/v1.0.0

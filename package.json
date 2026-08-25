@@ -1,6 +1,6 @@
 {
   "name": "siphon",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A self-hosted web UI for rclone: browse remotes and pull files onto your server.",
   "homepage": "https://github.com/dentifrag/siphon#readme",
   "repository": {
