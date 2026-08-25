@@ -7,7 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- Raised the development Node.js requirement to `^22.22.2 || ^24.15.0 || >=26.0.0`, following the
+  jsdom 30 upgrade. This affects the dev toolchain only; the built server and packaged binaries
+  still target Node 22.
 
 ## [1.0.0] - 2026-07-26
 
