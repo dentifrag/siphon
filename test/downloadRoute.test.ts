@@ -240,6 +240,105 @@ describe('expandDownload', () => {
     expect(manager.enqueue).not.toHaveBeenCalled()
   })
 
+  it('rejects recursive entries that traverse outside the destination directory', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const listRecursiveFiles = vi
+      .fn()
+      .mockResolvedValue([listEntry('media/movies/../../../../etc/passwd', 10)])
+    const client = { listRecursiveFiles, deleteRemote } as unknown as RcloneClient
+    const manager = makeManager()
+
+    await expect(
+      expandDownload(client, manager, {
+        item: listEntry('media/movies', -1, true),
+        remotePath: '/media/movies',
+        dirPath: 'media/movies',
+        wrappingName: 'movies',
+        targetDir: '/out',
+        segments: 4,
+        jobRemote: '_dl-traversal'
+      })
+    ).rejects.toThrow('Recursive listing returned an unsafe file path.')
+
+    expect(deleteRemote).toHaveBeenCalledWith('_dl-traversal')
+    expect(manager.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('rejects traversal entries when recursively listing the remote root', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const listRecursiveFiles = vi.fn().mockResolvedValue([listEntry('../escape.bin', 10)])
+    const client = { listRecursiveFiles, deleteRemote } as unknown as RcloneClient
+    const manager = makeManager()
+
+    await expect(
+      expandDownload(client, manager, {
+        item: listEntry('', -1, true),
+        remotePath: '/',
+        dirPath: '',
+        wrappingName: 'root',
+        targetDir: '/out',
+        segments: 4,
+        jobRemote: '_dl-root-traversal'
+      })
+    ).rejects.toThrow('Recursive listing returned an unsafe file path.')
+
+    expect(deleteRemote).toHaveBeenCalledWith('_dl-root-traversal')
+    expect(manager.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('rejects absolute entries when recursively listing the remote root', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const listRecursiveFiles = vi.fn().mockResolvedValue([listEntry('/etc/passwd', 10)])
+    const client = { listRecursiveFiles, deleteRemote } as unknown as RcloneClient
+    const manager = makeManager()
+
+    await expect(
+      expandDownload(client, manager, {
+        item: listEntry('', -1, true),
+        remotePath: '/',
+        dirPath: '',
+        wrappingName: 'root',
+        targetDir: '/out',
+        segments: 4,
+        jobRemote: '_dl-root-absolute'
+      })
+    ).rejects.toThrow('Recursive listing returned an unsafe file path.')
+
+    expect(deleteRemote).toHaveBeenCalledWith('_dl-root-absolute')
+    expect(manager.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('accepts recursive entries with dots inside a filename', async () => {
+    const deleteRemote = vi.fn().mockResolvedValue(undefined)
+    const listRecursiveFiles = vi.fn().mockResolvedValue([listEntry('media/movies/..bashrc', 10)])
+    const client = { listRecursiveFiles, deleteRemote } as unknown as RcloneClient
+    const manager = makeManager()
+
+    const result = await expandDownload(client, manager, {
+      item: listEntry('media/movies', -1, true),
+      remotePath: '/media/movies',
+      dirPath: 'media/movies',
+      wrappingName: 'movies',
+      targetDir: '/out',
+      segments: 4,
+      jobRemote: '_dl-dotted'
+    })
+
+    expect(result).toHaveLength(1)
+    expect(manager.enqueue).toHaveBeenCalledWith({
+      srcFs: '_dl-dotted:',
+      srcRemote: 'media/movies/..bashrc',
+      dstFs: '/out',
+      dstRemote: 'movies/..bashrc',
+      displayName: 'movies/..bashrc',
+      localPath: '/out/movies/..bashrc',
+      size: 10,
+      segments: 4,
+      cleanupRemote: '_dl-dotted'
+    })
+    expect(deleteRemote).not.toHaveBeenCalled()
+  })
+
   it('enqueues a single file transfer and returns an array of length 1 for a non-directory item', async () => {
     const client = {
       listRecursiveFiles: vi.fn(),
