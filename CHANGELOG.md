@@ -7,7 +7,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- Raised the development Node.js requirement to `^22.22.2 || ^24.15.0 || >=26.0.0`, following the
+  jsdom 30 upgrade. This affects the dev toolchain only; the built server and packaged binaries
+  still target Node 22.
+
+### Fixed
+
+- The right-click menu in the file browser now opens at the pointer instead of the row's
+  overflow button on the far right, so it no longer scrolls the list away from the cursor.
 
 ## [1.0.0] - 2026-07-26
 
