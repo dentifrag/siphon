@@ -49,6 +49,7 @@ describe('expandUpload', () => {
 
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
+      kind: 'file',
       srcFs: '/root',
       srcRemote: 'file.bin',
       dstFs: '_ul-file:',
@@ -83,6 +84,7 @@ describe('expandUpload', () => {
     expect(listFilesRecursive).toHaveBeenCalledWith('/root/movies')
     expect(result).toHaveLength(2)
     expect(manager.enqueue).toHaveBeenNthCalledWith(1, {
+      kind: 'file',
       srcFs: '/root/movies',
       srcRemote: 'a.mkv',
       dstFs: '_ul-dir:',
@@ -96,6 +98,7 @@ describe('expandUpload', () => {
       cleanupRemote: '_ul-dir'
     })
     expect(manager.enqueue).toHaveBeenNthCalledWith(2, {
+      kind: 'file',
       srcFs: '/root/movies',
       srcRemote: 'sub/b.mkv',
       dstFs: '_ul-dir:',

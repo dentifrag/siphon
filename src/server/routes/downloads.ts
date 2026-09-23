@@ -66,23 +66,30 @@ export async function expandDownload(
       throw new Error('Recursive listing returned an unsafe file path.')
     }
 
-    return plannedFiles.map(({ entry, relativePath, localPath }) => {
-      return manager.enqueue({
-        srcFs: `${jobRemote}:`,
-        srcRemote: entry.Path,
-        dstFs: targetDir,
-        dstRemote: `${wrappingName}/${relativePath}`,
-        displayName: `${wrappingName}/${relativePath}`,
-        localPath,
-        size: entry.Size < 0 ? 0 : entry.Size,
+    const size = plannedFiles.reduce(
+      (total, { entry }) => total + (entry.Size < 0 ? 0 : entry.Size),
+      0
+    )
+
+    return [
+      manager.enqueue({
+        kind: 'directory',
+        srcFs: normalizedDirPath ? `${jobRemote}:${normalizedDirPath}` : `${jobRemote}:`,
+        srcRemote: '',
+        dstFs: destinationRoot,
+        dstRemote: '',
+        displayName: remotePath,
+        localPath: destinationRoot,
+        size,
         segments,
         cleanupRemote: jobRemote
       })
-    })
+    ]
   }
 
   return [
     manager.enqueue({
+      kind: 'file',
       srcFs: `${jobRemote}:`,
       srcRemote: dirPath,
       dstFs: targetDir,

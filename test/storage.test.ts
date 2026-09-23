@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  DOWNLOAD_DIR_STORAGE_KEY,
   MAX_CONCURRENT_STORAGE_KEY,
+  loadStoredDownloadDir,
   loadStoredMaxConcurrent,
   parseStoredConnection
 } from '../src/ui/lib/storage'
@@ -34,6 +36,17 @@ afterEach(() => {
 describe('loadStoredMaxConcurrent', () => {
   it('defaults to 3 when nothing is stored', () => {
     expect(loadStoredMaxConcurrent()).toBe(3)
+  })
+
+  describe('loadStoredDownloadDir', () => {
+    it('returns the last manually selected download folder', () => {
+      localStorage.setItem(DOWNLOAD_DIR_STORAGE_KEY, 'D:\\Media')
+      expect(loadStoredDownloadDir()).toBe('D:\\Media')
+    })
+
+    it('defaults to an empty string when nothing is stored', () => {
+      expect(loadStoredDownloadDir()).toBe('')
+    })
   })
 
   it('defaults to 3 when the stored value is not a number', () => {

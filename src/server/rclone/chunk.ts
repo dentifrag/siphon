@@ -10,6 +10,10 @@ export interface MultiThreadConfig {
   MultiThreadChunkSize: string
 }
 
+export interface DirectoryCopyConfig extends MultiThreadConfig {
+  Transfers: number
+}
+
 const MIN_CHUNK_BYTES = 5 * 1024 * 1024
 const CUTOFF_BYTES = 1 * 1024 * 1024
 export const MAX_STREAMS = 16
@@ -30,5 +34,17 @@ export function multiThreadConfig(plan: MultiThreadPlan): MultiThreadConfig {
     MultiThreadStreams: plan.streams,
     MultiThreadCutoff: `${plan.cutoffBytes}B`,
     MultiThreadChunkSize: `${plan.chunkBytes}B`
+  }
+}
+
+export function planDirectoryMultiThread(segments: number): MultiThreadPlan {
+  const streams = Math.max(1, Math.min(Math.floor(segments) || 1, MAX_STREAMS))
+  return { streams, chunkBytes: MIN_CHUNK_BYTES, cutoffBytes: CUTOFF_BYTES }
+}
+
+export function directoryCopyConfig(plan: MultiThreadPlan): DirectoryCopyConfig {
+  return {
+    ...multiThreadConfig(plan),
+    Transfers: 1
   }
 }

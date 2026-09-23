@@ -7,7 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- Folder downloads now run as one bounded rclone copy job instead of starting a segmented job
+  for every file. This prevents duplicate-looking queue entries and avoids multiplying SFTP
+  sessions until the folder fails near completion.
+- The download folder now defaults to the last path selected in the UI instead of resetting to
+  the configured default on every load.
 
 ## [1.0.2] - 2026-08-25
 

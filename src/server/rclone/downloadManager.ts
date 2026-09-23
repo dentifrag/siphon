@@ -3,9 +3,15 @@ import { randomUUID } from 'node:crypto'
 import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
 import type { RcloneClient } from './client'
-import { multiThreadConfig, planMultiThread } from './chunk'
+import {
+  directoryCopyConfig,
+  multiThreadConfig,
+  planDirectoryMultiThread,
+  planMultiThread
+} from './chunk'
 
 export interface RcloneEnqueueInput {
+  kind: 'file' | 'directory'
   srcFs: string
   srcRemote: string
   dstFs: string
@@ -223,19 +229,30 @@ export class RcloneDownloadManager extends EventEmitter {
 
       t.progress.status = 'downloading'
       t.samples = [{ time: Date.now(), bytes: 0 }]
-      const plan = planMultiThread(t.input.size, t.input.segments)
+      const plan =
+        t.input.kind === 'directory'
+          ? planDirectoryMultiThread(t.input.segments)
+          : planMultiThread(t.input.size, t.input.segments)
       t.progress.segments = plan.streams
       this.emitUpdate(id)
 
       await this.client.coreStatsDelete(t.group).catch(() => undefined)
-      t.jobid = await this.client.copyFileAsync({
-        srcFs: t.input.srcFs,
-        srcRemote: t.input.srcRemote,
-        dstFs: t.input.dstFs,
-        dstRemote: t.input.dstRemote,
-        group: t.group,
-        config: multiThreadConfig(plan)
-      })
+      t.jobid =
+        t.input.kind === 'directory'
+          ? await this.client.copyDirAsync({
+              srcFs: t.input.srcFs,
+              dstFs: t.input.dstFs,
+              group: t.group,
+              config: directoryCopyConfig(plan)
+            })
+          : await this.client.copyFileAsync({
+              srcFs: t.input.srcFs,
+              srcRemote: t.input.srcRemote,
+              dstFs: t.input.dstFs,
+              dstRemote: t.input.dstRemote,
+              group: t.group,
+              config: multiThreadConfig(plan)
+            })
 
       if (t.canceled) {
         void this.client.jobStop(t.jobid).catch(() => undefined)

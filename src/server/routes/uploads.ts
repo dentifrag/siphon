@@ -46,6 +46,7 @@ export async function expandUpload(
     return files.map((file) => {
       const displayName = `${dirBaseName}/${file.relPath}`
       return manager.enqueue({
+        kind: 'file',
         srcFs: resolved,
         srcRemote: file.relPath,
         dstFs: `${jobRemote}:`,
@@ -67,6 +68,7 @@ export async function expandUpload(
 
   return [
     manager.enqueue({
+      kind: 'file',
       srcFs: parentDir,
       srcRemote: localBaseName,
       dstFs: `${jobRemote}:`,

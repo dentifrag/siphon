@@ -31,7 +31,7 @@ function listEntry(path: string, size: number, isDir = false): RcloneListEntry {
 }
 
 describe('expandDownload', () => {
-  it('enqueues one file transfer per recursively listed entry, including nested paths', async () => {
+  it('enqueues one bounded directory transfer with a stable total size', async () => {
     const deleteRemote = vi.fn().mockResolvedValue(undefined)
     const listRecursiveFiles = vi
       .fn()
@@ -53,26 +53,16 @@ describe('expandDownload', () => {
     })
 
     expect(listRecursiveFiles).toHaveBeenCalledWith('_dl-abc:', 'media/movies')
-    expect(result).toHaveLength(2)
-    expect(manager.enqueue).toHaveBeenNthCalledWith(1, {
-      srcFs: '_dl-abc:',
-      srcRemote: 'media/movies/a.mkv',
-      dstFs: '/out',
-      dstRemote: 'movies/a.mkv',
-      displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
-      size: 10,
-      segments: 4,
-      cleanupRemote: '_dl-abc'
-    })
-    expect(manager.enqueue).toHaveBeenNthCalledWith(2, {
-      srcFs: '_dl-abc:',
-      srcRemote: 'media/movies/sub/b.mkv',
-      dstFs: '/out',
-      dstRemote: 'movies/sub/b.mkv',
-      displayName: 'movies/sub/b.mkv',
-      localPath: '/out/movies/sub/b.mkv',
-      size: 20,
+    expect(result).toHaveLength(1)
+    expect(manager.enqueue).toHaveBeenCalledWith({
+      kind: 'directory',
+      srcFs: '_dl-abc:media/movies',
+      srcRemote: '',
+      dstFs: '/out/movies',
+      dstRemote: '',
+      displayName: '/media/movies',
+      localPath: '/out/movies',
+      size: 30,
       segments: 4,
       cleanupRemote: '_dl-abc'
     })
@@ -98,12 +88,13 @@ describe('expandDownload', () => {
     expect(listRecursiveFiles).toHaveBeenCalledWith('_dl-redundant:', 'media/movies')
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
-      srcFs: '_dl-redundant:',
-      srcRemote: 'media/movies/a.mkv',
-      dstFs: '/out',
-      dstRemote: 'movies/a.mkv',
-      displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      kind: 'directory',
+      srcFs: '_dl-redundant:media/movies',
+      srcRemote: '',
+      dstFs: '/out/movies',
+      dstRemote: '',
+      displayName: '/media//movies',
+      localPath: '/out/movies',
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-redundant'
@@ -130,12 +121,13 @@ describe('expandDownload', () => {
     expect(listRecursiveFiles).toHaveBeenCalledWith('_dl-trailing:', 'media/movies')
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
-      srcFs: '_dl-trailing:',
-      srcRemote: 'media/movies/a.mkv',
-      dstFs: '/out',
-      dstRemote: 'movies/a.mkv',
-      displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      kind: 'directory',
+      srcFs: '_dl-trailing:media/movies',
+      srcRemote: '',
+      dstFs: '/out/movies',
+      dstRemote: '',
+      displayName: '/media/movies/',
+      localPath: '/out/movies',
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-trailing'
@@ -162,12 +154,13 @@ describe('expandDownload', () => {
     expect(listRecursiveFiles).toHaveBeenCalledWith('_dl-leading:', 'media/movies')
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
-      srcFs: '_dl-leading:',
-      srcRemote: 'media/movies/a.mkv',
-      dstFs: '/out',
-      dstRemote: 'movies/a.mkv',
-      displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      kind: 'directory',
+      srcFs: '_dl-leading:media/movies',
+      srcRemote: '',
+      dstFs: '/out/movies',
+      dstRemote: '',
+      displayName: '/media/movies',
+      localPath: '/out/movies',
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-leading'
@@ -326,12 +319,13 @@ describe('expandDownload', () => {
 
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
-      srcFs: '_dl-dotted:',
-      srcRemote: 'media/movies/..bashrc',
-      dstFs: '/out',
-      dstRemote: 'movies/..bashrc',
-      displayName: 'movies/..bashrc',
-      localPath: '/out/movies/..bashrc',
+      kind: 'directory',
+      srcFs: '_dl-dotted:media/movies',
+      srcRemote: '',
+      dstFs: '/out/movies',
+      dstRemote: '',
+      displayName: '/media/movies',
+      localPath: '/out/movies',
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-dotted'
@@ -358,6 +352,7 @@ describe('expandDownload', () => {
 
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
+      kind: 'file',
       srcFs: '_dl-file:',
       srcRemote: 'downloads/file.bin',
       dstFs: '/out',
