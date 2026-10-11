@@ -10,7 +10,11 @@ describe('Windows installer preflight ordering', () => {
     const removal = installer.indexOf('\nRemove-ExistingService')
     expect(preflight).toBeGreaterThanOrEqual(0)
     expect(removal).toBeGreaterThan(preflight)
-    expect(installer).toContain('Invoke-WebRequest $installation.healthUri')
+    const healthVerification = installer.slice(installer.indexOf('# --- Verify it actually serves'))
+    expect(healthVerification).toContain('Get-SiphonVersionHealth $installation')
+    expect(healthVerification).toContain('Test-SiphonVersion $health.version')
+    expect(healthVerification).toContain('$health.serviceRunning')
+    expect(installer).not.toContain('Invoke-WebRequest $installation.healthUri')
     expect(installer).not.toContain('Invoke-WebRequest "http://localhost:')
   })
 
@@ -83,6 +87,30 @@ describe.skipIf(process.platform !== 'win32')(
       expect(output).toContain('PASS: safe service-path ACL preflight')
     }, 35_000)
 
+    it.each(['identity', 'http'])(
+      'verifies connected responder ownership and bounded HTTP safely (%s)',
+      (scenario) => {
+        const output = execFileSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            resolve('test', 'fixtures', 'WindowsHealth.Tests.ps1'),
+            '-WorkerPath',
+            resolve('windows-service', 'Update-SiphonService.ps1'),
+            '-Scenario',
+            scenario
+          ],
+          { encoding: 'utf8', timeout: 30_000, windowsHide: true }
+        )
+        expect(output).toContain(`PASS: safe connected health ${scenario}`)
+      },
+      35_000
+    )
+
     it('verifies checksum, version health, rollback, recovery, and lock invariants safely', () => {
       const corePath = resolve('windows-service', 'SiphonUpdater.Core.ps1')
       expect(existsSync(corePath), 'The side-effect-free updater core must be implemented').toBe(
@@ -102,7 +130,7 @@ describe.skipIf(process.platform !== 'win32')(
         ],
         { encoding: 'utf8', timeout: 30_000, windowsHide: true }
       )
-      expect(output).toContain('PASS: 14 safe updater scenarios')
+      expect(output).toContain('PASS: 17 safe updater scenarios')
     }, 35_000)
   }
 )

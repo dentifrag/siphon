@@ -87,6 +87,7 @@ function New-Fixture([string]$Mode = 'healthy') {
         CheckHealth = {
             param($ExpectedVersion, $Config)
             $script:state.calls.Add("health:$ExpectedVersion")
+            if ($script:state.mode -eq 'untrusted-responder') { throw 'Connected responder is not the recorded service child.' }
             $version = $script:state.liveVersion
             if ($script:state.mode -eq 'wrong-version' -and $ExpectedVersion -eq $request.toVersion) {
                 $version = '0.9.0'
@@ -290,4 +291,36 @@ $result = Run-Core $operations
 Assert-Equal $result.phase 'rollback-failed' 'Legacy ambiguous rollback retry accepted a missing backup'
 Assert-True (-not $script:state.calls.Contains('start')) 'Legacy ambiguous rollback retry started an un-restored executable'
 
-Write-Output 'PASS: 14 safe updater scenarios'
+$operations = New-Fixture 'untrusted-responder'
+$result = Run-Core $operations
+Assert-Equal $result.phase 'rollback-failed' 'Responder rejection did not reject new-version and rollback health'
+Assert-Equal $result.serviceHealth 'unhealthy' 'Unrelated responder established authoritative health'
+Assert-Equal $script:state.liveVersion $request.fromVersion 'Responder rejection did not attempt rollback'
+Assert-Equal $script:state.backupVersion $request.fromVersion 'Responder rejection discarded the recovery backup'
+Assert-True $script:state.calls.Contains('health:1.10.0') 'New-version responder identity was not checked'
+Assert-True $script:state.calls.Contains('health:1.0.2') 'Rollback responder identity was not checked'
+Assert-True (-not $script:state.calls.Contains('remove-backup')) 'Responder rejection allowed backup cleanup'
+Assert-True (@($script:state.journals | Where-Object { $_.phase -in @('succeeded', 'rolled-back') -and $_.serviceHealth -eq 'healthy' }).Count -eq 0) 'Responder rejection was persisted as successful terminal health'
+
+foreach ($phase in @('succeeded', 'rolled-back')) {
+    $operations = New-Fixture 'untrusted-responder'
+    $script:state.liveVersion = if ($phase -eq 'succeeded') { $request.toVersion } else { $request.fromVersion }
+    $script:state.backupVersion = $request.fromVersion
+    $script:state.journal = @{
+        id = $request.id
+        fromVersion = $request.fromVersion
+        toVersion = $request.toVersion
+        phase = $phase
+        replacementIntentReached = $true
+        serviceHealth = 'healthy'
+        startedAt = '2026-10-10T00:00:00Z'
+        updatedAt = '2026-10-10T00:00:00Z'
+    }
+    $result = Run-Core $operations
+    Assert-Equal $result.phase 'rollback-failed' "$phase accepted health from an unrelated responder"
+    Assert-Equal $result.serviceHealth 'unhealthy' "$phase retained a false authoritative health claim"
+    Assert-Equal $script:state.backupVersion $request.fromVersion "$phase discarded its backup after responder rejection"
+    Assert-True (-not $script:state.calls.Contains('remove-backup')) "$phase cleaned up without connected responder identity"
+}
+
+Write-Output 'PASS: 17 safe updater scenarios'
