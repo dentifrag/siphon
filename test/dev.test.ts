@@ -122,21 +122,21 @@ describe('createDevConfig', () => {
     'rejects invalid %s values rather than partially parsing or falling back',
     (key) => {
       for (const value of ['', ' ', '0', '-1', '65536', '8081.5', '8081x', '1e3', '0x10']) {
-        expect(() => createDevConfig(process.cwd(), { [key]: value }), `${key}=${value}`)
-          .toThrow(new RegExp(key))
+        expect(() => createDevConfig(process.cwd(), { [key]: value }), `${key}=${value}`).toThrow(
+          new RegExp(key)
+        )
       }
     }
   )
 
-  it.each([
-    { DEV_API_PORT: '5174' },
-    { DEV_API_PORT: '2022' },
-    { DEV_UI_PORT: '2022' }
-  ])('rejects colliding listener ports: %j', (env) => {
-    expect(() => createDevConfig(process.cwd(), env)).toThrow(
-      /distinct|different|collision|same port/i
-    )
-  })
+  it.each([{ DEV_API_PORT: '5174' }, { DEV_API_PORT: '2022' }, { DEV_UI_PORT: '2022' }])(
+    'rejects colliding listener ports: %j',
+    (env) => {
+      expect(() => createDevConfig(process.cwd(), env)).toThrow(
+        /distinct|different|collision|same port/i
+      )
+    }
+  )
 })
 
 describe('prepareDevFiles', () => {
@@ -185,7 +185,11 @@ describe('prepareDevFiles', () => {
         loginMaxAttempts: 7
       })}\n`
       await writeFile(config.configPath, customConfig)
-      const editedFiles = [remote.files[0], downloads.files[0], join(config.remoteDir, 'custom.txt')]
+      const editedFiles = [
+        remote.files[0],
+        downloads.files[0],
+        join(config.remoteDir, 'custom.txt')
+      ]
       for (const path of editedFiles) await writeFile(path, 'user-edited content\n')
       await prepareDevFiles(createDevConfig(root, {}))
 

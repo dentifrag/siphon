@@ -15,7 +15,7 @@
   },
   "main": "dist-server/index.cjs",
   "scripts": {
-    "dev": "vite --config vite.web.config.ts",
+    "dev": "tsx scripts/dev.ts",
     "build": "npm run web:build:all",
     "start": "node dist-server/index.cjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",

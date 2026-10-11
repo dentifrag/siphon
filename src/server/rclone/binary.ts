@@ -1,7 +1,7 @@
 import { chmodSync, createWriteStream, existsSync, mkdirSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { arch, platform, tmpdir } from 'node:os'
+import { arch, platform } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
@@ -98,39 +98,62 @@ async function fetchArchive(url: string): Promise<Response> {
 
 async function downloadRclone(destPath: string): Promise<string> {
   const url = `https://downloads.rclone.org/${rcloneAssetName()}`
-  const tmpZip = join(tmpdir(), `rclone-${Date.now()}.zip`)
-  const tmpDir = join(tmpdir(), `rclone-extract-${Date.now()}`)
-
-  const res = await fetchArchive(url)
-  if (!res.ok || !res.body) {
-    throw new RcloneUnavailableError(helpText(`the download server returned HTTP ${res.status}`))
-  }
-  await pipeline(
-    Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
-    createWriteStream(tmpZip)
-  )
-
-  mkdirSync(tmpDir, { recursive: true })
-  const unzip = spawnSync('unzip', ['-o', '-q', tmpZip, '-d', tmpDir], { encoding: 'utf8' })
-  if (unzip.status !== 0) {
-    throw new RcloneUnavailableError(
-      helpText(`the download unpacked incorrectly (${unzip.stderr || 'unzip failed'})`)
-    )
-  }
-
-  const exe = platform() === 'win32' ? 'rclone.exe' : 'rclone'
-  const extracted = findExtractedBinary(tmpDir, exe)
-  if (!extracted)
-    throw new RcloneUnavailableError(helpText('the downloaded archive had no rclone binary'))
-
   mkdirSync(dirname(destPath), { recursive: true })
-  const { copyFileSync } = await import('node:fs')
-  copyFileSync(extracted, destPath)
-  if (platform() !== 'win32') chmodSync(destPath, 0o755)
+  const downloadDir = await mkdtemp(join(dirname(destPath), '.rclone-download-'))
+  const zipPath = join(downloadDir, 'rclone.zip')
+  const extractDir = join(downloadDir, 'extracted')
 
-  await rm(tmpZip, { force: true }).catch(() => undefined)
-  await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined)
-  return destPath
+  try {
+    const res = await fetchArchive(url)
+    if (!res.ok || !res.body) {
+      throw new RcloneUnavailableError(helpText(`the download server returned HTTP ${res.status}`))
+    }
+    await pipeline(
+      Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+      createWriteStream(zipPath)
+    )
+
+    mkdirSync(extractDir, { recursive: true })
+    unpackRcloneArchive(zipPath, extractDir)
+
+    const exe = platform() === 'win32' ? 'rclone.exe' : 'rclone'
+    const extracted = findExtractedBinary(extractDir, exe)
+    if (!extracted)
+      throw new RcloneUnavailableError(helpText('the downloaded archive had no rclone binary'))
+
+    const { copyFileSync } = await import('node:fs')
+    copyFileSync(extracted, destPath)
+    if (platform() !== 'win32') chmodSync(destPath, 0o755)
+    return destPath
+  } finally {
+    await rm(downloadDir, { recursive: true, force: true })
+  }
+}
+
+export function unpackRcloneArchive(zipPath: string, destDir: string): void {
+  const windows = platform() === 'win32'
+  const quote = (path: string): string => `'${path.replace(/'/g, "''")}'`
+  const script =
+    `$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quote(zipPath)} ` +
+    `-DestinationPath ${quote(destDir)} -Force`
+  const command = windows ? 'powershell.exe' : 'unzip'
+  const args = windows
+    ? [
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64')
+      ]
+    : ['-o', '-q', zipPath, '-d', destDir]
+  const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true })
+  if (result.error || result.status !== 0) {
+    const reason =
+      result.error?.message ||
+      result.stderr?.trim() ||
+      result.stdout?.trim() ||
+      `${command} exited with ${result.signal ? `signal ${result.signal}` : `status ${result.status}`}`
+    throw new RcloneUnavailableError(helpText(`the download unpacked incorrectly (${reason})`))
+  }
 }
 
 function findExtractedBinary(dir: string, exe: string): string | null {
