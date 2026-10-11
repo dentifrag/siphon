@@ -13,6 +13,31 @@ describe('Windows installer preflight ordering', () => {
     expect(installer).toContain('Invoke-WebRequest $installation.healthUri')
     expect(installer).not.toContain('Invoke-WebRequest "http://localhost:')
   })
+
+  it.each([
+    ['Install-SiphonService.ps1', '\nRemove-ExistingService'],
+    ['Uninstall-SiphonService.ps1', 'Stop-Service $ServiceName']
+  ])(
+    'checks existing service-path trust before privileged lifecycle actions in %s',
+    (name, mutation) => {
+      const source = readFileSync(resolve('windows-service', name), 'utf8')
+      const preflight = source.search(/^\s*Assert-SiphonServicePaths\b/m)
+      const serviceMutation = source.indexOf(mutation)
+      expect(
+        preflight,
+        'Both lifecycle entrypoints must call the shared full-ACL preflight'
+      ).toBeGreaterThanOrEqual(0)
+      expect(serviceMutation).toBeGreaterThan(preflight)
+      if (name === 'Install-SiphonService.ps1') {
+        expect(source.indexOf('Set-SiphonProtection (Split-Path -Parent $exe)')).toBeGreaterThan(
+          preflight
+        )
+      } else {
+        expect(source.indexOf('Get-FileHash -LiteralPath $winsw')).toBeGreaterThan(preflight)
+        expect(source.indexOf('& $winsw uninstall')).toBeGreaterThan(preflight)
+      }
+    }
+  )
 })
 
 describe.skipIf(process.platform !== 'win32')(
@@ -29,11 +54,33 @@ describe.skipIf(process.platform !== 'win32')(
           '-File',
           resolve('test', 'fixtures', 'WindowsInstallerPreflight.Tests.ps1'),
           '-WorkerPath',
-          resolve('windows-service', 'Update-SiphonService.ps1')
+          resolve('windows-service', 'Update-SiphonService.ps1'),
+          '-Scenario',
+          'bind'
         ],
         { encoding: 'utf8', timeout: 30_000, windowsHide: true }
       )
       expect(output).toContain('PASS: safe installer preflight')
+    }, 35_000)
+
+    it('rejects unsafe existing service-path ACLs without sanitizing them or invoking lifecycle operations', () => {
+      const output = execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          resolve('test', 'fixtures', 'WindowsInstallerPreflight.Tests.ps1'),
+          '-WorkerPath',
+          resolve('windows-service', 'Update-SiphonService.ps1'),
+          '-Scenario',
+          'acl'
+        ],
+        { encoding: 'utf8', timeout: 30_000, windowsHide: true }
+      )
+      expect(output).toContain('PASS: safe service-path ACL preflight')
     }, 35_000)
 
     it('verifies checksum, version health, rollback, recovery, and lock invariants safely', () => {
