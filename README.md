@@ -139,15 +139,78 @@ Deleting `auth.json` is also how you leave open mode.
 
 ## Development
 
+Use Node.js `^22.22.2`, `^24.15.0`, or `>=26.0.0` on Windows, macOS, or Linux.
+From your checkout or worktree:
+
 ```bash
 npm install
-npm run web:server   # API on :8080 (needs rclone on PATH or set RCLONE_PATH)
-npm run web:dev      # UI on :5174 with hot reload
+npm run dev
+```
+
+Open **http://127.0.0.1:5174** when the ready message appears. This starts the real UI with
+hot reload, the API with watch reload on `127.0.0.1:8081`, and a local SFTP server on
+`127.0.0.1:2022`. No Docker, separate SSH server, or live service is needed. rclone is reused
+from `RCLONE_PATH` or `PATH` when available; otherwise it is downloaded into the sandbox on
+first run, which requires internet access. Automatic extraction uses PowerShell on Windows
+and `unzip` on macOS/Linux.
+
+Finish the normal first-run setup in the browser. In the connection form, use SFTP and the
+host, port, username, and generated password printed in the terminal. These are local SFTP
+credentials, separate from your app login. Browse the sample remote, download `Sample folder`
+to try nested files, spaces, and an empty folder, or upload `Upload sample.txt` from the local
+file picker. Changes to the UI and API reload without deploying the live service.
+
+All dev state stays in **`.siphon-dev` in the current checkout**:
+
+- `data/`: app login, saved connections, and the API's rclone config.
+- `remote/`: files served by the local SFTP server.
+- `downloads/`: the confined download destination and files available for upload.
+- `credentials.json`: randomly generated local SFTP credentials, preserved on restart.
+- `config.json`, `rclone.conf`, `authorized_keys`, and `cache/`: local configuration and caches.
+
+Inherited production app credentials, auth settings, paths, and rclone settings are not used;
+`RCLONE_PATH` is retained only as a binary override. Loopback binding and local data/download
+paths are enforced even if you edit the dev config. You may deliberately connect to a real
+remote, but local downloads and upload sources remain confined to the dev downloads folder.
+Sample files and config are created only when missing, so edits and saved app state survive
+restarts. A damaged credentials file fails explicitly instead of silently changing its password.
+
+Press **Ctrl+C** to stop the UI, API watcher, and owned rclone processes. To reset everything,
+stop the dev instance first, then delete **only `.siphon-dev`** in that checkout and run
+`npm run dev` again. Do not delete the normal `data/` or `downloads/` directories.
+
+For concurrent worktrees or occupied ports, choose three distinct ports from 1 to 65535.
+The launcher checks all three before writing files or starting services, and does not silently
+choose another port.
+
+```bash
+DEV_API_PORT=8082 DEV_UI_PORT=5175 DEV_SFTP_PORT=2023 npm run dev
+```
+
+In PowerShell:
+
+```powershell
+$env:DEV_API_PORT = '8082'
+$env:DEV_UI_PORT = '5175'
+$env:DEV_SFTP_PORT = '2023'
+npm run dev
+```
+
+The terminal prints the selected UI URL and SFTP connection details.
+
+Other development commands:
+
+```bash
 npm test             # run the tests
 npm run typecheck    # type-check server + web
 npm run lint         # lint with oxlint
 npm run format       # format with Prettier
 ```
+
+For manual control, `npm run web:server` runs the API on `:8080` and `npm run web:dev` runs
+the UI at `http://127.0.0.1:5174` in a second terminal. Those commands use normal inherited
+settings and app paths, **not the isolated dev sandbox**, and do not start a sample SFTP
+server. The UI proxy targets `127.0.0.1:8080`; use `npm run dev` for isolated development.
 
 To build the single-file binaries yourself: `npm run package:all` (outputs to `dist-bin/`).
 
@@ -162,6 +225,7 @@ src/
   web/           Vite entry point that mounts the UI
   shared/        Types and the API contract shared between server and UI
 test/            Vitest unit tests
+scripts/         Isolated full-stack development launcher and sample setup
 windows-service/ WinSW-based Windows service install/uninstall (PowerShell)
 Dockerfile       Container image (bundles rclone)
 docker-compose.yml
