@@ -78,11 +78,31 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 - Connect over SFTP with a password or private key.
 - Browse remote folders with current-folder filtering, sorting, multi-select, and right-click
   download.
+- Adjust Name, Size, and Modified columns with pointer dragging, keyboard controls, or
+  numeric inputs in Columns, and reveal full names with Wrap filenames.
 - Fast parallel downloads (1 to 16 streams) with live progress and speed.
 - Upload files and folders that already exist on the Siphon server's local disk into the
   remote folder you are browsing.
 - Downloads keep running on the server even if you close the tab or your phone.
 - Save connections so you don't retype credentials, and pick a save folder per download.
+
+### Browser columns
+
+Name defaults to filling the remaining table width, with sensible default widths for Size
+and Modified. Drag a column's trailing edge, focus its resize handle and use Left/Right
+arrows (Shift for larger steps, Home/End for minimum/maximum), or open Columns to enter
+numeric widths. Wrap filenames reveals full filenames instead of truncating them.
+
+Setting a Name width pins it to a fixed pixel width; enlarged columns may intentionally
+require horizontal scrolling. Auto-fill Name column returns Name to filling the remaining
+space. Reset column widths restores auto-fill Name and default metadata widths without
+changing your Wrap filenames setting.
+
+Widths survive folder navigation and reconnects while the browser component remains
+mounted. A page reload restores defaults; widths are not saved to persistent storage.
+At viewport widths <=1024px, the existing stacked, wrapped layout remains and desktop
+column controls are hidden. On wider screens with coarse-pointer input, filenames wrap
+by default.
 
 ## Keep it running on boot
 

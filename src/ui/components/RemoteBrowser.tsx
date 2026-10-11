@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { MouseEvent, ReactElement } from 'react'
+import type { CSSProperties, MouseEvent, ReactElement } from 'react'
 import {
   ActionList,
   ActionMenu,
@@ -46,6 +46,43 @@ interface ContextMenuState {
   y: number
 }
 
+const columnDefinitions = {
+  name: { label: 'Name', min: 160, max: 2000 },
+  size: { label: 'Size', min: 72, max: 200 },
+  mtime: { label: 'Modified', min: 96, max: 320 }
+}
+const columnKeys = ['name', 'size', 'mtime'] as const
+type ColumnKey = (typeof columnKeys)[number]
+
+interface ColumnWidths {
+  name: number | null
+  size: number
+  mtime: number
+}
+
+interface ColumnDrag {
+  column: ColumnKey
+  pointerId: number
+  startX: number
+  startWidth: number
+  hasResized: boolean
+  previousWidths: ColumnWidths
+  target: HTMLButtonElement
+}
+
+const defaultColumnWidths: ColumnWidths = { name: null, size: 88, mtime: 176 }
+const defaultColumnDrafts = { name: '', size: '88', mtime: '176' }
+const emptyColumnErrors: Record<ColumnKey, string | null> = {
+  name: null,
+  size: null,
+  mtime: null
+}
+
+function clampColumnWidth(column: ColumnKey, width: number): number {
+  const { min, max } = columnDefinitions[column]
+  return Math.min(max, Math.max(min, Math.round(width)))
+}
+
 export function RemoteBrowser(props: RemoteBrowserProps) {
   const {
     connected,
@@ -79,6 +116,16 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' })
   const [filter, setFilter] = useState('')
   const [announcement, setAnnouncement] = useState('')
+  const [columnWidths, setColumnWidths] = useState(defaultColumnWidths)
+  const [columnDrafts, setColumnDrafts] = useState(defaultColumnDrafts)
+  const [columnErrors, setColumnErrors] = useState(emptyColumnErrors)
+  const [wrapFilenames, setWrapFilenames] = useState<boolean | null>(null)
+  const filenamesWrapped = wrapFilenames ?? isCoarse
+  const tableRef = useRef<HTMLTableElement>(null)
+  const columnDragRef = useRef<ColumnDrag | null>(null)
+  const editedColumnDraftsRef = useRef(new Set<ColumnKey>())
+  const columnDescriptionId = useId()
+  const columnErrorId = useId()
   const [prevCwd, setPrevCwd] = useState(cwd)
   const [prevConnected, setPrevConnected] = useState(connected)
   // Adjusting state during render (React's documented alternative to an Effect) so a stale filter
@@ -92,6 +139,188 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
 
   const visibleEntries = useMemo(() => filterEntries(entries, filter), [entries, filter])
   const sortedEntries = useMemo(() => sortEntries(visibleEntries, sort), [visibleEntries, sort])
+  const hasTable = connected && !loading && !error && sortedEntries.length > 0
+
+  const commitColumnWidth = useCallback((column: ColumnKey, width: number) => {
+    const next = clampColumnWidth(column, width)
+    editedColumnDraftsRef.current.delete(column)
+    setColumnWidths((previous) => ({ ...previous, [column]: next }))
+    setColumnDrafts((previous) => ({ ...previous, [column]: String(next) }))
+    setColumnErrors((previous) => ({ ...previous, [column]: null }))
+  }, [])
+
+  const finishColumnDrag = useCallback((rollback: boolean) => {
+    const drag = columnDragRef.current
+    if (!drag) return
+    columnDragRef.current = null
+    if (rollback && drag.hasResized) {
+      setColumnWidths((previous) =>
+        drag.column === 'name'
+          ? { ...previous, name: drag.previousWidths.name }
+          : { ...previous, [drag.column]: drag.previousWidths[drag.column] }
+      )
+      setColumnDrafts((previous) => ({
+        ...previous,
+        [drag.column]: String(drag.previousWidths[drag.column] ?? '')
+      }))
+    }
+    if (drag.target.hasPointerCapture(drag.pointerId)) {
+      drag.target.releasePointerCapture(drag.pointerId)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasTable) finishColumnDrag(true)
+    return () => finishColumnDrag(true)
+  }, [hasTable, finishColumnDrag])
+
+  useEffect(() => {
+    const onResizeKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || !columnDragRef.current) return
+      event.preventDefault()
+      event.stopPropagation()
+      finishColumnDrag(true)
+    }
+    window.addEventListener('keydown', onResizeKey, true)
+    return () => window.removeEventListener('keydown', onResizeKey, true)
+  }, [finishColumnDrag])
+
+  const currentColumnWidth = (column: ColumnKey): number | null => {
+    const width = columnWidths[column]
+    if (width !== null) return width
+    const measured = tableRef.current?.querySelector('th.col-name')?.getBoundingClientRect().width
+    if (measured !== undefined && Number.isFinite(measured) && measured > 0) return measured
+    setColumnErrors((previous) => ({
+      ...previous,
+      name: 'Name column width is unavailable. Enter a numeric width when auto-fill cannot be measured.'
+    }))
+    return null
+  }
+
+  const applyColumnDraft = (column: ColumnKey): void => {
+    if (!editedColumnDraftsRef.current.delete(column)) return
+    const value = columnDrafts[column]
+    const width = Number(value)
+    const { label, min, max } = columnDefinitions[column]
+    if (
+      value.trim() === '' ||
+      !Number.isFinite(width) ||
+      !Number.isInteger(width) ||
+      width < min ||
+      width > max
+    ) {
+      const previousWidth = columnWidths[column]
+      setColumnDrafts((previous) => ({
+        ...previous,
+        [column]: String(previousWidth ?? '')
+      }))
+      setColumnErrors((previous) => ({
+        ...previous,
+        [column]: `Invalid ${label} column width was not applied; restored ${
+          previousWidth === null ? 'auto-fill' : `${previousWidth} pixels`
+        }. Enter a whole-pixel width between ${min} and ${max}.`
+      }))
+      return
+    }
+    commitColumnWidth(column, width)
+  }
+
+  const updateColumnDrag = (clientX: number): void => {
+    const drag = columnDragRef.current
+    if (!drag) return
+    const delta = clientX - drag.startX
+    if (!drag.hasResized && Math.abs(delta) < 1) return
+    drag.hasResized = true
+    commitColumnWidth(drag.column, drag.startWidth + delta)
+  }
+
+  const metadataWidth = columnWidths.size + columnWidths.mtime + 56
+  const tableStyle: CSSProperties &
+    Record<
+      | '--browser-name-width'
+      | '--browser-size-width'
+      | '--browser-mtime-width'
+      | '--browser-table-width'
+      | '--browser-table-min-width',
+      string
+    > = {
+    '--browser-name-width': columnWidths.name === null ? 'auto' : `${columnWidths.name}px`,
+    '--browser-size-width': `${columnWidths.size}px`,
+    '--browser-mtime-width': `${columnWidths.mtime}px`,
+    '--browser-table-width':
+      columnWidths.name === null ? '100%' : `${columnWidths.name + metadataWidth}px`,
+    '--browser-table-min-width': `${(columnWidths.name ?? columnDefinitions.name.min) + metadataWidth}px`
+  }
+
+  const renderColumnHandle = (column: ColumnKey): ReactElement => (
+    <>
+      <button
+        type="button"
+        className="column-resize-handle"
+        data-browser-keys="ignore"
+        aria-label={`Resize ${columnDefinitions[column].label} column`}
+        aria-describedby={`${columnDescriptionId}-${column}`}
+        onClick={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          event.stopPropagation()
+          if (event.button !== 0 || columnDragRef.current) return
+          event.preventDefault()
+          event.currentTarget.focus()
+          const width = currentColumnWidth(column)
+          if (width === null) return
+          event.currentTarget.setPointerCapture(event.pointerId)
+          columnDragRef.current = {
+            column,
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startWidth: width,
+            hasResized: false,
+            previousWidths: columnWidths,
+            target: event.currentTarget
+          }
+        }}
+        onPointerMove={(event) => {
+          const drag = columnDragRef.current
+          if (!drag || drag.pointerId !== event.pointerId) return
+          updateColumnDrag(event.clientX)
+        }}
+        onPointerUp={(event) => {
+          const drag = columnDragRef.current
+          if (!drag || drag.pointerId !== event.pointerId) return
+          updateColumnDrag(event.clientX)
+          finishColumnDrag(false)
+        }}
+        onPointerCancel={(event) => {
+          if (columnDragRef.current?.pointerId === event.pointerId) finishColumnDrag(true)
+        }}
+        onLostPointerCapture={(event) => {
+          if (columnDragRef.current?.pointerId === event.pointerId) finishColumnDrag(true)
+        }}
+        onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          event.stopPropagation()
+          finishColumnDrag(true)
+          const { min, max } = columnDefinitions[column]
+          if (event.key === 'Home' || event.key === 'End') {
+            commitColumnWidth(column, event.key === 'Home' ? min : max)
+            return
+          }
+          const width = currentColumnWidth(column)
+          if (width === null) return
+          const step = event.shiftKey ? 32 : 8
+          commitColumnWidth(column, width + (event.key === 'ArrowRight' ? step : -step))
+        }}
+      />
+      <VisuallyHidden id={`${columnDescriptionId}-${column}`}>
+        {columnWidths[column] === null
+          ? 'Auto-fill remaining table space.'
+          : `Current width: ${columnWidths[column]} pixels.`}{' '}
+        {`Manual width: ${columnDefinitions[column].min} to ${columnDefinitions[column].max} pixels. Use Left or Right to adjust by 8 pixels, Shift for 32 pixels, Home for minimum, and End for maximum.`}
+      </VisuallyHidden>
+    </>
+  )
 
   const toggleSort = useCallback((key: SortKey) => {
     anchorRef.current = null
@@ -188,6 +417,13 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
   useEffect(() => {
     if (!connected || suspended) return
     const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      if (
+        (e.target instanceof Element && e.target.closest('[data-browser-keys="ignore"]')) ||
+        document.activeElement?.closest('[data-browser-keys="ignore"]')
+      ) {
+        return
+      }
       if (loading) return
       if (openMenuPath !== null || contextMenu !== null) return
       if (isTextInputFocused()) return
@@ -302,6 +538,86 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
           type="text"
           leadingVisual={SearchIcon}
         />
+        <details className="browser__columns" data-browser-keys="ignore">
+          <summary>Columns</summary>
+          <div className="browser__column-controls">
+            {columnKeys.map((column) => (
+              <label key={column} className="browser__column-width">
+                {columnDefinitions[column].label}
+                <input
+                  type="number"
+                  aria-label={`${columnDefinitions[column].label} column width`}
+                  min={columnDefinitions[column].min}
+                  max={columnDefinitions[column].max}
+                  step={1}
+                  value={columnDrafts[column]}
+                  placeholder={column === 'name' ? 'Auto' : undefined}
+                  aria-describedby={columnErrors[column] ? columnErrorId : undefined}
+                  onChange={(event) => {
+                    finishColumnDrag(true)
+                    editedColumnDraftsRef.current.add(column)
+                    const value = event.target.value
+                    setColumnDrafts((previous) => ({
+                      ...previous,
+                      [column]: value
+                    }))
+                  }}
+                  onBlur={() => applyColumnDraft(column)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    applyColumnDraft(column)
+                  }}
+                />
+              </label>
+            ))}
+            <label className="browser__column-option">
+              <input
+                type="checkbox"
+                checked={columnWidths.name === null}
+                onChange={(event) => {
+                  finishColumnDrag(true)
+                  if (event.target.checked) {
+                    editedColumnDraftsRef.current.delete('name')
+                    setColumnWidths((previous) => ({ ...previous, name: null }))
+                    setColumnDrafts((previous) => ({ ...previous, name: '' }))
+                    setColumnErrors((previous) => ({ ...previous, name: null }))
+                  } else {
+                    const width = currentColumnWidth('name')
+                    if (width !== null) commitColumnWidth('name', width)
+                  }
+                }}
+              />
+              Auto-fill Name column
+            </label>
+            <label className="browser__column-option">
+              <input
+                type="checkbox"
+                checked={filenamesWrapped}
+                onChange={(event) => setWrapFilenames(event.target.checked)}
+              />
+              Wrap filenames
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                finishColumnDrag(true)
+                editedColumnDraftsRef.current.clear()
+                setColumnWidths(defaultColumnWidths)
+                setColumnDrafts(defaultColumnDrafts)
+                setColumnErrors(emptyColumnErrors)
+              }}
+            >
+              Reset column widths
+            </button>
+            {Object.values(columnErrors).some(Boolean) && (
+              <p id={columnErrorId} role="alert" className="browser__column-error">
+                {Object.values(columnErrors).filter(Boolean).join(' ')}
+              </p>
+            )}
+          </div>
+        </details>
         <div className="browser__toolbar-actions">
           <Button variant="default" disabled={!connected || loading} onClick={onRefresh}>
             Refresh
@@ -333,18 +649,38 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
         ) : sortedEntries.length === 0 ? (
           <p className="empty">No files match that filter.</p>
         ) : (
-          <table className="file-table">
+          <table
+            ref={tableRef}
+            className={`file-table${filenamesWrapped ? ' file-table--wrap' : ''}`}
+            style={tableStyle}
+          >
+            <colgroup>
+              <col className="col-name" />
+              <col className="col-size" />
+              <col className="col-mtime" />
+              <col className="col-actions" />
+            </colgroup>
             <thead>
               <tr>
-                <th className="col-name col-sortable" onClick={() => toggleSort('name')}>
-                  Name{sortIndicator('name')}
-                </th>
-                <th className="col-size col-sortable" onClick={() => toggleSort('size')}>
-                  Size{sortIndicator('size')}
-                </th>
-                <th className="col-mtime col-sortable" onClick={() => toggleSort('mtime')}>
-                  Modified{sortIndicator('mtime')}
-                </th>
+                {columnKeys.map((column) => (
+                  <th
+                    key={column}
+                    className={`col-${column} col-sortable`}
+                    aria-label={columnDefinitions[column].label}
+                    aria-sort={
+                      sort.key === column
+                        ? sort.dir === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : 'none'
+                    }
+                    onClick={() => toggleSort(column)}
+                  >
+                    {columnDefinitions[column].label}
+                    {sortIndicator(column)}
+                    {renderColumnHandle(column)}
+                  </th>
+                ))}
                 <th className="col-actions" aria-hidden="true"></th>
               </tr>
             </thead>
@@ -371,7 +707,7 @@ export function RemoteBrowser(props: RemoteBrowserProps) {
                             <FileIcon />
                           )}
                         </span>
-                        {entry.name}
+                        <span className="file-name__text">{entry.name}</span>
                       </span>
                     </td>
                     <td className="col-size">{isDir ? '' : formatBytes(entry.size)}</td>
