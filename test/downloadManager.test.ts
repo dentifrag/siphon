@@ -87,6 +87,30 @@ describe('RcloneDownloadManager cancellation race', () => {
 })
 
 describe('RcloneDownloadManager concurrency', () => {
+  function makeManager(maxConcurrent = 1) {
+    let nextJobId = 1
+    const jobStatuses = new Map<number, { finished: boolean; success: boolean; error: string }>()
+    const client = {
+      coreStatsDelete: vi.fn<RcloneClient['coreStatsDelete']>().mockResolvedValue(undefined),
+      coreStats: vi
+        .fn<RcloneClient['coreStats']>()
+        .mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn<RcloneClient['copyFileAsync']>().mockImplementation(async () => {
+        const id = nextJobId++
+        jobStatuses.set(id, { finished: false, success: false, error: '' })
+        return id
+      }),
+      jobStatus: vi
+        .fn<RcloneClient['jobStatus']>()
+        .mockImplementation(async (id) => ({ id, ...jobStatuses.get(id)! })),
+      jobStop: vi.fn<RcloneClient['jobStop']>().mockResolvedValue(undefined),
+      deleteRemote: vi.fn<RcloneClient['deleteRemote']>().mockResolvedValue(undefined)
+    }
+    const manager = new RcloneDownloadManager(client as unknown as RcloneClient)
+    manager.setMaxConcurrent(maxConcurrent)
+    return { manager, client, jobStatuses }
+  }
+
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -96,25 +120,7 @@ describe('RcloneDownloadManager concurrency', () => {
   })
 
   it('runs up to maxConcurrent jobs at once and backfills as they finish', async () => {
-    let nextJobId = 1
-    const jobStatuses = new Map<number, { finished: boolean; success: boolean; error: string }>()
-    const client = {
-      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
-      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
-      copyFileAsync: vi.fn().mockImplementation(async () => {
-        const id = nextJobId++
-        jobStatuses.set(id, { finished: false, success: false, error: '' })
-        return id
-      }),
-      jobStatus: vi
-        .fn()
-        .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
-      jobStop: vi.fn().mockResolvedValue(undefined),
-      deleteRemote: vi.fn().mockResolvedValue(undefined)
-    } as unknown as RcloneClient
-
-    const manager = new RcloneDownloadManager(client)
-    manager.setMaxConcurrent(2)
+    const { manager, client, jobStatuses } = makeManager(2)
 
     const a = manager.enqueue(enqueueInput())
     const b = manager.enqueue(enqueueInput())
@@ -135,6 +141,301 @@ describe('RcloneDownloadManager concurrency', () => {
     expect(statusOf(a.id)).toBe('completed')
     expect(statusOf(c.id)).toBe('downloading')
     expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([{ segments: [8, 8, 8] }, { segments: [2, 8, 6] }])(
+    'retains per-item requests $segments when raising the cap',
+    async ({ segments }) => {
+      const { manager, client } = makeManager()
+      const transfers = segments.map((requested, index) =>
+        manager.enqueue(enqueueInput({ srcRemote: `file-${index}.bin`, segments: requested }))
+      )
+
+      await flushMicrotasks()
+      expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+      expect(manager.list().map(({ status }) => status)).toEqual([
+        'downloading',
+        'queued',
+        'queued'
+      ])
+      expect(manager.list().map((transfer) => transfer.segments)).toEqual(segments)
+
+      manager.setMaxConcurrent(3)
+      await flushMicrotasks()
+
+      expect(
+        client.copyFileAsync.mock.calls.map(([input]) => ({
+          srcRemote: input.srcRemote,
+          segments: input.config.MultiThreadStreams
+        }))
+      ).toEqual(
+        segments.map((requested, index) => ({
+          srcRemote: `file-${index}.bin`,
+          segments: requested
+        }))
+      )
+      expect(manager.list().map(({ id }) => id)).toEqual(transfers.map(({ id }) => id))
+      expect(manager.list().every(({ status }) => status === 'downloading')).toBe(true)
+      expect(client.jobStop).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps queued options through an unchanged cap and completion backfill', async () => {
+    const { manager, client, jobStatuses } = makeManager()
+    const active = manager.enqueue(enqueueInput({ segments: 2 }))
+    const queued = manager.enqueue(enqueueInput({ srcRemote: 'queued.bin', segments: 6 }))
+
+    await flushMicrotasks()
+    expect(manager.setMaxConcurrent(1)).toBe(1)
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+    expect(manager.list().find(({ id }) => id === queued.id)?.segments).toBe(6)
+
+    jobStatuses.set(1, { finished: true, success: true, error: '' })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find(({ id }) => id === active.id)?.status).toBe('completed')
+    expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('downloading')
+    expect(
+      client.copyFileAsync.mock.calls.map(([input]) => input.config.MultiThreadStreams)
+    ).toEqual([2, 6])
+    expect(client.jobStop).not.toHaveBeenCalled()
+  })
+
+  it.each(['start failure', 'terminal failure'])(
+    'preserves queued options after %s frees a slot',
+    async (failure) => {
+      const { manager, client, jobStatuses } = makeManager()
+      if (failure === 'start failure') {
+        client.copyFileAsync.mockRejectedValueOnce(new Error('copy failed'))
+      }
+      const failed = manager.enqueue(enqueueInput({ segments: 8 }))
+      const queued = manager.enqueue(enqueueInput({ srcRemote: 'queued.bin', segments: 6 }))
+
+      await flushMicrotasks()
+      if (failure === 'terminal failure') {
+        expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+        jobStatuses.set(1, { finished: true, success: false, error: 'copy failed' })
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        await flushMicrotasks()
+      }
+
+      expect(manager.list().find(({ id }) => id === failed.id)).toMatchObject({
+        status: 'error',
+        error: 'copy failed'
+      })
+      expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('downloading')
+      expect(
+        client.copyFileAsync.mock.calls.map(([input]) => ({
+          srcRemote: input.srcRemote,
+          segments: input.config.MultiThreadStreams
+        }))
+      ).toEqual([
+        { srcRemote: 'file.bin', segments: 8 },
+        { srcRemote: 'queued.bin', segments: 6 }
+      ])
+    }
+  )
+
+  it('skips queued cancellations without freeing active slots or replacing options', async () => {
+    const { manager, client } = makeManager()
+    manager.enqueue(enqueueInput({ segments: 2 }))
+    const canceled = manager.enqueue(enqueueInput({ srcRemote: 'canceled.bin', segments: 8 }))
+    const queued = manager.enqueue(enqueueInput({ srcRemote: 'queued.bin', segments: 6 }))
+
+    await flushMicrotasks()
+    manager.cancel(canceled.id)
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+    expect(client.jobStop).not.toHaveBeenCalled()
+    expect(manager.list().find(({ id }) => id === canceled.id)?.status).toBe('canceled')
+    expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('queued')
+
+    manager.setMaxConcurrent(2)
+    await flushMicrotasks()
+
+    expect(
+      client.copyFileAsync.mock.calls.map(([input]) => ({
+        srcRemote: input.srcRemote,
+        segments: input.config.MultiThreadStreams
+      }))
+    ).toEqual([
+      { srcRemote: 'file.bin', segments: 2 },
+      { srcRemote: 'queued.bin', segments: 6 }
+    ])
+    expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('downloading')
+  })
+
+  it.each(['terminal settlement', 'watchdog'])(
+    'preserves queued options when active cancellation ends through %s',
+    async (settlement) => {
+      const { manager, client, jobStatuses } = makeManager()
+      const active = manager.enqueue(enqueueInput({ segments: 8 }))
+      const queued = manager.enqueue(enqueueInput({ srcRemote: 'queued.bin', segments: 6 }))
+
+      await flushMicrotasks()
+      manager.cancel(active.id)
+      await flushMicrotasks()
+      expect(client.jobStop).toHaveBeenCalledWith(1)
+      expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+      expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('queued')
+
+      if (settlement === 'terminal settlement') {
+        jobStatuses.set(1, { finished: true, success: false, error: '' })
+      } else {
+        await vi.advanceTimersByTimeAsync(CANCEL_SETTLE_TIMEOUT_MS)
+        await flushMicrotasks()
+        expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+        expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('queued')
+      }
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+      await flushMicrotasks()
+
+      expect(manager.list().find(({ id }) => id === active.id)?.status).toBe('canceled')
+      expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('downloading')
+      expect(
+        client.copyFileAsync.mock.calls.map(([input]) => ({
+          srcRemote: input.srcRemote,
+          segments: input.config.MultiThreadStreams
+        }))
+      ).toEqual([
+        { srcRemote: 'file.bin', segments: 8 },
+        { srcRemote: 'queued.bin', segments: 6 }
+      ])
+    }
+  )
+
+  it('preserves upload and download options through shared-cap backfill', async () => {
+    const { manager, client, jobStatuses } = makeManager()
+    const upload = manager.enqueue(
+      enqueueInput({ srcRemote: 'upload.bin', direction: 'upload', segments: 1 })
+    )
+    const firstDownload = manager.enqueue(
+      enqueueInput({ srcRemote: 'first-download.bin', segments: 8 })
+    )
+    const nextDownload = manager.enqueue(
+      enqueueInput({ srcRemote: 'next-download.bin', segments: 6 })
+    )
+
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+    expect(manager.list().map(({ status }) => status)).toEqual(['downloading', 'queued', 'queued'])
+
+    manager.setMaxConcurrent(2)
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
+    expect(manager.list().find(({ id }) => id === upload.id)).toMatchObject({
+      direction: 'upload',
+      status: 'downloading',
+      segments: 1
+    })
+    expect(manager.list().find(({ id }) => id === firstDownload.id)?.status).toBe('downloading')
+    expect(manager.list().find(({ id }) => id === nextDownload.id)?.status).toBe('queued')
+    expect(client.jobStop).not.toHaveBeenCalled()
+
+    jobStatuses.set(1, { finished: true, success: true, error: '' })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find(({ id }) => id === upload.id)?.status).toBe('completed')
+    expect(manager.list().filter(({ status }) => status === 'downloading')).toHaveLength(2)
+    expect(manager.list().find(({ id }) => id === nextDownload.id)?.status).toBe('downloading')
+    expect(
+      client.copyFileAsync.mock.calls.map(([input]) => ({
+        srcRemote: input.srcRemote,
+        segments: input.config.MultiThreadStreams
+      }))
+    ).toEqual([
+      { srcRemote: 'upload.bin', segments: 1 },
+      { srcRemote: 'first-download.bin', segments: 8 },
+      { srcRemote: 'next-download.bin', segments: 6 }
+    ])
+  })
+
+  it('leaves running jobs untouched and delays backfill after lowering the cap', async () => {
+    const { manager, client, jobStatuses } = makeManager(3)
+    const transfers = [2, 8, 6, 10].map((segments, index) =>
+      manager.enqueue(enqueueInput({ srcRemote: `file-${index}.bin`, segments }))
+    )
+
+    await flushMicrotasks()
+    manager.setMaxConcurrent(1)
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
+    expect(client.jobStop).not.toHaveBeenCalled()
+    expect(manager.list().map(({ status }) => status)).toEqual([
+      'downloading',
+      'downloading',
+      'downloading',
+      'queued'
+    ])
+    expect(manager.list().map(({ segments }) => segments)).toEqual([2, 8, 6, 10])
+
+    for (const jobId of [1, 2]) {
+      jobStatuses.set(jobId, { finished: true, success: true, error: '' })
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+      await flushMicrotasks()
+      expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
+      expect(manager.list().find(({ id }) => id === transfers[3].id)?.status).toBe('queued')
+    }
+
+    jobStatuses.set(3, { finished: true, success: true, error: '' })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await flushMicrotasks()
+
+    expect(manager.list().find(({ id }) => id === transfers[3].id)?.status).toBe('downloading')
+    expect(
+      client.copyFileAsync.mock.calls.map(([input]) => ({
+        srcRemote: input.srcRemote,
+        segments: input.config.MultiThreadStreams
+      }))
+    ).toEqual([
+      { srcRemote: 'file-0.bin', segments: 2 },
+      { srcRemote: 'file-1.bin', segments: 8 },
+      { srcRemote: 'file-2.bin', segments: 6 },
+      { srcRemote: 'file-3.bin', segments: 10 }
+    ])
+    expect(client.jobStop).not.toHaveBeenCalled()
+  })
+
+  it('configures four segments for a queued 20-MiB request for eight', async () => {
+    const { manager, client } = makeManager()
+    manager.enqueue(enqueueInput({ segments: 2 }))
+    const input = enqueueInput({
+      srcRemote: 'small.bin',
+      size: 20 * 1024 * 1024,
+      segments: 8
+    })
+    const queued = manager.enqueue(input)
+
+    await flushMicrotasks()
+    expect(queued).toMatchObject({ status: 'queued', segments: 8 })
+    expect(manager.list().find(({ id }) => id === queued.id)).toMatchObject({
+      status: 'queued',
+      segments: 8
+    })
+
+    manager.setMaxConcurrent(2)
+    await flushMicrotasks()
+
+    expect(client.copyFileAsync).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        srcRemote: 'small.bin',
+        config: {
+          MultiThreadStreams: 4,
+          MultiThreadCutoff: '1048576B',
+          MultiThreadChunkSize: '5242880B'
+        }
+      })
+    )
+    expect(manager.list().find(({ id }) => id === queued.id)).toMatchObject({
+      status: 'downloading',
+      segments: 4
+    })
+    expect(input.segments).toBe(8)
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
   })
 
   it('clamps setMaxConcurrent to the 1-8 range', () => {
