@@ -161,9 +161,7 @@ export function TransferQueue(props: TransferQueueProps) {
                       active && (
                         <span>
                           {formatSpeed(transfer.speedBytesPerSec)}
-                          {!isUpload
-                            ? ` · ${transfer.activeSegments}/${transfer.segments} segments`
-                            : ''}
+                          {!isUpload ? ` · up to ${transfer.segments} segments` : ''}
                           {eta ? ` · ~${eta} left` : ''}
                         </span>
                       )
