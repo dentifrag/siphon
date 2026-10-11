@@ -133,6 +133,71 @@ describe('RcloneDownloadManager.retry', () => {
     expect(client.deleteRemote).toHaveBeenCalledWith('_dl-x')
   })
 
+  it('retains the original requested segment count through retry even though the initial download normalized to fewer effective streams, leaving the origin diagnostics untouched', async () => {
+    const { manager, client, jobStatuses } = makeManager(1)
+    const origin = manager.enqueue(enqueueInput({ size: 20 * 1024 * 1024, segments: 8 }))
+    await flushMicrotasks()
+
+    // 20MiB at 8 requested streams normalizes down to 4 effective streams (5MiB minimum chunk).
+    const inFlight = manager.list().find((t) => t.id === origin.id)!
+    expect(inFlight.segments).toBe(4)
+    const originCall = client.copyFileAsync.mock.calls[0][0]
+    expect(originCall.config.MultiThreadStreams).toBe(4)
+
+    await settleJob(jobStatuses, 1, { success: false, error: 'Connection reset.' })
+    expect(manager.list().find((t) => t.id === origin.id)?.error).toBe('Connection reset.')
+
+    const validate = vi.fn(async (input: RcloneEnqueueInput) => ({
+      ...input,
+      size: 100 * 1024 * 1024
+    }))
+    const successor = await manager.retry(origin.id, validate)
+
+    expect(validate).toHaveBeenCalledWith(expect.objectContaining({ segments: 8 }))
+    expect(successor.segments).toBe(8)
+    expect(successor.transferred).toBe(0)
+    expect(successor.error).toBeUndefined()
+    expect(successor.id).not.toBe(origin.id)
+
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
+    const successorCall = client.copyFileAsync.mock.calls[1][0]
+    // 100MiB at 8 requested streams needs all 8 effective streams: the planner uses the
+    // original requested segment count, not the origin's normalized effective count.
+    expect(successorCall.config.MultiThreadStreams).toBe(8)
+    expect(successorCall.group).not.toBe(originCall.group)
+
+    const originAfter = manager.list().find((t) => t.id === origin.id)!
+    expect(originAfter.error).toBe('Connection reset.')
+    expect(originAfter.segments).toBe(4)
+  })
+
+  it.each([{ trigger: 'clearFinished' as const }, { trigger: 'clearAll' as const }])(
+    'aborts without enqueuing a successor when the origin is $trigger-removed while validation is pending, releasing the provisionally-held cleanup remote exactly once',
+    async ({ trigger }) => {
+      const { manager, client, jobStatuses } = makeManager(1)
+      const origin = manager.enqueue(enqueueInput())
+      await flushMicrotasks()
+      await settleJob(jobStatuses, 1, { success: false, error: 'boom' })
+
+      const gate = deferred<RcloneEnqueueInput>()
+      const retryPromise = manager.retry(origin.id, () => gate.promise)
+
+      if (trigger === 'clearFinished') manager.clearFinished()
+      else manager.clearAll()
+
+      expect(manager.list().find((t) => t.id === origin.id)).toBeUndefined()
+      expect(client.deleteRemote).not.toHaveBeenCalled()
+
+      gate.resolve(enqueueInput())
+      await expect(retryPromise).rejects.toMatchObject({ statusCode: 404 })
+      await flushMicrotasks()
+      expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+      expect(client.deleteRemote).toHaveBeenCalledTimes(1)
+      expect(client.deleteRemote).toHaveBeenCalledWith('_dl-x')
+    }
+  )
+
   it.each([
     { outcome: 'error' as const, direction: 'download' as const, eligible: true },
     { outcome: 'error' as const, direction: 'upload' as const, eligible: false },
@@ -328,6 +393,62 @@ describe('RcloneDownloadManager destination-key serialization', () => {
     expect(started.waitingReason).toBeUndefined()
     expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
   })
+
+  it("clears a same-key waiter's stale waiting-for-file reason once its key frees, even though it stays queued behind a full concurrency cap because an earlier unrelated waiter claims the freed slot first", async () => {
+    const { manager, client, jobStatuses } = makeManager(2)
+    const owner = manager.enqueue(
+      enqueueInput({ localPath: '/out/cap-key.bin', srcRemote: 'owner.bin' })
+    )
+    const occupant = manager.enqueue(
+      enqueueInput({ localPath: '/out/cap-occupant.bin', srcRemote: 'occupant.bin' })
+    )
+    await flushMicrotasks()
+    expect(manager.list().find((t) => t.id === owner.id)?.status).toBe('downloading')
+    expect(manager.list().find((t) => t.id === occupant.id)?.status).toBe('downloading')
+
+    const earlierWaiter = manager.enqueue(
+      enqueueInput({ localPath: '/out/cap-earlier.bin', srcRemote: 'earlier.bin' })
+    )
+    const sameKeyWaiter = manager.enqueue(
+      enqueueInput({ localPath: '/out/cap-key.bin', srcRemote: 'waiter.bin' })
+    )
+    await flushMicrotasks()
+
+    const earlierBefore = manager.list().find((t) => t.id === earlierWaiter.id)!
+    const sameKeyBefore = manager.list().find((t) => t.id === sameKeyWaiter.id)!
+    expect(earlierBefore.status).toBe('queued')
+    expect(earlierBefore.waitingReason).toBeUndefined()
+    expect(sameKeyBefore.status).toBe('queued')
+    expect(sameKeyBefore.waitingReason).toMatch(/waiting/i)
+
+    await settleJob(jobStatuses, 1, { success: true, error: '' })
+
+    // The earlier-queued unrelated waiter claims the single freed slot (FIFO), so the
+    // same-key waiter stays queued -- but now purely for cap, since its key is free again.
+    const earlierAfter = manager.list().find((t) => t.id === earlierWaiter.id)!
+    const sameKeyAfter = manager.list().find((t) => t.id === sameKeyWaiter.id)!
+    expect(earlierAfter.status).toBe('downloading')
+    expect(sameKeyAfter.status).toBe('queued')
+    expect(sameKeyAfter.waitingReason).toBeUndefined()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not gate an upload by destination key, letting it share the same concurrency pool and start independently alongside an active download to the same local path', async () => {
+    const { manager, client } = makeManager(2)
+    const download = manager.enqueue(
+      enqueueInput({ localPath: '/out/shared.bin', srcRemote: 'down.bin' })
+    )
+    const upload = manager.enqueue(
+      enqueueInput({ localPath: '/out/shared.bin', srcRemote: 'up.bin', direction: 'upload' })
+    )
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === download.id)?.status).toBe('downloading')
+    const uploadAfter = manager.list().find((t) => t.id === upload.id)!
+    expect(uploadAfter.status).toBe('downloading')
+    expect(uploadAfter.waitingReason).toBeUndefined()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('RcloneDownloadManager destination quarantine', () => {
@@ -463,6 +584,58 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
       expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
     }
   )
+
+  it('quarantines the destination and fails a queued same-key sibling before any further pump when cancel arrives while the copy submission is still pending and it later resolves with a known job id, leaving an unrelated destination unaffected (distinct from the watchdog-timeout path)', async () => {
+    const copyGate = deferred<number>()
+    let callCount = 0
+    const client = {
+      coreStatsDelete: vi.fn().mockResolvedValue(undefined),
+      coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
+      copyFileAsync: vi.fn().mockImplementation(() => {
+        callCount += 1
+        return callCount === 1 ? copyGate.promise : Promise.resolve(callCount + 100)
+      }),
+      jobStatus: vi.fn(),
+      jobStop: vi.fn().mockResolvedValue(undefined),
+      deleteRemote: vi.fn().mockResolvedValue(undefined)
+    } as unknown as RcloneClient
+    const manager = new RcloneDownloadManager(client)
+    manager.setMaxConcurrent(2)
+
+    const stuck = manager.enqueue(
+      enqueueInput({ localPath: '/out/known-race.bin', srcRemote: 'a.bin' })
+    )
+    const sibling = manager.enqueue(
+      enqueueInput({ localPath: '/out/known-race.bin', srcRemote: 'b.bin' })
+    )
+    const unrelated = manager.enqueue(
+      enqueueInput({ localPath: '/out/other-known.bin', srcRemote: 'c.bin' })
+    )
+    await flushMicrotasks()
+    expect(manager.list().find((t) => t.id === stuck.id)?.status).toBe('downloading')
+    expect(manager.list().find((t) => t.id === sibling.id)?.status).toBe('queued')
+    expect(manager.list().find((t) => t.id === unrelated.id)?.status).toBe('downloading')
+
+    // No watchdog timer advance here: cancel arrives while submission is uncertain, and the
+    // copy promise settles with a known job id before any CANCEL_SETTLE_TIMEOUT_MS elapses.
+    manager.cancel(stuck.id)
+    copyGate.resolve(77)
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === stuck.id)?.status).toBe('canceled')
+    expect(client.jobStop).toHaveBeenCalledTimes(1)
+    expect(client.jobStop).toHaveBeenCalledWith(77)
+
+    const siblingAfter = manager.list().find((t) => t.id === sibling.id)!
+    expect(siblingAfter.status).toBe('error')
+    expect(Boolean(siblingAfter.retryable)).toBe(false)
+    expect(siblingAfter.error).toMatch(/rclone/i)
+    // Only the two originally-submitted copies (stuck, unrelated) ever ran; the quarantined
+    // sibling never got a chance to submit its own copy to the same target.
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
+
+    expect(manager.list().find((t) => t.id === unrelated.id)?.status).toBe('downloading')
+  })
 
   it.each([{ outcome: 'resolve' as const }, { outcome: 'reject' as const }])(
     'a late copy $outcome arriving after a watchdog has already force-settled a cancel does not re-settle or restart the same-key queued task, which is already failed as a nonretryable quarantine error',
