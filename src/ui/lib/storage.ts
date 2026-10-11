@@ -2,6 +2,7 @@ import type { ConnectionForm } from './types'
 
 export const MAX_CONCURRENT_STORAGE_KEY = 'siphon.maxConcurrentDownloads'
 export const CONNECTION_STORAGE_KEY = 'siphon.connection'
+export const DOWNLOAD_DIR_STORAGE_KEY = 'siphon.downloadDir'
 
 export type StoredConnection = {
   host: string
@@ -16,6 +17,10 @@ export function loadStoredMaxConcurrent(): number {
   const stored = Number.parseInt(localStorage.getItem(MAX_CONCURRENT_STORAGE_KEY) ?? '', 10)
   if (!Number.isFinite(stored)) return 3
   return Math.max(1, Math.min(8, stored))
+}
+
+export function loadStoredDownloadDir(): string {
+  return localStorage.getItem(DOWNLOAD_DIR_STORAGE_KEY) ?? ''
 }
 
 export function parseStoredConnection(raw: string): StoredConnection | null {

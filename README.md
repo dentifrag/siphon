@@ -59,6 +59,12 @@ SFTP uploads run single-stream per file (rclone can't multi-thread a single-file
 Overall upload throughput across multiple files comes from the Concurrent setting in the
 transfer queue.
 
+Folder downloads validate the remote tree and create the destination folder structure before
+queuing each file as its own transfer. Nested paths and empty subfolders inside a non-empty
+folder are preserved. Concurrent limits how many files transfer at once, while Segments
+controls the stream limit within each file. Small files can use fewer streams; the queue
+displays the stream limit, not a measured active-stream count.
+
 ## First-run setup
 
 On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
@@ -82,7 +88,8 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 - Upload files and folders that already exist on the Siphon server's local disk into the
   remote folder you are browsing.
 - Downloads keep running on the server even if you close the tab or your phone.
-- Save connections so you don't retype credentials, and pick a save folder per download.
+- Save connections so you don't retype credentials. Siphon remembers the last download folder
+  you selected.
 
 ## Keep it running on boot
 

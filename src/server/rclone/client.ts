@@ -106,12 +106,12 @@ export class RcloneClient {
     )
   }
 
-  listRecursiveFiles(fs: string, remote: string): Promise<RcloneListEntry[]> {
+  listRecursiveEntries(fs: string, remote: string): Promise<RcloneListEntry[]> {
     return this.call<{ list?: RcloneListEntry[] }>('operations/list', {
       fs,
       remote,
-      opt: { recurse: true, filesOnly: true, noModTime: true }
-    }).then((r) => (r.list ?? []).filter((entry) => !entry.IsDir))
+      opt: { recurse: true, noModTime: true }
+    }).then((r) => r.list ?? [])
   }
 
   stat(fs: string, remote: string): Promise<RcloneListEntry | null> {
