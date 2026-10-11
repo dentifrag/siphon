@@ -30,7 +30,7 @@ describe('App connection flow', () => {
   it('on success stores the connection and navigates to result.home', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
-      connect: vi.fn(async () => ({ home: '/uploads' })),
+      connect: vi.fn(async () => ({ home: '/uploads', connectionRevision: 'r1' })),
       list: vi.fn(async () => [])
     })
     renderWithProviders(<App canChangePassword={false} />)
@@ -38,7 +38,7 @@ describe('App connection flow', () => {
 
     await user.click(screen.getByRole('button', { name: 'Connect' }))
 
-    expect(api.list).toHaveBeenCalledWith('/uploads')
+    expect(api.list).toHaveBeenCalledWith('/uploads', 'r1')
     const stored = localStorage.getItem('siphon.connection')
     expect(stored && JSON.parse(stored)).toEqual(
       expect.objectContaining({ host: 'example.com', username: 'alice', profileId: '' })
@@ -84,7 +84,7 @@ describe('App connection flow', () => {
   it('disconnect removes siphon.connection but keeps siphon.cwd, and resets state even if disconnect rejects', async () => {
     const user = userEvent.setup()
     installMockWebApi({
-      connect: vi.fn(async () => ({ home: '/' })),
+      connect: vi.fn(async () => ({ home: '/', connectionRevision: 'r1' })),
       disconnect: vi.fn(async () => {
         throw new Error('disconnect failed')
       })

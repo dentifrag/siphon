@@ -111,6 +111,19 @@ At viewport widths <=1024px, the existing stacked, wrapped layout remains and de
 column controls are hidden. On wider screens with coarse-pointer input, filenames wrap
 by default.
 
+### Saved sites and shared connections
+
+Editing a saved site's connection fields or deselecting it creates a manual connection.
+Re-enter the password before connecting or saving it. An unchanged selected site still
+uses its saved credentials.
+
+The active connection is shared across tabs. If another tab changes it, a stale tab shows
+a connection conflict instead of transferring to the wrong server. Select the desired
+server and reconnect, then refresh the folder and select the intended files again before
+starting the transfer. Queued transfers and transfers that already acquired their connection
+keep running against their original server. Reloading the page reattaches the current shared
+connection; confirm the server before transferring.
+
 ## Keep it running on boot
 
 - **Docker:** already handled (`restart: unless-stopped` in `docker-compose.yml`).

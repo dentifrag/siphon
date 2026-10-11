@@ -1,6 +1,6 @@
 import { mkdir, readdir, realpath, lstat } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
 
 export interface LocalEntry {
@@ -41,19 +41,20 @@ export async function resolvePath(scope: FsScope, candidate: string): Promise<st
 }
 
 async function canonicalize(path: string): Promise<string> {
-  let existing = path
+  const normalized = resolve(path)
+  let existing = normalized
   const tail: string[] = []
   while (!existsSync(existing)) {
     const parent = resolve(existing, '..')
     if (parent === existing) break
-    tail.unshift(existing.slice(parent.length + 1))
+    tail.unshift(basename(existing))
     existing = parent
   }
   try {
     const real = await realpath(existing)
     return tail.length ? join(real, ...tail) : real
   } catch {
-    return path
+    return normalized
   }
 }
 

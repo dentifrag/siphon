@@ -1,11 +1,10 @@
 import { basename, isAbsolute, join, posix, relative } from 'node:path'
 import { stat as fsStat } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { UploadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
 import type { RouteContext } from '../context'
-import { httpError } from '../http'
+import { httpError, parseConnectionRevision } from '../http'
 import { listFilesRecursive, resolvePath, type FsScope } from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
 import type { RcloneClient } from '../rclone/client'
@@ -91,7 +90,7 @@ export function registerUploadRoutes(
 
   app.post('/api/upload', async (req) => {
     const input = req.body as UploadEnqueueInput
-    session.remoteFs()
+    const binding = session.bind(parseConnectionRevision(input.connectionRevision))
 
     const resolved = await resolvePath(scope, input.localPath)
     if (!resolved) throw httpError(400, 'That file or folder is not accessible.')
@@ -115,15 +114,14 @@ export function registerUploadRoutes(
     if (remoteDir.split('/').some((seg) => seg === '..')) {
       throw httpError(400, 'That destination folder is not allowed.')
     }
-    const jobRemote = `_ul-${randomUUID()}`
-    await client.cloneRemote(session.remoteName(), jobRemote)
+    const job = await session.acquireJobRemote('_ul-', binding.revision)
 
     return expandUpload(client, manager, {
       resolved,
       isDir: stats.isDirectory(),
       size: stats.isDirectory() ? 0 : stats.size,
       remoteDir,
-      jobRemote
+      jobRemote: job.remoteName
     })
   })
 }

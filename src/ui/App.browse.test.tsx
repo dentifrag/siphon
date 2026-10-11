@@ -54,7 +54,11 @@ describe('App browse behavior', () => {
 
   it('navigateTo persists siphon.cwd only on success, and does not on failure', async () => {
     installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       list: vi.fn(async (dir: string): Promise<RemoteEntry[]> => {
         if (dir === '/') {
           return [{ path: '/sub', name: 'sub', type: 'directory', size: 0, mtime: 0 }]
@@ -83,7 +87,11 @@ describe('App browse behavior', () => {
   it('status restore falls back to navigateTo("/") when the stored cwd fails', async () => {
     localStorage.setItem('siphon.cwd', '/missing')
     installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       list: vi.fn(async (dir: string) => {
         if (dir === '/missing') throw new Error('gone')
         return []

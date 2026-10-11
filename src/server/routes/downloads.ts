@@ -1,10 +1,9 @@
 import { join, sep } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
 import type { RouteContext } from '../context'
-import { httpError } from '../http'
+import { httpError, parseConnectionRevision } from '../http'
 import { resolvePath, type FsScope } from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
 import type { RcloneClient, RcloneListEntry } from '../rclone/client'
@@ -105,21 +104,27 @@ export function registerDownloadRoutes(
 
   app.post('/api/download', async (req) => {
     const input = req.body as DownloadEnqueueInput
+    const binding = session.bind(parseConnectionRevision(input.connectionRevision))
     const srcRemote = uiToRemotePath(input.remotePath)
-    const item = await client.stat(session.remoteFs(), srcRemote)
-    if (!item) throw httpError(404, 'File not found.')
-
-    const requested = input.downloadDir?.trim()
+    const job = await session.acquireJobRemote('_dl-', binding.revision)
+    let item
     let targetDir = config.defaultDir
-    if (requested) {
-      const resolved = await resolvePath(scope, requested)
-      if (!resolved) throw httpError(400, 'That download folder is not accessible.')
-      targetDir = resolved
-    }
-    const baseName = safeBaseName(input.remotePath)
+    let baseName: string
+    try {
+      item = await client.stat(job.fs, srcRemote)
+      if (!item) throw httpError(404, 'File not found.')
 
-    const jobRemote = `_dl-${randomUUID()}`
-    await client.cloneRemote(session.remoteName(), jobRemote)
+      const requested = input.downloadDir?.trim()
+      if (requested) {
+        const resolved = await resolvePath(scope, requested)
+        if (!resolved) throw httpError(400, 'That download folder is not accessible.')
+        targetDir = resolved
+      }
+      baseName = safeBaseName(input.remotePath)
+    } catch (error) {
+      await job.release()
+      throw error
+    }
 
     return expandDownload(client, manager, {
       item,
@@ -128,7 +133,7 @@ export function registerDownloadRoutes(
       wrappingName: baseName,
       targetDir,
       segments: input.segments,
-      jobRemote
+      jobRemote: job.remoteName
     })
   })
 

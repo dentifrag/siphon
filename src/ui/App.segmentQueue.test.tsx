@@ -15,7 +15,11 @@ describe('App queued download segment requests', () => {
     let onDownloadUpdate: ((event: DownloadEvent) => void) | undefined
     const returnedTransfers: TransferProgress[] = []
     const api = installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => '/downloads'),
       list: vi.fn(async (): Promise<RemoteEntry[]> =>
         ['a.bin', 'b.bin', 'c.bin', 'd.bin', 'e.bin'].map((name) => ({
@@ -62,7 +66,12 @@ describe('App queued download segment requests', () => {
     }
     expect(vi.mocked(api.enqueueDownload).mock.calls).toEqual(
       ['a.bin', 'b.bin', 'c.bin'].map((name) => [
-        { remotePath: `/${name}`, downloadDir: '/downloads', segments: 8 }
+        {
+          remotePath: `/${name}`,
+          downloadDir: '/downloads',
+          segments: 8,
+          connectionRevision: 'r1'
+        }
       ])
     )
 
@@ -93,7 +102,8 @@ describe('App queued download segment requests', () => {
     expect(api.enqueueDownload).toHaveBeenNthCalledWith(4, {
       remotePath: '/d.bin',
       downloadDir: '/downloads',
-      segments: 8
+      segments: 8,
+      connectionRevision: 'r1'
     })
 
     await user.clear(segmentsInput)
@@ -102,7 +112,12 @@ describe('App queued download segment requests', () => {
 
     expect(vi.mocked(api.enqueueDownload).mock.calls).toEqual(
       ['a.bin', 'b.bin', 'c.bin', 'd.bin', 'e.bin'].map((name, index) => [
-        { remotePath: `/${name}`, downloadDir: '/downloads', segments: index === 4 ? 2 : 8 }
+        {
+          remotePath: `/${name}`,
+          downloadDir: '/downloads',
+          segments: index === 4 ? 2 : 8,
+          connectionRevision: 'r1'
+        }
       ])
     )
     expect(returnedTransfers.map(({ segments }) => segments)).toEqual([8, 8, 8, 8, 2])

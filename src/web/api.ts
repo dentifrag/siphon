@@ -104,8 +104,14 @@ export function createWebApi(): WebApi {
       await request('/api/disconnect', { method: 'POST' })
     },
     status: () => request<SessionStatus>('/api/status'),
-    list: (dir: string) => request<RemoteEntry[]>(`/api/list?path=${encodeURIComponent(dir)}`),
-    stat: (path: string) => request<RemoteStat>(`/api/stat?path=${encodeURIComponent(path)}`),
+    list: (dir: string, connectionRevision?: string) =>
+      request<RemoteEntry[]>(
+        `/api/list?path=${encodeURIComponent(dir)}${connectionRevision !== undefined ? `&connectionRevision=${encodeURIComponent(connectionRevision)}` : ''}`
+      ),
+    stat: (path: string, connectionRevision?: string) =>
+      request<RemoteStat>(
+        `/api/stat?path=${encodeURIComponent(path)}${connectionRevision !== undefined ? `&connectionRevision=${encodeURIComponent(connectionRevision)}` : ''}`
+      ),
     enqueueDownload: (input: DownloadEnqueueInput) =>
       request<TransferProgress[]>('/api/download', { method: 'POST', body: input }),
     enqueueUpload: (input: UploadEnqueueInput) =>
