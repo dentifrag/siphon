@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { version } from '../package.json'
 import { registerRoutes } from '../src/server/app'
 import { AuthService, hashPassword } from '../src/server/auth'
 import { resolveConfig } from '../src/server/config'
@@ -147,7 +148,7 @@ describe('update HTTP boundary', () => {
       const { app, fetch } = await server(mode)
       const health = await app.inject({ method: 'GET', url: '/api/health' })
       expect(health.statusCode).toBe(200)
-      expect(health.json()).toEqual({ app: 'siphon', version: currentVersion })
+      expect(health.json()).toEqual({ app: 'siphon', version })
       expect(health.headers['cache-control']).toBe('no-store')
       if (mode !== 'open') {
         const code = mode === 'setup' ? 403 : 401
