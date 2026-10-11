@@ -64,7 +64,7 @@ describe('resolveConfig', () => {
     expect(cfg.sessionTtlHours).toBe(72)
     expect(cfg.trustProxy).toBe(false)
     expect(cfg.secureCookies).toBe('auto')
-    expect(cfg.dataDir).toBe('/app/data')
+    expect(cfg.dataDir).toBe(join(base, 'data'))
     expect(cfg.confined).toBe(false)
     expect(cfg.defaultDir).toBe(join(homedir(), 'Downloads'))
     expect(cfg.roots[0]).toEqual({ name: 'Home', path: homedir() })

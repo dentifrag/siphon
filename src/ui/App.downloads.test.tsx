@@ -26,7 +26,11 @@ describe('App download behaviors', () => {
   it('shows an error and does not enqueue when no download dir is chosen', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => ''),
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }
@@ -44,7 +48,11 @@ describe('App download behaviors', () => {
   it('enqueues the download and clears selection when a dir is chosen', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => '/downloads'),
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }
@@ -60,7 +68,8 @@ describe('App download behaviors', () => {
     expect(api.enqueueDownload).toHaveBeenCalledWith({
       remotePath: '/a.txt',
       downloadDir: '/downloads',
-      segments: 4
+      segments: 4,
+      connectionRevision: 'r1'
     })
     expect(screen.getByRole('button', { name: /Download/ })).toBeDisabled()
   })
@@ -68,7 +77,11 @@ describe('App download behaviors', () => {
   it('shows a message when the enqueue result is empty', async () => {
     const user = userEvent.setup()
     installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => '/downloads'),
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }

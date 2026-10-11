@@ -9,22 +9,26 @@ import type {
 
 export interface ConnectResult {
   home: string
+  connectionRevision: string
 }
 
 export interface SessionStatus {
   connected: boolean
   remoteName: string | null
+  connectionRevision: string | null
 }
 
 export interface DownloadEnqueueInput {
   remotePath: string
   downloadDir: string
   segments: number
+  connectionRevision?: string
 }
 
 export interface UploadEnqueueInput {
   localPath: string
   remoteDir: string
+  connectionRevision?: string
 }
 
 export interface ConnectionProfileMeta {
@@ -85,8 +89,8 @@ export interface SftpApi {
   connect(config: ConnectionConfig, profileId?: string): Promise<ConnectResult>
   disconnect(): Promise<void>
   status(): Promise<SessionStatus>
-  list(dir: string): Promise<RemoteEntry[]>
-  stat(path: string): Promise<RemoteStat>
+  list(dir: string, connectionRevision?: string): Promise<RemoteEntry[]>
+  stat(path: string, connectionRevision?: string): Promise<RemoteStat>
   enqueueDownload(input: DownloadEnqueueInput): Promise<TransferProgress[]>
   enqueueUpload(input: UploadEnqueueInput): Promise<TransferProgress[]>
   cancelDownload(id: string): Promise<void>

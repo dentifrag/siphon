@@ -32,15 +32,22 @@ describe('App upload-completion refresh debounce', () => {
     vi.useRealTimers()
   })
 
-  it('only refreshes for direction upload and status completed', () => {
+  it('only refreshes for direction upload and status completed', async () => {
     let capturedCallback: ((event: DownloadEvent) => void) | undefined
     const api = installMockWebApi({
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       onDownloadUpdate: vi.fn((callback) => {
         capturedCallback = callback
         return () => {}
       })
     })
     renderWithProviders(<App canChangePassword={false} />)
+    await act(async () => {})
+    vi.mocked(api.list).mockClear()
 
     act(() => {
       capturedCallback?.({
@@ -68,18 +75,25 @@ describe('App upload-completion refresh debounce', () => {
     act(() => {
       vi.advanceTimersByTime(600)
     })
-    expect(api.list).toHaveBeenCalledWith('/')
+    expect(api.list).toHaveBeenCalledWith('/', 'r1')
   })
 
-  it('normalizes an empty uploadRemoteDir to match cwd "/"', () => {
+  it('normalizes an empty uploadRemoteDir to match cwd "/"', async () => {
     let capturedCallback: ((event: DownloadEvent) => void) | undefined
     const api = installMockWebApi({
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       onDownloadUpdate: vi.fn((callback) => {
         capturedCallback = callback
         return () => {}
       })
     })
     renderWithProviders(<App canChangePassword={false} />)
+    await act(async () => {})
+    vi.mocked(api.list).mockClear()
 
     act(() => {
       capturedCallback?.({ type: 'update', transfer: makeTransfer({ uploadRemoteDir: '' }) })
@@ -88,18 +102,25 @@ describe('App upload-completion refresh debounce', () => {
       vi.advanceTimersByTime(600)
     })
 
-    expect(api.list).toHaveBeenCalledWith('/')
+    expect(api.list).toHaveBeenCalledWith('/', 'r1')
   })
 
-  it('coalesces multiple qualifying completions into a single 600ms timer', () => {
+  it('coalesces multiple qualifying completions into a single 600ms timer', async () => {
     let capturedCallback: ((event: DownloadEvent) => void) | undefined
     const api = installMockWebApi({
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       onDownloadUpdate: vi.fn((callback) => {
         capturedCallback = callback
         return () => {}
       })
     })
     renderWithProviders(<App canChangePassword={false} />)
+    await act(async () => {})
+    vi.mocked(api.list).mockClear()
 
     act(() => {
       capturedCallback?.({
@@ -130,7 +151,11 @@ describe('App upload-completion refresh debounce', () => {
   it('cancels the refresh when the cwd changes before the timer fires', async () => {
     let capturedCallback: ((event: DownloadEvent) => void) | undefined
     const api = installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       list: vi.fn(async (dir: string): Promise<RemoteEntry[]> => {
         if (dir === '/') {
           return [{ path: '/elsewhere', name: 'elsewhere', type: 'directory', size: 0, mtime: 0 }]
@@ -161,15 +186,22 @@ describe('App upload-completion refresh debounce', () => {
     expect(api.list).not.toHaveBeenCalled()
   })
 
-  it('clears the pending timer on unmount', () => {
+  it('clears the pending timer on unmount', async () => {
     let capturedCallback: ((event: DownloadEvent) => void) | undefined
     const api = installMockWebApi({
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       onDownloadUpdate: vi.fn((callback) => {
         capturedCallback = callback
         return () => {}
       })
     })
     const { unmount } = renderWithProviders(<App canChangePassword={false} />)
+    await act(async () => {})
+    vi.mocked(api.list).mockClear()
 
     act(() => {
       capturedCallback?.({ type: 'update', transfer: makeTransfer({ uploadRemoteDir: '' }) })

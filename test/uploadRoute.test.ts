@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { expandUpload } from '../src/server/routes/uploads'
 import type { RcloneClient } from '../src/server/rclone/client'
@@ -49,7 +50,7 @@ describe('expandUpload', () => {
 
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
-      srcFs: '/root',
+      srcFs: join('/root/file.bin', '..'),
       srcRemote: 'file.bin',
       dstFs: '_ul-file:',
       dstRemote: 'dest/file.bin',
@@ -88,7 +89,7 @@ describe('expandUpload', () => {
       dstFs: '_ul-dir:',
       dstRemote: 'dest/movies/a.mkv',
       displayName: 'movies/a.mkv',
-      localPath: '/root/movies/a.mkv',
+      localPath: join('/root/movies', 'a.mkv'),
       size: 10,
       segments: 1,
       direction: 'upload',
@@ -101,7 +102,7 @@ describe('expandUpload', () => {
       dstFs: '_ul-dir:',
       dstRemote: 'dest/movies/sub/b.mkv',
       displayName: 'movies/sub/b.mkv',
-      localPath: '/root/movies/sub/b.mkv',
+      localPath: join('/root/movies', 'sub/b.mkv'),
       size: 20,
       segments: 1,
       direction: 'upload',

@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { expandDownload } from '../src/server/routes/downloads'
 import type { RcloneClient, RcloneListEntry } from '../src/server/rclone/client'
@@ -60,7 +61,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'movies/a.mkv',
       displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      localPath: join('/out', 'movies', 'a.mkv'),
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-abc'
@@ -71,7 +72,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'movies/sub/b.mkv',
       displayName: 'movies/sub/b.mkv',
-      localPath: '/out/movies/sub/b.mkv',
+      localPath: join('/out', 'movies', 'sub', 'b.mkv'),
       size: 20,
       segments: 4,
       cleanupRemote: '_dl-abc'
@@ -103,7 +104,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'movies/a.mkv',
       displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      localPath: join('/out', 'movies', 'a.mkv'),
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-redundant'
@@ -135,7 +136,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'movies/a.mkv',
       displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      localPath: join('/out', 'movies', 'a.mkv'),
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-trailing'
@@ -167,7 +168,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'movies/a.mkv',
       displayName: 'movies/a.mkv',
-      localPath: '/out/movies/a.mkv',
+      localPath: join('/out', 'movies', 'a.mkv'),
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-leading'
@@ -331,7 +332,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'movies/..bashrc',
       displayName: 'movies/..bashrc',
-      localPath: '/out/movies/..bashrc',
+      localPath: join('/out', 'movies', '..bashrc'),
       size: 10,
       segments: 4,
       cleanupRemote: '_dl-dotted'
@@ -363,7 +364,7 @@ describe('expandDownload', () => {
       dstFs: '/out',
       dstRemote: 'file.bin',
       displayName: '/downloads/file.bin',
-      localPath: '/out/file.bin',
+      localPath: join('/out', 'file.bin'),
       size: 500,
       segments: 4,
       cleanupRemote: '_dl-file'

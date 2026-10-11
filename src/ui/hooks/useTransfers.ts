@@ -4,7 +4,7 @@ import { MAX_CONCURRENT_STORAGE_KEY, loadStoredMaxConcurrent } from '../lib/stor
 import { applyDownloadEvent } from '../lib/transfers'
 
 interface UseTransfersOptions {
-  navigateTo: (dir: string) => Promise<boolean>
+  refreshCurrent: () => Promise<boolean>
   getCwd: () => string
 }
 
@@ -18,7 +18,7 @@ interface UseTransfersResult {
   handleClearAll: () => Promise<void>
 }
 
-export function useTransfers({ navigateTo, getCwd }: UseTransfersOptions): UseTransfersResult {
+export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): UseTransfersResult {
   const [transfers, setTransfers] = useState<TransferProgress[]>([])
   const [maxConcurrent, setMaxConcurrent] = useState<number>(loadStoredMaxConcurrent)
 
@@ -31,11 +31,6 @@ export function useTransfers({ navigateTo, getCwd }: UseTransfersOptions): UseTr
   }, [])
 
   useEffect(() => {
-    window.api
-      .listDownloads()
-      .then(setTransfers)
-      .catch(() => undefined)
-
     return window.api.onDownloadUpdate((ev) => {
       setTransfers((prev) => applyDownloadEvent(prev, ev))
       if (ev.type !== 'update') return
@@ -47,12 +42,12 @@ export function useTransfers({ navigateTo, getCwd }: UseTransfersOptions): UseTr
           if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
           refreshTimerRef.current = setTimeout(() => {
             refreshTimerRef.current = null
-            if (getCwd().replace(/^\/+/, '') === uploadDir) navigateTo(getCwd())
+            if (getCwd().replace(/^\/+/, '') === uploadDir) void refreshCurrent()
           }, 600)
         }
       }
     })
-  }, [navigateTo, getCwd])
+  }, [refreshCurrent, getCwd])
 
   useEffect(() => {
     window.api.setMaxConcurrentDownloads(maxConcurrent).catch(() => undefined)

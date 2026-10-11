@@ -16,9 +16,13 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
     changePassword: vi.fn(async () => undefined),
     serverConfig: vi.fn(async () => ({ downloadDir: '', roots: [] })),
 
-    connect: vi.fn(async () => ({ home: '/' })),
+    connect: vi.fn(async () => ({ home: '/', connectionRevision: 'r1' })),
     disconnect: vi.fn(async () => undefined),
-    status: vi.fn(async () => ({ connected: false, remoteName: null })),
+    status: vi.fn(async () => ({
+      connected: false,
+      remoteName: null,
+      connectionRevision: null
+    })),
     list: vi.fn(async () => []),
     stat: vi.fn(async (): Promise<RemoteStat> => ({ size: 0, type: 'file', mtime: 0 })),
     enqueueDownload: vi.fn(async () => []),
