@@ -16,6 +16,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-updater:
+    name: Safe Windows updater core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify injected updater operations with Windows PowerShell
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsUpdater.Tests.ps1 -CorePath (Resolve-Path .\windows-service\SiphonUpdater.Core.ps1).Path
+      - name: Verify installer preflight without service or task operations
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsInstallerPreflight.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario bind
+      - name: Verify existing service-path ACLs without host mutations
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsInstallerPreflight.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario acl
+      - name: Verify connected health identity without host or network operations
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsHealth.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario identity
+      - name: Verify bounded health HTTP with injected sockets
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsHealth.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario http
+
   check:
     name: Type check, lint, test, build
     runs-on: ubuntu-latest

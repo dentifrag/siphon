@@ -61,6 +61,8 @@ Set-Location $root
 
 $exe   = Join-Path $root 'dist-bin\siphon-win-x64.exe'
 $winsw = Join-Path $root 'dist-bin\siphon-service.exe'
+$updaterDir = Join-Path (Split-Path -Parent $exe) 'siphon-updater'
+. (Join-Path $here 'Update-SiphonService.ps1') -Library
 
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 
@@ -125,13 +127,18 @@ function Remove-ExistingService {
   $svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
   if (-not $svc) { return }
   Step "Removing the existing '$ServiceName' service (so its exe can be replaced)"
-  try { Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue } catch {}
+  Stop-Service $ServiceName -Force -ErrorAction Stop
+  $svc.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Process -Name 'siphon-win-x64' -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 300
   }
+  try { Assert-SiphonLifecycleIdle $updaterDir } catch {
+    Start-Service $ServiceName -ErrorAction SilentlyContinue
+    throw
+  }
   $removed = $false
-  if (Test-Path $winsw) {
+  if ((Test-Path $winsw) -and (Get-Sha256 $winsw) -eq $WinswSha256) {
     try { & $winsw uninstall 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { $removed = $true } } catch {}
   }
   if (-not $removed) { & sc.exe delete $ServiceName 2>$null | Out-Null }
@@ -190,8 +197,36 @@ if ($cfg.rclonePath -and -not (Test-Path $cfg.rclonePath)) {
   Write-Host "[install] WARN: rclonePath '$($cfg.rclonePath)' does not exist. Siphon needs rclone at runtime (on PATH or via RCLONE_PATH)." -ForegroundColor Yellow
 }
 
+$installation = New-SiphonInstallationConfig -Config $cfg -ExecutablePath $exe -WrapperPath $winsw -UpdaterDirectory $updaterDir -ServiceName $ServiceName
+$logPath = Join-Path $cfg.dataDir 'logs'
+$action = New-ScheduledTaskAction -Execute (Get-SiphonPowerShell) -Argument (Get-SiphonTaskArguments $updaterDir) -WorkingDirectory $updaterDir
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::FromMinutes(45)) -StartWhenAvailable
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$trigger.Delay = 'PT30S'
+Assert-SiphonServicePaths -ExecutablePath $exe -WrapperPath $winsw
+foreach ($name in @('SiphonUpdater.Core.ps1', 'Update-SiphonService.ps1', 'installation.json', 'staged.exe', 'previous.exe')) {
+  Assert-SiphonNoReparse (Join-Path $updaterDir $name)
+}
+$existingTask = Get-ScheduledTask -TaskPath '\' -TaskName 'SiphonUpdate' -ErrorAction SilentlyContinue
+if ($existingTask -and -not (Test-Path -LiteralPath (Join-Path $updaterDir 'installation.json'))) {
+  throw 'The fixed updater task exists without its protected installation record; administrator recovery is required.'
+}
+if (Test-Path -LiteralPath $updaterDir) {
+  Assert-SiphonAcl $updaterDir
+} else {
+  Set-SiphonProtection (Split-Path -Parent $exe) -Readable
+  New-Item -ItemType Directory -Path $updaterDir | Out-Null
+  Set-SiphonProtection $updaterDir
+}
+$updateLifecycleLock = Open-SiphonWorkerLock $updaterDir
+try {
+Assert-SiphonLifecycleIdle $updaterDir
+Set-SiphonProtection (Split-Path -Parent $exe) -Readable
+
 # --- Stop/remove any existing service first (releases the wrapper exe file lock) ---
 Remove-ExistingService
+Retire-SiphonCompletedRequest $updaterDir
 
 # --- Acquire and verify WinSW ---
 $needDownload = $true
@@ -219,7 +254,6 @@ if ($needDownload) {
 }
 
 # --- Create data + log directories ---
-$logPath = Join-Path $cfg.dataDir 'logs'
 New-Item -ItemType Directory -Force -Path $cfg.dataDir | Out-Null
 New-Item -ItemType Directory -Force -Path $logPath | Out-Null
 
@@ -235,6 +269,7 @@ $envPairs = [ordered]@{
   APP_PASSWORD      = "$($cfg.appPassword)"
   APP_PASSWORD_HASH = "$($cfg.appPasswordHash)"
   RCLONE_PATH       = "$($cfg.rclonePath)"
+  SIPHON_UPDATER_DIR = $updaterDir
 }
 $envLines = foreach ($k in $envPairs.Keys) {
   $v = $envPairs[$k]
@@ -262,6 +297,22 @@ $($envLines -join "`n")
 
 $xmlPath = [IO.Path]::ChangeExtension($winsw, '.xml')
 [IO.File]::WriteAllText($xmlPath, $xml, (New-Object System.Text.UTF8Encoding($false)))
+foreach ($path in @($exe, $winsw, $xmlPath)) {
+  Set-SiphonProtection $path
+}
+
+Step 'Installing the protected independent update helper'
+foreach ($name in @('SiphonUpdater.Core.ps1', 'Update-SiphonService.ps1')) {
+  $destination = Join-Path $updaterDir $name
+  Assert-SiphonNoReparse $destination
+  Copy-Item -LiteralPath (Join-Path $here $name) -Destination $destination -Force
+  Set-SiphonProtection $destination
+}
+Write-SiphonJson (Join-Path $updaterDir 'installation.json') $installation
+Register-ScheduledTask -TaskPath '\' -TaskName 'SiphonUpdate' -Action $action -Principal $principal -Settings $settings -Trigger $trigger -Force | Out-Null
+$scheduler = New-Object -ComObject 'Schedule.Service'
+$scheduler.Connect()
+$scheduler.GetFolder('\').GetTask('SiphonUpdate').SetSecurityDescriptor('O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)', 0)
 
 # --- Install + start ---
 Step "Installing service '$ServiceName'"
@@ -274,22 +325,22 @@ if ($LASTEXITCODE -ne 0) { Start-Service $ServiceName -ErrorAction SilentlyConti
 
 # --- Verify it actually serves (not just "Running") ---
 Step 'Verifying (the service must serve HTTP, not just report Running)'
-$port = [int]$cfg.port
+$port = $installation.port
 $ok = $false
 for ($i = 1; $i -le 8 -and -not $ok; $i++) {
   Start-Sleep 2
   try {
-    $r = Invoke-WebRequest "http://localhost:$port" -UseBasicParsing -TimeoutSec 6
-    if ($r.StatusCode -eq 200) { $ok = $true }
+    $health = Get-SiphonVersionHealth $installation
+    if ($health.app -ceq 'siphon' -and (Test-SiphonVersion $health.version) -and $health.serviceRunning) { $ok = $true }
   } catch {}
 }
 
 if ($ok) {
-  Write-Host "`n[install] OK - Siphon is serving at http://localhost:$port (and http://<this-pc-ip>:$port)." -ForegroundColor Green
+  Write-Host "`n[install] OK - Siphon health is serving at $($installation.healthUri) (app port $port)." -ForegroundColor Green
   Write-Host "[install] It starts automatically on boot. Manage it in services.msc, or: net stop $ServiceName / net start $ServiceName" -ForegroundColor Green
   Wait-BeforeClose 'Siphon installed and serving.' 'Green' 20
 } else {
-  Write-Host "`n[install] WARN - service installed but http://localhost:$port is not responding (possible startup crash)." -ForegroundColor Red
+  Write-Host "`n[install] WARN - service installed but $($installation.healthUri) is not responding (possible startup crash)." -ForegroundColor Red
   $errLog = Join-Path $logPath 'siphon-service.err.log'
   if (Test-Path $errLog) {
     Write-Host "--- last errors ($errLog) ---" -ForegroundColor Yellow
@@ -297,4 +348,7 @@ if ($ok) {
   }
   Wait-BeforeClose 'Install finished with a warning - the service is not serving yet.' 'Red' 120
   exit 1
+}
+} finally {
+  $updateLifecycleLock.Dispose()
 }

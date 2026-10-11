@@ -75,7 +75,8 @@ displays the stream limit, not a measured active-stream count.
 ## First-run setup
 
 On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
-Only setup APIs are available until setup is completed.
+Operational APIs are blocked until setup is completed. The minimal public
+`GET /api/health` probe returns only the app name and bundled version.
 
 Open the app in a browser and choose one of these:
 
@@ -177,6 +178,38 @@ connection; confirm the server before transferring.
   for details.
 - **Linux:** point a systemd unit at the binary with `Restart=always`.
 
+## In-app Windows service updates
+
+The **Updates** header button can check and install the latest published stable release
+for an existing Windows service. Checking is explicit; opening the dialog does not contact
+GitHub or install anything. Docker, development processes, standalone launches, and other
+operating systems are not updated.
+
+First, complete the [one-time administrator setup](windows-service/README.md#update).
+An existing executable is **not** rebuilt by the installer's `-Build` switch. Rebuild with
+`npm run package:build` and `npm run package:win`, then rerun the service installer, or run
+one last `update.ps1` followed by the service installer.
+
+Sign in with a password, finish or cancel queued/running transfers, choose **Check for
+updates**, then confirm **Install and restart**. A protected independent SYSTEM task
+downloads the pinned release while Siphon serves, verifies size and SHA-256, replaces only
+the existing executable, restarts the service, and verifies its exact version. If startup
+fails, it restores and verifies the old executable. Data, settings, and rclone are preserved.
+
+The browser reconnects without resubmitting an install. You may need to sign in again
+after the service restarts. Closing the dialog does not cancel an update. A reconnect
+deadline reports an unknown outcome, not a proven failure; **Retry status** resumes reading
+the result. **Retry accepted task** retries only the already-pinned request after the helper
+verifies its task is idle. Failed recovery keeps transfers blocked and preserves the backup
+for administrator recovery.
+
+Updates require the Windows protocol-v1 manifest published alongside future releases.
+Numeric and `v`-prefixed stable tags are supported; prereleases and snapshot tags are not.
+The existing `1.0.2` release can report current without a manifest, but a newer release
+without compatible metadata cannot be installed. A future incompatible helper protocol
+requires another explicit administrator setup. The installation directory is excluded from
+the app's folder and transfer APIs.
+
 ## Authentication and security
 
 - Username + password login is supported. The default username is `admin` when auth is enabled, change it with `APP_USERNAME` or `appUsername`.
@@ -214,15 +247,78 @@ Deleting `auth.json` is also how you leave open mode.
 
 ## Development
 
+Use Node.js `^22.22.2`, `^24.15.0`, or `>=26.0.0` on Windows, macOS, or Linux.
+From your checkout or worktree:
+
 ```bash
 npm install
-npm run web:server   # API on :8080 (needs rclone on PATH or set RCLONE_PATH)
-npm run web:dev      # UI on :5174 with hot reload
+npm run dev
+```
+
+Open **http://127.0.0.1:5174** when the ready message appears. This starts the real UI with
+hot reload, the API with watch reload on `127.0.0.1:8081`, and a local SFTP server on
+`127.0.0.1:2022`. No Docker, separate SSH server, or live service is needed. rclone is reused
+from `RCLONE_PATH` or `PATH` when available; otherwise it is downloaded into the sandbox on
+first run, which requires internet access. Automatic extraction uses PowerShell on Windows
+and `unzip` on macOS/Linux.
+
+Finish the normal first-run setup in the browser. In the connection form, use SFTP and the
+host, port, username, and generated password printed in the terminal. These are local SFTP
+credentials, separate from your app login. Browse the sample remote, download `Sample folder`
+to try nested files, spaces, and an empty folder, or upload `Upload sample.txt` from the local
+file picker. Changes to the UI and API reload without deploying the live service.
+
+All dev state stays in **`.siphon-dev` in the current checkout**:
+
+- `data/`: app login, saved connections, and the API's rclone config.
+- `remote/`: files served by the local SFTP server.
+- `downloads/`: the confined download destination and files available for upload.
+- `credentials.json`: randomly generated local SFTP credentials, preserved on restart.
+- `config.json`, `rclone.conf`, `authorized_keys`, and `cache/`: local configuration and caches.
+
+Inherited production app credentials, auth settings, paths, and rclone settings are not used;
+`RCLONE_PATH` is retained only as a binary override. Loopback binding and local data/download
+paths are enforced even if you edit the dev config. You may deliberately connect to a real
+remote, but local downloads and upload sources remain confined to the dev downloads folder.
+Sample files and config are created only when missing, so edits and saved app state survive
+restarts. A damaged credentials file fails explicitly instead of silently changing its password.
+
+Press **Ctrl+C** to stop the UI, API watcher, and owned rclone processes. To reset everything,
+stop the dev instance first, then delete **only `.siphon-dev`** in that checkout and run
+`npm run dev` again. Do not delete the normal `data/` or `downloads/` directories.
+
+For concurrent worktrees or occupied ports, choose three distinct ports from 1 to 65535.
+The launcher checks all three before writing files or starting services, and does not silently
+choose another port.
+
+```bash
+DEV_API_PORT=8082 DEV_UI_PORT=5175 DEV_SFTP_PORT=2023 npm run dev
+```
+
+In PowerShell:
+
+```powershell
+$env:DEV_API_PORT = '8082'
+$env:DEV_UI_PORT = '5175'
+$env:DEV_SFTP_PORT = '2023'
+npm run dev
+```
+
+The terminal prints the selected UI URL and SFTP connection details.
+
+Other development commands:
+
+```bash
 npm test             # run the tests
 npm run typecheck    # type-check server + web
 npm run lint         # lint with oxlint
 npm run format       # format with Prettier
 ```
+
+For manual control, `npm run web:server` runs the API on `:8080` and `npm run web:dev` runs
+the UI at `http://127.0.0.1:5174` in a second terminal. Those commands use normal inherited
+settings and app paths, **not the isolated dev sandbox**, and do not start a sample SFTP
+server. The UI proxy targets `127.0.0.1:8080`; use `npm run dev` for isolated development.
 
 To build the single-file binaries yourself: `npm run package:all` (outputs to `dist-bin/`).
 
@@ -237,6 +333,7 @@ src/
   web/           Vite entry point that mounts the UI
   shared/        Types and the API contract shared between server and UI
 test/            Vitest unit tests
+scripts/         Isolated full-stack development launcher and sample setup
 windows-service/ WinSW-based Windows service install/uninstall (PowerShell)
 Dockerfile       Container image (bundles rclone)
 docker-compose.yml

@@ -1,9 +1,22 @@
 import type { FastifyInstance } from 'fastify'
 import type { RouteContext } from '../context'
 import { listDirs, makeDir, type FsScope } from '../localFs'
+import { currentVersion } from '../version'
 
-export function registerSystemRoutes(app: FastifyInstance, { config }: RouteContext): void {
-  const scope: FsScope = { roots: config.roots, confined: config.confined }
+export function registerSystemRoutes(
+  app: FastifyInstance,
+  { config, updates }: RouteContext
+): void {
+  const scope: FsScope = {
+    roots: config.roots,
+    confined: config.confined,
+    excludedPaths: updates?.protectedPaths
+  }
+
+  app.get('/api/health', async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return { app: 'siphon', version: currentVersion }
+  })
 
   app.get('/api/config', async () => ({
     downloadDir: config.defaultDir,

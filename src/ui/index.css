@@ -972,3 +972,36 @@ body {
     min-height: 44px;
   }
 }
+
+.updates-dialog {
+  display: grid;
+  gap: 16px;
+}
+
+.updates-dialog p {
+  margin: 0;
+}
+
+.updates-dialog__versions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.updates-dialog__versions dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.updates-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.updates-dialog__confirmation,
+.updates-dialog__progress {
+  display: grid;
+  gap: 12px;
+}

@@ -6,6 +6,7 @@ dist-server
 release
 data
 downloads
+.siphon-dev
 .git
 .github
 *.log

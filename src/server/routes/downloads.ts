@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { dirname, join, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
@@ -33,18 +33,28 @@ async function enqueuePlannedDownloads(
   scope: FsScope | undefined,
   directories: string[] = []
 ): Promise<TransferProgress[]> {
+  async function allowed(path: string): Promise<string> {
+    const canonical = scope ? await resolvePath(scope, path) : path
+    if (
+      !canonical ||
+      (scope?.excludedPaths?.length &&
+        downloadDestinationKey(canonical) !== downloadDestinationKey(resolve(path)))
+    ) {
+      throw httpError(400, 'That download destination is protected, symlinked, or not accessible.')
+    }
+    return canonical
+  }
+
   try {
     if (scope) {
       for (const input of planned) {
-        const canonical = await resolvePath(scope, input.localPath)
-        if (!canonical) throw httpError(400, 'That download destination is not accessible.')
+        const canonical = await allowed(input.localPath)
         input.destinationKey = downloadDestinationKey(canonical)
       }
     }
     const canonicalDirectories: string[] = []
     for (const directory of directories) {
-      const canonical = scope ? await resolvePath(scope, directory) : directory
-      if (!canonical) throw httpError(400, 'That download destination is not accessible.')
+      const canonical = await allowed(directory)
       canonicalDirectories.push(canonical)
     }
     for (const directory of canonicalDirectories) await mkdir(directory, { recursive: true })
@@ -148,55 +158,69 @@ export async function expandDownload(
 
 export function registerDownloadRoutes(
   app: FastifyInstance,
-  { config, services, session }: RouteContext
+  { config, services, session, updates }: RouteContext
 ): void {
   const { client, manager } = services
-  const scope: FsScope = { roots: config.roots, confined: config.confined }
+  const scope: FsScope = {
+    roots: config.roots,
+    confined: config.confined,
+    excludedPaths: updates?.protectedPaths
+  }
 
   app.post('/api/download', async (req) => {
-    const input = req.body as DownloadEnqueueInput
-    const binding = session.bind(parseConnectionRevision(input.connectionRevision))
-    const srcRemote = uiToRemotePath(input.remotePath)
-    const job = await session.acquireJobRemote('_dl-', binding.revision)
-    let item
-    let targetDir = config.defaultDir
-    let baseName: string
+    const release = updates?.admitTransfer()
     try {
-      item = await client.stat(job.fs, srcRemote)
-      if (!item) throw httpError(404, 'File not found.')
+      const input = req.body as DownloadEnqueueInput
+      const binding = session.bind(parseConnectionRevision(input.connectionRevision))
+      const srcRemote = uiToRemotePath(input.remotePath)
+      const job = await session.acquireJobRemote('_dl-', binding.revision)
+      let item
+      let targetDir = config.defaultDir
+      let baseName: string
+      try {
+        item = await client.stat(job.fs, srcRemote)
+        if (!item) throw httpError(404, 'File not found.')
 
-      const requested = input.downloadDir?.trim() || config.defaultDir
-      const resolved = await resolvePath(scope, requested)
-      if (!resolved) throw httpError(400, 'That download folder is not accessible.')
-      targetDir = resolved
-      baseName = safeBaseName(input.remotePath)
-    } catch (error) {
-      await job.release()
-      throw error
+        const requested = input.downloadDir?.trim() || config.defaultDir
+        const resolved = await resolvePath(scope, requested)
+        if (!resolved) throw httpError(400, 'That download folder is not accessible.')
+        targetDir = resolved
+        baseName = safeBaseName(input.remotePath)
+      } catch (error) {
+        await job.release()
+        throw error
+      }
+
+      return await expandDownload(client, manager, {
+        item,
+        remotePath: input.remotePath,
+        dirPath: srcRemote,
+        wrappingName: baseName,
+        targetDir,
+        segments: input.segments,
+        jobRemote: job.remoteName,
+        scope
+      })
+    } finally {
+      release?.()
     }
-
-    return expandDownload(client, manager, {
-      item,
-      remotePath: input.remotePath,
-      dirPath: srcRemote,
-      wrappingName: baseName,
-      targetDir,
-      segments: input.segments,
-      jobRemote: job.remoteName,
-      scope
-    })
   })
 
   app.post<{ Params: { id: string } }>('/api/download/:id/retry', async (req) => {
-    return manager.retry(req.params.id, async (input) => {
-      const destinationKey = await validateDownloadDestination(scope, input, resolvePath)
-      const item = await client.stat(input.srcFs, input.srcRemote)
-      if (!item) throw httpError(404, 'File not found.')
-      if (item.IsDir || !Number.isFinite(item.Size)) {
-        throw httpError(400, 'The retry source is not a valid file.')
-      }
-      return { ...input, size: Math.max(0, item.Size), destinationKey }
-    })
+    const release = updates?.admitTransfer()
+    try {
+      return await manager.retry(req.params.id, async (input) => {
+        const destinationKey = await validateDownloadDestination(scope, input, resolvePath)
+        const item = await client.stat(input.srcFs, input.srcRemote)
+        if (!item) throw httpError(404, 'File not found.')
+        if (item.IsDir || !Number.isFinite(item.Size)) {
+          throw httpError(400, 'The retry source is not a valid file.')
+        }
+        return { ...input, size: Math.max(0, item.Size), destinationKey }
+      })
+    } finally {
+      release?.()
+    }
   })
 
   app.post('/api/download/cancel', async (req) => {

@@ -20,6 +20,7 @@ export interface LocalDirListing {
 export interface FsScope {
   roots: DownloadRoot[]
   confined: boolean
+  excludedPaths?: string[]
 }
 
 export function downloadDestinationKey(path: string): string {
@@ -50,8 +51,23 @@ function isInside(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
+async function excludedPath(scope: FsScope, candidate: string): Promise<boolean> {
+  if (!scope.excludedPaths?.length) return false
+  const canonicalCandidate = await canonicalize(candidate)
+  for (const excluded of scope.excludedPaths ?? []) {
+    if (
+      isInside(resolve(excluded), resolve(candidate)) ||
+      isInside(await canonicalize(excluded), canonicalCandidate)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
 export async function resolvePath(scope: FsScope, candidate: string): Promise<string | null> {
   if (!candidate || candidate.includes('\0')) return null
+  if (await excludedPath(scope, resolve(candidate))) return null
   if (!scope.confined) {
     if (!isAbsolute(candidate)) return null
     return canonicalize(candidate)
@@ -59,6 +75,7 @@ export async function resolvePath(scope: FsScope, candidate: string): Promise<st
   for (const root of scope.roots) {
     const base = isAbsolute(candidate) ? candidate : resolve(root.path, candidate)
     const canonicalBase = await canonicalize(base)
+    if (await excludedPath(scope, base)) continue
     const canonicalRoot = await canonicalize(root.path)
     if (isInside(canonicalRoot, canonicalBase)) return canonicalBase
   }
@@ -89,6 +106,9 @@ export async function listDirs(
   fallbackDir: string
 ): Promise<LocalDirListing> {
   const target = requested && requested.trim() !== '' ? requested : fallbackDir
+  if (await excludedPath(scope, resolve(target))) {
+    throw httpError(400, 'That folder is protected and not accessible.')
+  }
   let canonical = await resolvePath(scope, target)
   if (canonical === null && target !== fallbackDir) {
     canonical = await resolvePath(scope, fallbackDir)
@@ -110,7 +130,7 @@ export async function listDirs(
     }
   }
 
-  const entries: LocalEntry[] = dirents
+  const candidates: LocalEntry[] = dirents
     .filter((entry) => entry.isDirectory() || entry.isSymbolicLink() || entry.isFile())
     .map((entry) => ({
       name: entry.name,
@@ -118,6 +138,10 @@ export async function listDirs(
       isDir: entry.isDirectory() || entry.isSymbolicLink()
     }))
     .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))
+  const entries: LocalEntry[] = []
+  for (const entry of candidates) {
+    if (!(await excludedPath(scope, entry.path))) entries.push(entry)
+  }
 
   return { path: canonical, parent: await parentOf(scope, canonical), entries }
 }
@@ -152,10 +176,10 @@ export async function makeDir(scope: FsScope, parentPath: string, name: string):
     throw new Error('Invalid folder name.')
   }
   const canonicalParent = await resolvePath(scope, parentPath)
-  if (canonicalParent === null) throw new Error('That folder is not accessible.')
+  if (canonicalParent === null) throw httpError(400, 'That folder is not accessible.')
   const target = join(canonicalParent, cleanName)
   const canonicalTarget = await resolvePath(scope, target)
-  if (canonicalTarget === null) throw new Error('That folder is not accessible.')
+  if (canonicalTarget === null) throw httpError(400, 'That folder is not accessible.')
   await mkdir(canonicalTarget, { recursive: true })
   return canonicalTarget
 }
@@ -163,7 +187,8 @@ export async function makeDir(scope: FsScope, parentPath: string, name: string):
 // Caller must pass an already-resolved, confined directory; this walker only skips symlinks
 // and does not itself enforce scope.
 export async function listFilesRecursive(
-  dir: string
+  dir: string,
+  scope?: FsScope
 ): Promise<{ relPath: string; size: number }[]> {
   const results: { relPath: string; size: number }[] = []
 
@@ -172,6 +197,7 @@ export async function listFilesRecursive(
     for (const entry of dirents) {
       const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
       const entryPath = join(current, entry.name)
+      if (scope && !(await resolvePath(scope, entryPath))) continue
       const st = await lstat(entryPath)
       if (st.isSymbolicLink()) continue
       if (st.isDirectory()) {

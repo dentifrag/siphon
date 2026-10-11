@@ -36,6 +36,42 @@ function makeManager() {
 }
 
 describe('expandUpload', () => {
+  it.each([undefined, []])(
+    'preserves the one-argument walker call without exclusions %j',
+    async (excludedPaths) => {
+      const client = {
+        deleteRemote: vi.fn().mockResolvedValue(undefined)
+      } as unknown as RcloneClient
+      const manager = makeManager()
+      listFilesRecursive.mockResolvedValueOnce([])
+      await expandUpload(client, manager, {
+        resolved: '/root/movies',
+        isDir: true,
+        size: 0,
+        remoteDir: 'dest',
+        jobRemote: '_ul-dir',
+        scope: { roots: [], confined: false, excludedPaths }
+      })
+      expect(listFilesRecursive).toHaveBeenLastCalledWith('/root/movies')
+    }
+  )
+
+  it('passes the protected scope to the recursive walker when exclusions are present', async () => {
+    const client = { deleteRemote: vi.fn().mockResolvedValue(undefined) } as unknown as RcloneClient
+    const manager = makeManager()
+    const scope = { roots: [], confined: false, excludedPaths: ['/root/movies/updater'] }
+    listFilesRecursive.mockResolvedValueOnce([])
+    await expandUpload(client, manager, {
+      resolved: '/root/movies',
+      isDir: true,
+      size: 0,
+      remoteDir: 'dest',
+      jobRemote: '_ul-dir',
+      scope
+    })
+    expect(listFilesRecursive).toHaveBeenLastCalledWith('/root/movies', scope)
+  })
+
   it('enqueues one file transfer for a single file', async () => {
     const client = { deleteRemote: vi.fn() } as unknown as RcloneClient
     const manager = makeManager()

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SegmentedControl } from '@primer/react'
+import { Button, SegmentedControl } from '@primer/react'
 import { ConnectionPanel } from './components/ConnectionPanel'
 import { RemoteBrowser } from './components/RemoteBrowser'
 import { TransferQueue } from './components/TransferQueue'
 import { FolderPicker } from './components/FolderPicker'
 import { PasswordDialog } from './components/PasswordDialog'
+import { hasUpdateReconnect, UpdatesDialog } from './components/UpdatesDialog'
 import { useConnection } from './hooks/useConnection'
 import { useBrowser } from './hooks/useBrowser'
 import { useTransfers } from './hooks/useTransfers'
@@ -18,6 +19,7 @@ export default function App({ canChangePassword }: AppProps) {
   const [segments, setSegments] = useState(4)
   const [downloadDir, setDownloadDir] = useState(loadStoredDownloadDir)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [updatesOpen, setUpdatesOpen] = useState(hasUpdateReconnect)
   const [pickerMode, setPickerMode] = useState<'chooseDir' | 'chooseItems'>('chooseDir')
   const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
   const preparedUploadRef = useRef<((paths: string[]) => Promise<void>) | null>(null)
@@ -66,6 +68,9 @@ export default function App({ canChangePassword }: AppProps) {
       <header className="app__bar">
         <h1>Siphon</h1>
         <div className="app__bar-actions">
+          <Button size="small" onClick={() => setUpdatesOpen(true)}>
+            Updates
+          </Button>
           <PasswordDialog canChangePassword={canChangePassword} />
         </div>
       </header>
@@ -120,7 +125,7 @@ export default function App({ canChangePassword }: AppProps) {
           error={browser.browseError}
           selected={browser.selected}
           canDownload={downloadDir !== ''}
-          suspended={pickerOpen}
+          suspended={pickerOpen || updatesOpen}
           onNavigate={browser.navigateTo}
           onRefresh={() => browser.navigateTo(browser.cwd)}
           onSelectionChange={browser.setSelected}
@@ -168,6 +173,7 @@ export default function App({ canChangePassword }: AppProps) {
           }}
         />
       )}
+      <UpdatesDialog open={updatesOpen} onClose={() => setUpdatesOpen(false)} />
     </div>
   )
 }

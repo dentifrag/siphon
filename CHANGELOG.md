@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A password-authenticated Updates dialog for installed Windows services, with explicit
+  release checks, confirmed installation, bounded browser reconnect, and persisted progress.
+- One-time administrator setup of a protected independent SYSTEM update task. It verifies
+  the pinned release size/digest, restarts and health-checks the exact version, and restores
+  the previous executable on failure without changing data, settings, or rclone.
+- Protocol-v1 Windows release manifests and safe injected Windows updater core checks in CI.
+
 ### Fixed
 
 - Folder downloads now create the validated destination folder structure before queuing
