@@ -15,6 +15,26 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
     setup: vi.fn(async () => undefined),
     changePassword: vi.fn(async () => undefined),
     serverConfig: vi.fn(async () => ({ downloadDir: '', roots: [] })),
+    getUpdateStatus: vi.fn(async () => ({
+      currentVersion: '1.0.2',
+      capability: {
+        supported: false as const,
+        reason: 'not-windows-service',
+        message: 'Updates require an installed Windows service.'
+      },
+      check: { state: 'idle' as const },
+      offer: null,
+      job: null,
+      maintenance: false,
+      canInstall: false
+    })),
+    checkForUpdates: vi.fn(async () => {
+      throw new Error('Updates are not supported in this installation.')
+    }),
+    installUpdate: vi.fn(async () => {
+      throw new Error('Updates are not supported in this installation.')
+    }),
+    getVersionHealth: vi.fn(async () => ({ app: 'siphon' as const, version: '1.0.2' })),
 
     connect: vi.fn(async () => ({ home: '/' })),
     disconnect: vi.fn(async () => undefined),
