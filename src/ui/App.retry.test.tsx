@@ -75,6 +75,20 @@ async function renderWithTransfer(
   return { api, row, emit }
 }
 
+const retryIneligibleUpdates: Array<{
+  name: string
+  overrides: Partial<TransferProgress>
+}> = [
+  { name: 'consumed origin', overrides: { retriedAs: 't2' } },
+  { name: 'nonretryable failure', overrides: { retryable: false } },
+  { name: 'missing retry eligibility', overrides: { retryable: undefined } },
+  { name: 'upload', overrides: { direction: 'upload' } },
+  { name: 'queued origin', overrides: { status: 'queued' } },
+  { name: 'active origin', overrides: { status: 'downloading' } },
+  { name: 'completed origin', overrides: { status: 'completed' } },
+  { name: 'canceled origin', overrides: { status: 'canceled' } }
+]
+
 describe('App download retry', () => {
   it.each([
     { label: 'a retryable failed download', overrides: {}, visible: true },
@@ -274,4 +288,121 @@ describe('App download retry', () => {
       assertFinal()
     }
   )
+
+  it.each(retryIneligibleUpdates)(
+    'clears an existing request error after an SSE update reports a $name',
+    async ({ overrides }) => {
+      const { row, emit } = await renderWithTransfer(makeTransfer(), {
+        retryDownload: vi.fn().mockRejectedValue(new Error('Destination busy.'))
+      })
+      await userEvent.setup().click(within(row).getByRole('button', { name: /retry/i }))
+      expect(await within(row).findByRole('alert')).toHaveTextContent('Destination busy.')
+
+      emit({ type: 'update', transfer: makeTransfer(overrides) })
+
+      expect(within(row).queryByRole('alert')).not.toBeInTheDocument()
+      if (!overrides.status || overrides.status === 'error') {
+        expect(within(row).getByText('Connection reset.')).toBeInTheDocument()
+      }
+      emit({ type: 'update', transfer: makeTransfer() })
+      expect(within(row).queryByRole('alert')).not.toBeInTheDocument()
+      expect(within(row).getByText('Connection reset.')).toBeInTheDocument()
+    }
+  )
+
+  it.each(['reset', 'remove', 'local removal'] as const)(
+    'clears existing request errors on %s even if the same origin ID reappears',
+    async (change) => {
+      const user = userEvent.setup()
+      const { row, emit, api } = await renderWithTransfer(makeTransfer(), {
+        retryDownload: vi.fn().mockRejectedValue(new Error('Destination busy.')),
+        removeDownload: vi.fn().mockResolvedValue(true)
+      })
+      await user.click(within(row).getByRole('button', { name: /retry/i }))
+      expect(await within(row).findByRole('alert')).toHaveTextContent('Destination busy.')
+
+      if (change === 'reset') emit({ type: 'reset', transfers: [makeTransfer()] })
+      else {
+        if (change === 'remove') emit({ type: 'remove', id: 't1' })
+        else {
+          await user.click(within(row).getByRole('button', { name: 'Remove' }))
+          expect(api.removeDownload).toHaveBeenCalledWith('t1')
+        }
+        expect(screen.getByText('No transfers yet.')).toBeInTheDocument()
+        emit({ type: 'update', transfer: makeTransfer() })
+      }
+
+      const currentRow = (await screen.findByText('a.txt')).closest('li') as HTMLElement
+      expect(within(currentRow).queryByRole('alert')).not.toBeInTheDocument()
+      expect(within(currentRow).getByText('Connection reset.')).toBeInTheDocument()
+      expect(within(currentRow).getByRole('button', { name: 'Retry' })).toBeEnabled()
+    }
+  )
+
+  it.each(retryIneligibleUpdates)(
+    'does not recreate an obsolete error when a pending retry rejects after an SSE $name update',
+    async ({ overrides }) => {
+      const pending = deferred<TransferProgress>()
+      const { row, emit } = await renderWithTransfer(makeTransfer(), {
+        retryDownload: vi.fn(() => pending.promise)
+      })
+      await userEvent.setup().click(within(row).getByRole('button', { name: /retry/i }))
+      expect(within(row).getByRole('button', { name: /retry/i })).toBeDisabled()
+      emit({ type: 'update', transfer: makeTransfer(overrides) })
+
+      await act(async () => {
+        pending.reject(new Error('Obsolete retry failure.'))
+        await Promise.resolve()
+      })
+
+      expect(within(row).queryByRole('alert')).not.toBeInTheDocument()
+      emit({ type: 'update', transfer: makeTransfer() })
+      expect(within(row).queryByRole('alert')).not.toBeInTheDocument()
+      expect(within(row).getByRole('button', { name: 'Retry' })).toBeEnabled()
+      expect(within(row).getByText('Connection reset.')).toBeInTheDocument()
+    }
+  )
+
+  it('does not recreate an obsolete error when a pending retry rejects after a reset retains the eligible origin', async () => {
+    const pending = deferred<TransferProgress>()
+    const { row, emit } = await renderWithTransfer(makeTransfer(), {
+      retryDownload: vi.fn(() => pending.promise)
+    })
+    await userEvent.setup().click(within(row).getByRole('button', { name: /retry/i }))
+    emit({ type: 'reset', transfers: [makeTransfer()] })
+    expect(within(row).getByRole('button', { name: /retry/i })).toBeDisabled()
+
+    await act(async () => {
+      pending.reject(new Error('Obsolete retry failure.'))
+      await Promise.resolve()
+    })
+
+    expect(within(row).queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Retry' })).toBeEnabled()
+    expect(within(row).getByText('Connection reset.')).toBeInTheDocument()
+  })
+
+  it('retains a current request error through an eligible SSE update and unrelated row changes', async () => {
+    const { row, emit } = await renderWithTransfer(makeTransfer(), {
+      retryDownload: vi.fn().mockRejectedValue(new Error('Destination busy.'))
+    })
+    await userEvent.setup().click(within(row).getByRole('button', { name: /retry/i }))
+    expect(await within(row).findByRole('alert')).toHaveTextContent('Destination busy.')
+
+    emit({ type: 'update', transfer: makeTransfer({ transferred: 50 }) })
+    emit({
+      type: 'update',
+      transfer: makeTransfer({
+        id: 'other',
+        localPath: '/local/b.txt',
+        remotePath: '/b.txt',
+        retryable: false
+      })
+    })
+    emit({ type: 'remove', id: 'other' })
+
+    expect(within(row).getByRole('alert')).toHaveTextContent('Destination busy.')
+    expect(within(row).getByText('Connection reset.')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Retry' })).toBeEnabled()
+  })
 })

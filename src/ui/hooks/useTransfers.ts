@@ -21,6 +21,15 @@ interface UseTransfersResult {
   handleClearAll: () => Promise<void>
 }
 
+function isRetryEligible(transfer: TransferProgress): boolean {
+  return (
+    transfer.direction !== 'upload' &&
+    transfer.status === 'error' &&
+    transfer.retryable === true &&
+    !transfer.retriedAs
+  )
+}
+
 export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): UseTransfersResult {
   const [transfers, setTransfers] = useState<TransferProgress[]>([])
   const [maxConcurrent, setMaxConcurrent] = useState<number>(loadStoredMaxConcurrent)
@@ -33,6 +42,15 @@ export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): U
   const mountedRef = useRef(true)
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearRetryError = useCallback((id: string) => {
+    setRetryErrors((prev) => {
+      if (!Object.hasOwn(prev, id)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -47,8 +65,12 @@ export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): U
       if (ev.type === 'reset') {
         resetRevisionRef.current += 1
         removedIdsRef.current.clear()
+        setRetryErrors({})
       } else if (ev.type === 'remove') {
-        removedIdsRef.current.add(ev.id)
+        if (retryingRef.current.size > 0) removedIdsRef.current.add(ev.id)
+        clearRetryError(ev.id)
+      } else if (!isRetryEligible(ev.transfer)) {
+        clearRetryError(ev.transfer.id)
       }
       transfersRef.current = applyDownloadEvent(transfersRef.current, ev)
       setTransfers(transfersRef.current)
@@ -66,7 +88,7 @@ export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): U
         }
       }
     })
-  }, [refreshCurrent, getCwd])
+  }, [refreshCurrent, getCwd, clearRetryError])
 
   useEffect(() => {
     window.api.setMaxConcurrentDownloads(maxConcurrent).catch(() => undefined)
@@ -81,51 +103,60 @@ export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): U
     window.api.cancelDownload(id).catch(() => undefined)
   }, [])
 
-  const handleRetryDownload = useCallback(async (id: string) => {
-    if (retryingRef.current.has(id)) return
-    retryingRef.current.add(id)
-    setRetryingIds(new Set(retryingRef.current))
-    setRetryErrors((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    const revision = resetRevisionRef.current
-    try {
-      const successor = await window.api.retryDownload(id)
-      if (
-        mountedRef.current &&
-        resetRevisionRef.current === revision &&
-        !removedIdsRef.current.has(successor.id) &&
-        transfersRef.current.some((t) => t.id === id) &&
-        !transfersRef.current.some((t) => t.id === successor.id)
-      ) {
-        transfersRef.current = [...transfersRef.current, successor]
-        setTransfers(transfersRef.current)
+  const handleRetryDownload = useCallback(
+    async (id: string) => {
+      if (retryingRef.current.has(id)) return
+      retryingRef.current.add(id)
+      setRetryingIds(new Set(retryingRef.current))
+      clearRetryError(id)
+      const revision = resetRevisionRef.current
+      try {
+        const successor = await window.api.retryDownload(id)
+        if (
+          mountedRef.current &&
+          resetRevisionRef.current === revision &&
+          !removedIdsRef.current.has(successor.id) &&
+          transfersRef.current.some((t) => t.id === id) &&
+          !transfersRef.current.some((t) => t.id === successor.id)
+        ) {
+          transfersRef.current = [...transfersRef.current, successor]
+          setTransfers(transfersRef.current)
+        }
+      } catch (err) {
+        if (
+          mountedRef.current &&
+          resetRevisionRef.current === revision &&
+          !removedIdsRef.current.has(id) &&
+          transfersRef.current.some((t) => t.id === id && isRetryEligible(t))
+        ) {
+          const message = err instanceof Error ? err.message : String(err)
+          setRetryErrors((prev) => ({ ...prev, [id]: message }))
+        }
+      } finally {
+        retryingRef.current.delete(id)
+        if (retryingRef.current.size === 0) removedIdsRef.current.clear()
+        if (mountedRef.current) setRetryingIds(new Set(retryingRef.current))
       }
-    } catch (err) {
-      if (mountedRef.current && transfersRef.current.some((t) => t.id === id)) {
-        const message = err instanceof Error ? err.message : String(err)
-        setRetryErrors((prev) => ({ ...prev, [id]: message }))
-      }
-    } finally {
-      retryingRef.current.delete(id)
-      if (mountedRef.current) setRetryingIds(new Set(retryingRef.current))
-    }
-  }, [])
+    },
+    [clearRetryError]
+  )
 
-  const handleRemoveDownload = useCallback(async (id: string) => {
-    try {
-      const removed = await window.api.removeDownload(id)
-      if (removed) {
-        removedIdsRef.current.add(id)
-        transfersRef.current = transfersRef.current.filter((t) => t.id !== id)
-        setTransfers(transfersRef.current)
+  const handleRemoveDownload = useCallback(
+    async (id: string) => {
+      try {
+        const removed = await window.api.removeDownload(id)
+        if (removed) {
+          if (retryingRef.current.size > 0) removedIdsRef.current.add(id)
+          clearRetryError(id)
+          transfersRef.current = transfersRef.current.filter((t) => t.id !== id)
+          setTransfers(transfersRef.current)
+        }
+      } catch {
+        // ignore: leave the transfer list as-is if the removal request fails
       }
-    } catch {
-      // ignore: leave the transfer list as-is if the removal request fails
-    }
-  }, [])
+    },
+    [clearRetryError]
+  )
 
   const handleClearFinished = useCallback(async () => {
     await window.api.clearFinishedDownloads().catch(() => undefined)

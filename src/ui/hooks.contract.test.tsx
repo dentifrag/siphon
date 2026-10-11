@@ -526,3 +526,134 @@ describe('SSE queue initialization', () => {
     expect(api.onDownloadUpdate).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('retry removal tombstone lifetime', () => {
+  it('does not retain SSE or confirmed HTTP removal IDs when no retry request is pending', async () => {
+    const marker = 'retry-idle-tombstone-marker'
+    let event!: (event: DownloadEvent) => void
+    const originalAdd = Set.prototype.add
+    const addSpy = vi.spyOn(Set.prototype, 'add').mockImplementation(function (
+      this: Set<unknown>,
+      value: unknown
+    ) {
+      return originalAdd.call(this, value)
+    })
+    const api = installMockWebApi({
+      removeDownload: vi.fn(async () => true),
+      onDownloadUpdate: vi.fn((callback) => {
+        event = callback
+        return () => undefined
+      })
+    })
+    const options = { refreshCurrent: vi.fn(async () => false), getCwd: () => '/' }
+    const { result, unmount } = renderHook(() => useTransfers(options))
+    try {
+      act(() => event({ type: 'remove', id: marker }))
+      expect(result.current.retryingIds.size).toBe(0)
+      expect(addSpy.mock.calls.filter(([value]) => value === marker)).toHaveLength(0)
+      await act(async () => result.current.handleRemoveDownload(marker))
+      expect(api.removeDownload).toHaveBeenCalledWith(marker)
+      expect(addSpy.mock.calls.filter(([value]) => value === marker)).toHaveLength(0)
+    } finally {
+      addSpy.mockRestore()
+      unmount()
+    }
+  })
+
+  it('retains the actual removed-ID set until the last concurrent retry settles and retains nothing for idle removals', async () => {
+    const first = gate<TransferProgress>()
+    const second = gate<TransferProgress>()
+    const marker = 'retry-tombstone-lifetime-marker'
+    const successorId = 'retry-tombstone-removed-successor'
+    let event!: (event: DownloadEvent) => void
+    const observedTombstones: Set<unknown>[] = []
+    const originalAdd = Set.prototype.add
+    const addSpy = vi.spyOn(Set.prototype, 'add').mockImplementation(function (
+      this: Set<unknown>,
+      value: unknown
+    ) {
+      if (value === marker) observedTombstones.push(this)
+      return originalAdd.call(this, value)
+    })
+    const api = installMockWebApi({
+      retryDownload: vi.fn((id) => {
+        if (id === 'first') return first.promise
+        if (id === 'second') return second.promise
+        throw new Error(`Unexpected retry origin: ${id}`)
+      }),
+      removeDownload: vi.fn(async () => true),
+      onDownloadUpdate: vi.fn((callback) => {
+        event = callback
+        return () => undefined
+      })
+    })
+    const options = { refreshCurrent: vi.fn(async () => false), getCwd: () => '/' }
+    const { result, unmount } = renderHook(() => useTransfers(options))
+    const failed = (id: string): TransferProgress => ({
+      ...transfer(id),
+      direction: 'download',
+      status: 'error',
+      retryable: true,
+      error: 'Connection reset.'
+    })
+    let firstRequest: Promise<void> | undefined
+    let secondRequest: Promise<void> | undefined
+    try {
+      act(() => {
+        event({ type: 'reset', transfers: [failed('first'), failed('second')] })
+        firstRequest = result.current.handleRetryDownload('first')
+        secondRequest = result.current.handleRetryDownload('second')
+      })
+      expect(result.current.retryingIds).toEqual(new Set(['first', 'second']))
+      act(() => {
+        event({ type: 'remove', id: marker })
+        event({ type: 'update', transfer: { ...transfer(successorId), retryOf: 'second' } })
+        event({ type: 'remove', id: successorId })
+      })
+      expect(observedTombstones).toHaveLength(1)
+      const tombstones = observedTombstones[0]
+      if (!tombstones) throw new Error('The removal tombstone set was not observed.')
+      expect(tombstones.size).toBe(2)
+      expect(tombstones.has(marker)).toBe(true)
+      expect(tombstones.has(successorId)).toBe(true)
+
+      await act(async () => {
+        first.resolve({ ...transfer('first-successor'), retryOf: 'first' })
+        await firstRequest
+      })
+
+      expect(result.current.retryingIds).toEqual(new Set(['second']))
+      expect(tombstones.size).toBe(2)
+      expect(tombstones.has(marker)).toBe(true)
+      expect(tombstones.has(successorId)).toBe(true)
+
+      await act(async () => {
+        second.resolve({ ...transfer(successorId), retryOf: 'second' })
+        await secondRequest
+      })
+
+      expect(result.current.transfers.some((item) => item.id === successorId)).toBe(false)
+      expect(result.current.transfers.some((item) => item.id === 'first-successor')).toBe(true)
+      expect(result.current.retryingIds.size).toBe(0)
+      expect(tombstones.size).toBe(0)
+      expect(tombstones.has(marker)).toBe(false)
+      expect(tombstones.has(successorId)).toBe(false)
+      act(() => event({ type: 'remove', id: marker }))
+      await act(async () => result.current.handleRemoveDownload(marker))
+      expect(api.removeDownload).toHaveBeenCalledWith(marker)
+      expect(tombstones.size).toBe(0)
+      expect(addSpy.mock.calls.filter(([value]) => value === marker)).toHaveLength(1)
+    } finally {
+      try {
+        await act(async () => {
+          first.resolve(transfer('first-successor'))
+          second.resolve(transfer(successorId))
+          await Promise.all([firstRequest, secondRequest])
+        })
+      } finally {
+        addSpy.mockRestore()
+        unmount()
+      }
+    }
+  })
+})

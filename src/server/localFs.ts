@@ -24,9 +24,8 @@ export interface FsScope {
 
 export function downloadDestinationKey(path: string): string {
   const normalized = resolve(path)
-  return process.platform === 'win32' || process.platform === 'darwin'
-    ? normalized.toLowerCase()
-    : normalized
+  if (process.platform === 'darwin') return normalized.normalize('NFC').toLowerCase()
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
 export async function validateDownloadDestination(

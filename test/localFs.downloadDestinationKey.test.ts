@@ -43,4 +43,42 @@ describe('downloadDestinationKey platform case handling', () => {
     expect(lowerKey).toBe(normalizedLowerTarget)
     expect(upperKey).not.toBe(lowerKey)
   })
+
+  it.each([
+    { name: 'matching case', composed: 'caf\u00e9.bin', decomposed: 'cafe\u0301.bin' },
+    { name: 'mixed case', composed: 'CAF\u00c9.BIN', decomposed: 'cafe\u0301.bin' }
+  ])(
+    'normalizes composed and decomposed Unicode aliases on darwin with $name',
+    ({ composed, decomposed }) => {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'darwin' })
+      const composedTarget = resolve(targetDir, composed)
+      const decomposedTarget = resolve(targetDir, decomposed)
+
+      expect(composedTarget).not.toBe(decomposedTarget)
+      expect(downloadDestinationKey(composedTarget)).toBe(
+        composedTarget.normalize('NFC').toLowerCase()
+      )
+      expect(downloadDestinationKey(decomposedTarget)).toBe(
+        decomposedTarget.normalize('NFC').toLowerCase()
+      )
+      expect(downloadDestinationKey(composedTarget)).toBe(downloadDestinationKey(decomposedTarget))
+    }
+  )
+
+  it.each(['win32', 'linux'] as const)(
+    'preserves distinct Unicode spellings under the existing case policy on %s',
+    (platform) => {
+      Object.defineProperty(process, 'platform', { ...platformDescriptor, value: platform })
+      const composedTarget = resolve(targetDir, 'Caf\u00e9.BIN')
+      const decomposedTarget = resolve(targetDir, 'Cafe\u0301.BIN')
+      const composedKey = downloadDestinationKey(composedTarget)
+      const decomposedKey = downloadDestinationKey(decomposedTarget)
+
+      expect(composedKey).toBe(platform === 'win32' ? composedTarget.toLowerCase() : composedTarget)
+      expect(decomposedKey).toBe(
+        platform === 'win32' ? decomposedTarget.toLowerCase() : decomposedTarget
+      )
+      expect(composedKey).not.toBe(decomposedKey)
+    }
+  )
 })
