@@ -59,6 +59,13 @@ SFTP uploads run single-stream per file (rclone can't multi-thread a single-file
 Overall upload throughput across multiple files comes from the Concurrent setting in the
 transfer queue.
 
+The Segments setting is saved with each download when it is queued. Changing Concurrent
+does not replace queued or running transfers' segment requests; changing Segments applies
+only to newly queued downloads. Configured streams can be fewer than requested because each
+chunk is at least 5 MiB: a 20 MiB file requesting eight segments is configured for four.
+Requested and configured segment counts are not measurements of rclone's actual runtime
+streams.
+
 Folder downloads validate the remote tree and create the destination folder structure before
 queuing each file as its own transfer. Nested paths and empty subfolders inside a non-empty
 folder are preserved. Concurrent limits how many files transfer at once, while Segments
@@ -85,12 +92,80 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 - Connect over SFTP with a password or private key.
 - Browse remote folders with current-folder filtering, sorting, multi-select, and right-click
   download.
+- Adjust Name, Size, and Modified columns with pointer dragging, keyboard controls, or
+  numeric inputs in Columns, and reveal full names with Wrap filenames.
 - Fast parallel downloads (1 to 16 streams) with live progress and speed.
 - Upload files and folders that already exist on the Siphon server's local disk into the
   remote folder you are browsing.
 - Downloads keep running on the server even if you close the tab or your phone.
 - Save connections so you don't retype credentials. Siphon remembers the last download folder
   you selected.
+
+### Retry failed downloads
+
+Retry appears only for eligible downloads that rclone has reported as finished with a
+failure. It starts a new attempt with a new transfer ID and job, not a byte-level resume.
+The old row keeps its failure diagnostics and shows Retried. Each failed row can create
+only one successor; repeating the request returns that same successor. If the successor
+also fails, it can become eligible for its own Retry.
+
+Retries use the original connection snapshot, source path, local destination, and per-item
+segment request. Switching or disconnecting the browsing connection, or changing or
+deleting a saved profile, does not redirect the retry or adopt new credentials. A missing
+source, private key, or connection configuration remains an error. Source size is checked
+again; the content at the same source path may have changed.
+
+Downloads to the same canonical final local file run one at a time, including retries.
+A queued row shows "Waiting for another download to this file." Other destinations and
+uploads still share the Concurrent capacity.
+
+If a submission's outcome is unknown or cancellation has not been confirmed, that target
+stays blocked for the lifetime of the running server's download manager. Existing queued
+and newly requested downloads to it show an explicit reason. Not every error is retryable;
+canceled transfers and uploads cannot Retry. Remove and Clear finished discard the removed
+rows' diagnostics and retry options, but do not clear uncertain-target protection.
+
+Clear all, reconnecting, closing the browser, waiting for a timer, or a stop request
+returning does not prove the backend stopped or clear that protection. Before restarting
+Siphon to unblock a target, confirm that its old supervised rclone backend has actually
+terminated. A full server restart empties the in-memory queue and forgets target protection;
+an app restart alone is not proof that old writers stopped. Orphaned or external writers
+are outside this protection.
+
+Retries are manual: there is no automatic retry, backoff, Retry all, persistent history,
+or polling-based recovery. Retry does not guarantee overwrite behavior, atomic replacement,
+partial-file handling, or byte-level resume.
+
+### Browser columns
+
+Name defaults to filling the remaining table width, with sensible default widths for Size
+and Modified. Drag a column's trailing edge, focus its resize handle and use Left/Right
+arrows (Shift for larger steps, Home/End for minimum/maximum), or open Columns to enter
+numeric widths. Wrap filenames reveals full filenames instead of truncating them.
+
+Setting a Name width pins it to a fixed pixel width; enlarged columns may intentionally
+require horizontal scrolling. Auto-fill Name column returns Name to filling the remaining
+space. Reset column widths restores auto-fill Name and default metadata widths without
+changing your Wrap filenames setting.
+
+Widths survive folder navigation and reconnects while the browser component remains
+mounted. A page reload restores defaults; widths are not saved to persistent storage.
+At viewport widths <=1024px, the existing stacked, wrapped layout remains and desktop
+column controls are hidden. On wider screens with coarse-pointer input, filenames wrap
+by default.
+
+### Saved sites and shared connections
+
+Editing a saved site's connection fields or deselecting it creates a manual connection.
+Re-enter the password before connecting or saving it. An unchanged selected site still
+uses its saved credentials.
+
+The active connection is shared across tabs. If another tab changes it, a stale tab shows
+a connection conflict instead of transferring to the wrong server. Select the desired
+server and reconnect, then refresh the folder and select the intended files again before
+starting the transfer. Queued transfers and transfers that already acquired their connection
+keep running against their original server. Reloading the page reattaches the current shared
+connection; confirm the server before transferring.
 
 ## Keep it running on boot
 

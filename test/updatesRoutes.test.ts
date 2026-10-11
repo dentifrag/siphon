@@ -9,6 +9,7 @@ import type { RouteContext } from '../src/server/context'
 import { LoginLimiter } from '../src/server/loginLimiter'
 import type { RcloneListEntry } from '../src/server/rclone/client'
 import type { RcloneEnqueueInput } from '../src/server/rclone/downloadManager'
+import { ConnectionSession } from '../src/server/session'
 import type { TransferProgress } from '../src/shared/types'
 import { coordinatorFixture, currentVersion, deferred, testDirectory } from './fixtures/updates'
 
@@ -44,6 +45,7 @@ async function server(mode: 'password' | 'open' | 'setup' = 'password') {
   config.roots = [{ name: 'test', path: directory.dir }]
   config.confined = true
   const client = {
+    checkConnection: vi.fn(async () => undefined),
     stat: vi.fn<(fs: string, path: string) => Promise<RcloneListEntry | null>>(async () => ({
       Path: 'file.bin',
       Name: 'file.bin',
@@ -71,21 +73,50 @@ async function server(mode: 'password' | 'open' | 'setup' = 'password') {
     status: 'queued',
     direction: input.direction
   }))
+  const retry = vi.fn(
+    async (
+      _id: string,
+      prepare: (input: RcloneEnqueueInput) => Promise<RcloneEnqueueInput>
+    ): Promise<TransferProgress> =>
+      enqueue(
+        await prepare({
+          srcFs: '_dl-original:',
+          srcRemote: 'file.bin',
+          dstFs: directory.dir,
+          dstRemote: 'file.bin',
+          localPath: join(directory.dir, 'file.bin'),
+          displayName: '/file.bin',
+          size: 1,
+          segments: 1,
+          cleanupRemote: '_dl-original'
+        })
+      )
+  )
   const ctx = {
     config,
     auth,
     limiter: new LoginLimiter({ maxAttempts: 5, lockoutMs: 1000 }),
-    services: { client, manager: { list: () => fixture.transfers, enqueue } },
-    session: { remoteFs: () => 'test:', remoteName: () => 'test' },
+    services: {
+      client,
+      manager: {
+        list: () => fixture.transfers,
+        enqueue,
+        enqueueBatch: (inputs: RcloneEnqueueInput[]) => inputs.map(enqueue),
+        retry
+      },
+      remotes: { remoteNameFor: vi.fn(async () => 'test') }
+    },
     execDir: directory.dir,
     updates: fixture.updates
   } as unknown as RouteContext
+  ctx.session = new ConnectionSession(ctx.services)
+  await ctx.session.connect({ profileId: 'test' })
   const app = Fastify()
   apps.push(app)
   await registerRoutes(app, ctx)
   await app.ready()
   const headers = { ...origin, cookie: sid ? `siphon_sid=${sid}` : '' }
-  return { app, headers, client, enqueue, stateDir, ...fixture }
+  return { app, headers, client, enqueue, retry, stateDir, ...fixture }
 }
 
 describe('update HTTP boundary', () => {
@@ -311,8 +342,37 @@ describe('transfer/update mutual exclusion through real routes', () => {
     }
   )
 
-  it('rejects uploads and downloads before touching rclone during accepted maintenance', async () => {
-    const { app, headers, updates, client, enqueue } = await server()
+  it('retains retry admission through source revalidation and releases it on failure', async () => {
+    const { app, headers, updates, client, schedule, enqueue, retry } = await server()
+    const offer = (await updates.check()).offer!
+    const gate = deferred<never>()
+    client.stat.mockImplementationOnce(() => gate.promise)
+    const pending = app
+      .inject({ method: 'POST', url: '/api/download/origin/retry', headers })
+      .then((response) => response)
+    try {
+      await vi.waitFor(() => expect(client.stat).toHaveBeenCalledWith('_dl-original:', 'file.bin'))
+      const blocked = await app.inject({
+        method: 'POST',
+        url: '/api/updates/install',
+        headers,
+        payload: { offerId: offer.id }
+      })
+      expect(blocked.statusCode).toBe(409)
+      expect(schedule).not.toHaveBeenCalled()
+      expect((await updates.status()).canInstall).toBe(false)
+    } finally {
+      gate.reject(new Error('Source revalidation failed'))
+      await pending
+    }
+    expect(retry).toHaveBeenCalledOnce()
+    expect((await pending).statusCode).toBe(500)
+    expect(enqueue).not.toHaveBeenCalled()
+    expect((await updates.status()).canInstall).toBe(true)
+  })
+
+  it('rejects uploads, downloads, and retries before touching rclone during accepted maintenance', async () => {
+    const { app, headers, updates, client, enqueue, retry } = await server()
     const offer = (await updates.check()).offer!
     await updates.install(offer.id)
     for (const direction of ['download', 'upload']) {
@@ -327,6 +387,13 @@ describe('transfer/update mutual exclusion through real routes', () => {
       })
       expect(response.statusCode).toBe(409)
     }
+    const retried = await app.inject({
+      method: 'POST',
+      url: '/api/download/origin/retry',
+      headers
+    })
+    expect(retried.statusCode).toBe(409)
+    expect(retry).not.toHaveBeenCalled()
     expect(client.stat).not.toHaveBeenCalled()
     expect(client.cloneRemote).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
@@ -372,5 +439,35 @@ describe('transfer/update mutual exclusion through real routes', () => {
     }
     expect(enqueue).not.toHaveBeenCalled()
     expect(await readdir(stateDir)).toEqual(['protected.json'])
+  })
+
+  it('rejects retry destinations in the updater subtree before inspecting the source', async () => {
+    const { app, headers, stateDir, client, enqueue, retry, updates } = await server()
+    retry.mockImplementationOnce(async (_id, prepare) =>
+      enqueue(
+        await prepare({
+          srcFs: '_dl-original:',
+          srcRemote: 'protected.json',
+          dstFs: stateDir,
+          dstRemote: 'protected.json',
+          localPath: join(stateDir, 'protected.json'),
+          displayName: '/protected.json',
+          size: 1,
+          segments: 1,
+          cleanupRemote: '_dl-original'
+        })
+      )
+    )
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/download/origin/retry',
+      headers
+    })
+    expect(response.statusCode).toBe(400)
+    expect(client.stat).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(await readdir(stateDir)).toEqual([])
+    await updates.check()
+    expect((await updates.status()).canInstall).toBe(true)
   })
 })

@@ -1,15 +1,19 @@
 import { mkdir } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
 import type { RouteContext } from '../context'
-import { httpError } from '../http'
-import { resolvePath, type FsScope } from '../localFs'
+import { httpError, parseConnectionRevision } from '../http'
+import {
+  downloadDestinationKey,
+  resolvePath,
+  validateDownloadDestination,
+  type FsScope
+} from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
 import type { RcloneClient, RcloneListEntry } from '../rclone/client'
-import type { RcloneDownloadManager } from '../rclone/downloadManager'
+import type { RcloneDownloadManager, RcloneEnqueueInput } from '../rclone/downloadManager'
 
 export interface ExpandDownloadInput {
   item: RcloneListEntry
@@ -22,26 +26,52 @@ export interface ExpandDownloadInput {
   scope?: FsScope
 }
 
+async function enqueuePlannedDownloads(
+  client: RcloneClient,
+  manager: RcloneDownloadManager,
+  planned: RcloneEnqueueInput[],
+  scope: FsScope | undefined,
+  directories: string[] = []
+): Promise<TransferProgress[]> {
+  async function allowed(path: string): Promise<string> {
+    const canonical = scope ? await resolvePath(scope, path) : path
+    if (
+      !canonical ||
+      (scope?.excludedPaths?.length &&
+        downloadDestinationKey(canonical) !== downloadDestinationKey(resolve(path)))
+    ) {
+      throw httpError(400, 'That download destination is protected, symlinked, or not accessible.')
+    }
+    return canonical
+  }
+
+  try {
+    if (scope) {
+      for (const input of planned) {
+        const canonical = await allowed(input.localPath)
+        input.destinationKey = downloadDestinationKey(canonical)
+      }
+    }
+    const canonicalDirectories: string[] = []
+    for (const directory of directories) {
+      const canonical = await allowed(directory)
+      canonicalDirectories.push(canonical)
+    }
+    for (const directory of canonicalDirectories) await mkdir(directory, { recursive: true })
+  } catch (err) {
+    const remote = planned[0]?.cleanupRemote
+    if (remote) await client.deleteRemote(remote).catch(() => undefined)
+    throw err
+  }
+  return manager.enqueueBatch(planned)
+}
+
 export async function expandDownload(
   client: RcloneClient,
   manager: RcloneDownloadManager,
   input: ExpandDownloadInput
 ): Promise<TransferProgress[]> {
-  const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote, scope } = input
-
-  async function allowed(path: string): Promise<void> {
-    if (!scope) return
-    const canonical = await resolvePath(scope, path)
-    const sameDestination =
-      canonical &&
-      (process.platform === 'win32'
-        ? canonical.toLowerCase() === resolve(path).toLowerCase()
-        : canonical === resolve(path))
-    if (!canonical || (scope.excludedPaths?.length && !sameDestination)) {
-      await client.deleteRemote(jobRemote).catch(() => undefined)
-      throw httpError(400, 'That download destination is protected, symlinked, or not accessible.')
-    }
-  }
+  const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote } = input
 
   if (item.IsDir) {
     const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
@@ -81,8 +111,6 @@ export async function expandDownload(
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw new Error('Recursive listing returned an unsafe file path.')
     }
-    await allowed(destinationRoot)
-    for (const { localPath } of plannedEntries) await allowed(localPath)
 
     const directories = new Set([
       destinationRoot,
@@ -90,17 +118,10 @@ export async function expandDownload(
         entry.IsDir ? localPath : dirname(localPath)
       )
     ])
-    try {
-      for (const directory of directories) await mkdir(directory, { recursive: true })
-    } catch (err) {
-      await client.deleteRemote(jobRemote).catch(() => undefined)
-      throw err
-    }
-
-    return plannedEntries
+    const planned = plannedEntries
       .filter(({ entry }) => !entry.IsDir)
-      .map(({ entry, relativePath, localPath }) => {
-        return manager.enqueue({
+      .map(({ entry, relativePath, localPath }): RcloneEnqueueInput => {
+        return {
           srcFs: `${jobRemote}:`,
           srcRemote: entry.Path,
           dstFs: destinationRoot,
@@ -110,24 +131,29 @@ export async function expandDownload(
           size: entry.Size < 0 ? 0 : entry.Size,
           segments,
           cleanupRemote: jobRemote
-        })
+        }
       })
+    return enqueuePlannedDownloads(client, manager, planned, input.scope, [...directories])
   }
 
-  await allowed(join(targetDir, wrappingName))
-  return [
-    manager.enqueue({
-      srcFs: `${jobRemote}:`,
-      srcRemote: dirPath,
-      dstFs: targetDir,
-      dstRemote: wrappingName,
-      displayName: remotePath,
-      localPath: join(targetDir, wrappingName),
-      size: item.Size < 0 ? 0 : item.Size,
-      segments,
-      cleanupRemote: jobRemote
-    })
-  ]
+  return enqueuePlannedDownloads(
+    client,
+    manager,
+    [
+      {
+        srcFs: `${jobRemote}:`,
+        srcRemote: dirPath,
+        dstFs: targetDir,
+        dstRemote: wrappingName,
+        displayName: remotePath,
+        localPath: join(targetDir, wrappingName),
+        size: item.Size < 0 ? 0 : item.Size,
+        segments,
+        cleanupRemote: jobRemote
+      }
+    ],
+    input.scope
+  )
 }
 
 export function registerDownloadRoutes(
@@ -145,21 +171,25 @@ export function registerDownloadRoutes(
     const release = updates?.admitTransfer()
     try {
       const input = req.body as DownloadEnqueueInput
+      const binding = session.bind(parseConnectionRevision(input.connectionRevision))
       const srcRemote = uiToRemotePath(input.remotePath)
-      const item = await client.stat(session.remoteFs(), srcRemote)
-      if (!item) throw httpError(404, 'File not found.')
-
-      const requested = input.downloadDir?.trim()
+      const job = await session.acquireJobRemote('_dl-', binding.revision)
+      let item
       let targetDir = config.defaultDir
-      {
-        const resolved = await resolvePath(scope, requested || config.defaultDir)
+      let baseName: string
+      try {
+        item = await client.stat(job.fs, srcRemote)
+        if (!item) throw httpError(404, 'File not found.')
+
+        const requested = input.downloadDir?.trim() || config.defaultDir
+        const resolved = await resolvePath(scope, requested)
         if (!resolved) throw httpError(400, 'That download folder is not accessible.')
         targetDir = resolved
+        baseName = safeBaseName(input.remotePath)
+      } catch (error) {
+        await job.release()
+        throw error
       }
-      const baseName = safeBaseName(input.remotePath)
-
-      const jobRemote = `_dl-${randomUUID()}`
-      await client.cloneRemote(session.remoteName(), jobRemote)
 
       return await expandDownload(client, manager, {
         item,
@@ -168,8 +198,25 @@ export function registerDownloadRoutes(
         wrappingName: baseName,
         targetDir,
         segments: input.segments,
-        jobRemote,
+        jobRemote: job.remoteName,
         scope
+      })
+    } finally {
+      release?.()
+    }
+  })
+
+  app.post<{ Params: { id: string } }>('/api/download/:id/retry', async (req) => {
+    const release = updates?.admitTransfer()
+    try {
+      return await manager.retry(req.params.id, async (input) => {
+        const destinationKey = await validateDownloadDestination(scope, input, resolvePath)
+        const item = await client.stat(input.srcFs, input.srcRemote)
+        if (!item) throw httpError(404, 'File not found.')
+        if (item.IsDir || !Number.isFinite(item.Size)) {
+          throw httpError(400, 'The retry source is not a valid file.')
+        }
+        return { ...input, size: Math.max(0, item.Size), destinationKey }
       })
     } finally {
       release?.()

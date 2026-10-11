@@ -27,15 +27,21 @@ describe('App download behaviors', () => {
     'shows the configured stream limit instead of an active count of %i',
     async (activeSegments) => {
       installMockWebApi({
-        listDownloads: vi.fn(async () => [
-          makeTransfer({
-            remotePath: '/movies',
-            localPath: '/local/movies',
-            size: 4096,
-            segments: 4,
-            activeSegments
+        onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
+          callback({
+            type: 'reset',
+            transfers: [
+              makeTransfer({
+                remotePath: '/movies',
+                localPath: '/local/movies',
+                size: 4096,
+                segments: 4,
+                activeSegments
+              })
+            ]
           })
-        ])
+          return () => {}
+        })
       })
       renderWithProviders(<App canChangePassword={false} />)
 
@@ -46,7 +52,10 @@ describe('App download behaviors', () => {
 
   it('does not show a download stream limit for uploads', async () => {
     installMockWebApi({
-      listDownloads: vi.fn(async () => [makeTransfer({ direction: 'upload' })])
+      onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
+        callback({ type: 'reset', transfers: [makeTransfer({ direction: 'upload' })] })
+        return () => {}
+      })
     })
     renderWithProviders(<App canChangePassword={false} />)
 
@@ -57,7 +66,11 @@ describe('App download behaviors', () => {
   it('shows an error and does not enqueue when no download dir is chosen', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => ''),
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }
@@ -75,7 +88,11 @@ describe('App download behaviors', () => {
   it('enqueues the download and clears selection when a dir is chosen', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => '/downloads'),
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }
@@ -91,7 +108,8 @@ describe('App download behaviors', () => {
     expect(api.enqueueDownload).toHaveBeenCalledWith({
       remotePath: '/a.txt',
       downloadDir: '/downloads',
-      segments: 4
+      segments: 4,
+      connectionRevision: 'r1'
     })
     expect(screen.getByRole('button', { name: /Download/ })).toBeDisabled()
   })
@@ -99,7 +117,11 @@ describe('App download behaviors', () => {
   it('shows a message when the enqueue result is empty', async () => {
     const user = userEvent.setup()
     installMockWebApi({
-      status: vi.fn(async () => ({ connected: true, remoteName: 'x' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'x',
+        connectionRevision: 'r1'
+      })),
       defaultDownloadDir: vi.fn(async () => '/downloads'),
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }

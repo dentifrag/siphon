@@ -3,6 +3,7 @@ import { RcloneSupervisor } from './rclone/supervisor'
 import { RcloneClient } from './rclone/client'
 import { RcloneDownloadManager } from './rclone/downloadManager'
 import { RemoteStore } from './rclone/remotes'
+import { validateDownloadDestination } from './localFs'
 
 export interface Services {
   supervisor: RcloneSupervisor
@@ -19,7 +20,9 @@ export async function createServices(
   const supervisor = new RcloneSupervisor(config.dataDir, execDir, log)
   await supervisor.start()
   const client = new RcloneClient(supervisor)
-  const manager = new RcloneDownloadManager(client)
+  const manager = new RcloneDownloadManager(client, (input) =>
+    validateDownloadDestination({ roots: config.roots, confined: config.confined }, input)
+  )
   const remotes = new RemoteStore(config.dataDir, client)
   await removeEphemeralRemotes(client)
   return { supervisor, client, manager, remotes }

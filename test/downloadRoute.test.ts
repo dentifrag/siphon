@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { expandDownload } from '../src/server/routes/downloads'
+import * as localFs from '../src/server/localFs'
 import type { RcloneClient, RcloneListEntry } from '../src/server/rclone/client'
 import type {
   RcloneDownloadManager,
@@ -15,6 +16,7 @@ vi.mock('node:fs/promises', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   vi.mocked(mkdir).mockReset().mockResolvedValue(undefined)
 })
 
@@ -34,7 +36,10 @@ function makeManager() {
       status: 'queued'
     }
   })
-  return { enqueue } as unknown as RcloneDownloadManager
+  return {
+    enqueue,
+    enqueueBatch: (inputs: RcloneEnqueueInput[]) => inputs.map((input) => enqueue(input))
+  } as unknown as RcloneDownloadManager
 }
 
 function listEntry(path: string, size: number, isDir = false): RcloneListEntry {
@@ -122,6 +127,46 @@ describe('expandDownload', () => {
 
     expect(await result).toHaveLength(1)
   })
+
+  it('rejects inaccessible scoped directories before creating any folders or queuing files', async () => {
+    const client = makeClient([listEntry('media/movies/a.mkv', 10)])
+    const manager = makeManager()
+
+    await expect(
+      expandDownload(client, manager, {
+        ...downloadInput(),
+        scope: { roots: [], confined: true }
+      })
+    ).rejects.toMatchObject({ statusCode: 400 })
+    expect(client.deleteRemote).toHaveBeenCalledWith('_dl-test')
+    expect(manager.enqueue).not.toHaveBeenCalled()
+    expect(mkdir).not.toHaveBeenCalled()
+  })
+
+  it.each(['empty', 'a.mkv'])(
+    'validates every canonical destination before creating folders when %s is inaccessible',
+    async (inaccessible) => {
+      const client = makeClient([
+        listEntry('media/movies/a.mkv', 10),
+        listEntry('media/movies/empty', -1, true)
+      ])
+      const manager = makeManager()
+      vi.spyOn(localFs, 'resolvePath').mockImplementation(async (_scope, path) =>
+        path === join('/out', 'movies', inaccessible) ? null : path
+      )
+
+      await expect(
+        expandDownload(client, manager, {
+          ...downloadInput(),
+          scope: { roots: [], confined: true }
+        })
+      ).rejects.toMatchObject({ statusCode: 400 })
+      expect(client.deleteRemote).toHaveBeenCalledTimes(1)
+      expect(client.deleteRemote).toHaveBeenCalledWith('_dl-test')
+      expect(manager.enqueue).not.toHaveBeenCalled()
+      expect(mkdir).not.toHaveBeenCalled()
+    }
+  )
 
   it('cleans up the cloned remote and queues nothing if a folder cannot be created', async () => {
     const error = new Error('Permission denied')

@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import type { WebApi, AuthStatus } from '../../web/api'
-import type { RemoteStat } from '@shared/types'
+import type { RemoteStat, TransferProgress } from '@shared/types'
 import type { UpdateStatus } from '@shared/api'
 
 export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
@@ -40,12 +40,19 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
     }),
     getVersionHealth: vi.fn(async () => ({ app: 'siphon' as const, version: '1.0.2' })),
 
-    connect: vi.fn(async () => ({ home: '/' })),
+    connect: vi.fn(async () => ({ home: '/', connectionRevision: 'r1' })),
     disconnect: vi.fn(async () => undefined),
-    status: vi.fn(async () => ({ connected: false, remoteName: null })),
+    status: vi.fn(async () => ({
+      connected: false,
+      remoteName: null,
+      connectionRevision: null
+    })),
     list: vi.fn(async () => []),
     stat: vi.fn(async (): Promise<RemoteStat> => ({ size: 0, type: 'file', mtime: 0 })),
     enqueueDownload: vi.fn(async () => []),
+    retryDownload: vi.fn(async (): Promise<TransferProgress> => {
+      throw new Error('No retry successor configured.')
+    }),
     enqueueUpload: vi.fn(async () => []),
     cancelDownload: vi.fn(async () => undefined),
     cancelAllDownloads: vi.fn(async () => undefined),

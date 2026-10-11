@@ -26,6 +26,7 @@ interface ConnectionPanelProps {
   onDeleteProfile: () => void
   rememberSecret: boolean
   onRememberSecretChange: (value: boolean) => void
+  requiresPasswordReentry?: boolean
 }
 
 const AUTH_LABELS: Record<AuthMethod, string> = {
@@ -52,7 +53,8 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
     onSaveProfile,
     onDeleteProfile,
     rememberSecret,
-    onRememberSecretChange
+    onRememberSecretChange,
+    requiresPasswordReentry
   } = props
 
   const connected = connState === 'connected'
@@ -185,6 +187,11 @@ export function ConnectionPanel(props: ConnectionPanelProps) {
               value={form.password}
               onChange={(e) => onFormChange({ password: e.target.value })}
             />
+            {requiresPasswordReentry && !error && (
+              <FormControl.Caption>
+                Re-enter the password to use this saved site as a manual connection.
+              </FormControl.Caption>
+            )}
           </FormControl>
         )}
 

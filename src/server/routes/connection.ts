@@ -7,8 +7,8 @@ export function registerConnectionRoutes(app: FastifyInstance, { session }: Rout
 
   app.post('/api/connect', async (req) => {
     const body = req.body as { config?: ConnectionConfig; profileId?: string }
-    await session.connect(body)
-    return { home: '/' }
+    const connectionRevision = await session.connect(body)
+    return { home: '/', connectionRevision }
   })
 
   app.post('/api/disconnect', async () => {

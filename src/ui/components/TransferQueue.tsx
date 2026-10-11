@@ -10,6 +10,9 @@ interface TransferQueueProps {
   onMaxConcurrentChange: (max: number) => void
   onCancel: (id: string) => void
   onRemove: (id: string) => void
+  onRetry: (id: string) => void
+  retryingIds: ReadonlySet<string>
+  retryErrors: Readonly<Record<string, string>>
   onClearFinished: () => void
   onClearAll: () => void
 }
@@ -58,6 +61,9 @@ export function TransferQueue(props: TransferQueueProps) {
     onMaxConcurrentChange,
     onCancel,
     onRemove,
+    onRetry,
+    retryingIds,
+    retryErrors,
     onClearFinished,
     onClearAll
   } = props
@@ -105,7 +111,12 @@ export function TransferQueue(props: TransferQueueProps) {
           <Button variant="default" disabled={transfers.length === 0} onClick={onClearAll}>
             Clear all
           </Button>
-          <Button variant="default" disabled={!hasFinished} onClick={onClearFinished}>
+          <Button
+            variant="default"
+            disabled={!hasFinished}
+            onClick={onClearFinished}
+            title="Remove completed, failed, and canceled transfers."
+          >
             Clear finished
           </Button>
         </div>
@@ -169,7 +180,34 @@ export function TransferQueue(props: TransferQueueProps) {
                     {transfer.status === 'error' && transfer.error && (
                       <span className="transfer__error">{transfer.error}</span>
                     )}
+                    {transfer.waitingReason && <span>{transfer.waitingReason}</span>}
+                    {transfer.retryUnavailableReason &&
+                      !transfer.error?.includes(transfer.retryUnavailableReason) && (
+                        <span className="transfer__error">{transfer.retryUnavailableReason}</span>
+                      )}
+                    {retryErrors[transfer.id] && (
+                      <span role="alert" className="transfer__error">
+                        {retryErrors[transfer.id]}
+                      </span>
+                    )}
+                    {transfer.retriedAs && (
+                      <span title={`Retried as ${transfer.retriedAs}`}>Retried</span>
+                    )}
+                    {transfer.retryOf && <span>Retry of {transfer.retryOf}</span>}
                     <span className="transfer__actions">
+                      {!isUpload &&
+                        transfer.status === 'error' &&
+                        transfer.retryable === true &&
+                        !transfer.retriedAs && (
+                          <Button
+                            size="small"
+                            disabled={retryingIds.has(transfer.id)}
+                            onClick={() => onRetry(transfer.id)}
+                            title="Copy this source again to the original destination. This is not a verified resume."
+                          >
+                            {retryingIds.has(transfer.id) ? 'Retrying...' : 'Retry'}
+                          </Button>
+                        )}
                       {(transfer.status === 'downloading' || transfer.status === 'queued') &&
                         !canceling && (
                           <Button size="small" onClick={() => onCancel(transfer.id)}>

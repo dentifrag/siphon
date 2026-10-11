@@ -1,8 +1,9 @@
 import { mkdir, readdir, realpath, lstat } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
 import { httpError } from './http'
+import type { RcloneEnqueueInput } from './rclone/downloadManager'
 
 export interface LocalEntry {
   name: string
@@ -20,6 +21,29 @@ export interface FsScope {
   roots: DownloadRoot[]
   confined: boolean
   excludedPaths?: string[]
+}
+
+export function downloadDestinationKey(path: string): string {
+  const normalized = resolve(path)
+  if (process.platform === 'darwin') return normalized.normalize('NFC').toLowerCase()
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+export async function validateDownloadDestination(
+  scope: FsScope,
+  input: RcloneEnqueueInput,
+  resolver: typeof resolvePath = resolvePath
+): Promise<string> {
+  const canonical = await resolver(scope, join(input.dstFs, input.dstRemote))
+  if (!canonical) throw httpError(400, 'That download destination is not accessible.')
+  const key = downloadDestinationKey(canonical)
+  if (key !== (input.destinationKey ?? downloadDestinationKey(input.localPath))) {
+    throw httpError(
+      409,
+      'The download destination has changed. Remove this transfer and download it again.'
+    )
+  }
+  return key
 }
 
 function isInside(parent: string, child: string): boolean {
@@ -59,19 +83,20 @@ export async function resolvePath(scope: FsScope, candidate: string): Promise<st
 }
 
 async function canonicalize(path: string): Promise<string> {
-  let existing = path
+  const normalized = resolve(path)
+  let existing = normalized
   const tail: string[] = []
   while (!existsSync(existing)) {
     const parent = resolve(existing, '..')
     if (parent === existing) break
-    tail.unshift(existing.slice(parent.length + 1))
+    tail.unshift(basename(existing))
     existing = parent
   }
   try {
     const real = await realpath(existing)
     return tail.length ? join(real, ...tail) : real
   } catch {
-    return path
+    return normalized
   }
 }
 

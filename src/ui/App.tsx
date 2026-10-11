@@ -22,6 +22,7 @@ export default function App({ canChangePassword }: AppProps) {
   const [updatesOpen, setUpdatesOpen] = useState(hasUpdateReconnect)
   const [pickerMode, setPickerMode] = useState<'chooseDir' | 'chooseItems'>('chooseDir')
   const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
+  const preparedUploadRef = useRef<((paths: string[]) => Promise<void>) | null>(null)
 
   useEffect(() => {
     window.api
@@ -40,15 +41,21 @@ export default function App({ canChangePassword }: AppProps) {
     downloadDir,
     onSegmentsChange: setSegments,
     onDownloadDirChange: setDownloadDir,
-    onConnected: browser.navigateTo,
-    onDisconnected: browser.resetForDisconnect
+    onConnected: browser.attachConnection,
+    onConnectionChange: browser.beginConnectionChange,
+    onDisconnected: () => {
+      preparedUploadRef.current = null
+    }
   })
 
   useEffect(() => {
     restoreConnectionRef.current = connection.restoreConnection
   }, [connection.restoreConnection])
 
-  const transfers = useTransfers({ navigateTo: browser.navigateTo, getCwd: browser.getCwd })
+  const transfers = useTransfers({
+    refreshCurrent: browser.refreshCurrent,
+    getCwd: browser.getCwd
+  })
 
   const connected = connection.connState === 'connected'
   const handleManualDownloadDirChange = useCallback((dir: string) => {
@@ -90,6 +97,7 @@ export default function App({ canChangePassword }: AppProps) {
         onDeleteProfile={connection.handleDeleteProfile}
         rememberSecret={connection.rememberSecret}
         onRememberSecretChange={connection.onRememberSecretChange}
+        requiresPasswordReentry={connection.requiresPasswordReentry}
       />
 
       <nav className="mobile-tabs">
@@ -124,6 +132,7 @@ export default function App({ canChangePassword }: AppProps) {
           onDownloadSelected={browser.handleDownloadSelected}
           onDownloadEntry={(entry) => browser.enqueue(entry.path)}
           onUpload={() => {
+            preparedUploadRef.current = browser.prepareUpload()
             setPickerMode('chooseItems')
             setPickerOpen(true)
           }}
@@ -135,6 +144,9 @@ export default function App({ canChangePassword }: AppProps) {
           onMaxConcurrentChange={transfers.handleMaxConcurrentChange}
           onCancel={transfers.handleCancelDownload}
           onRemove={transfers.handleRemoveDownload}
+          onRetry={transfers.handleRetryDownload}
+          retryingIds={transfers.retryingIds}
+          retryErrors={transfers.retryErrors}
           onClearFinished={transfers.handleClearFinished}
           onClearAll={transfers.handleClearAll}
         />
@@ -144,11 +156,16 @@ export default function App({ canChangePassword }: AppProps) {
         <FolderPicker
           initialPath={downloadDir}
           mode={pickerMode}
-          onClose={() => setPickerOpen(false)}
+          onClose={() => {
+            preparedUploadRef.current = null
+            setPickerOpen(false)
+          }}
           onChoose={(paths) => {
             if (pickerMode === 'chooseItems') {
               setPickerOpen(false)
-              void browser.handleUploadSelected(paths)
+              const upload = preparedUploadRef.current
+              preparedUploadRef.current = null
+              if (upload) void upload(paths)
               return
             }
             handleManualDownloadDirChange(paths[0])

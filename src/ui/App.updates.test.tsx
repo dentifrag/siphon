@@ -288,7 +288,11 @@ describe('in-app Updates', () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
       getUpdateStatus: vi.fn(async () => checked),
-      status: vi.fn(async () => ({ connected: true, remoteName: 'test' })),
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: 'test',
+        connectionRevision: 'updates-test-revision'
+      })),
       defaultDownloadDir: vi.fn(async () => 'D:\\Downloads'),
       list: vi.fn(async () => [
         { path: '/file.bin', name: 'file.bin', type: 'file' as const, size: 1, mtime: 0 }
