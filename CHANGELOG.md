@@ -9,9 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Folder downloads now run as one bounded rclone copy job instead of starting a segmented job
-  for every file. This prevents duplicate-looking queue entries and avoids multiplying SFTP
-  sessions until the folder fails near completion.
+- Folder downloads now create the validated destination folder structure before queuing
+  individual files. Concurrent still limits active file transfers, and Segments controls
+  parallel streams within each file.
+- The transfer queue displays the stream limit instead of an inferred active-stream count.
 - The download folder now defaults to the last path selected in the UI instead of resetting to
   the configured default on every load.
 

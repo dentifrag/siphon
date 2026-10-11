@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { expandUpload } from '../src/server/routes/uploads'
 import type { RcloneClient } from '../src/server/rclone/client'
@@ -49,8 +50,7 @@ describe('expandUpload', () => {
 
     expect(result).toHaveLength(1)
     expect(manager.enqueue).toHaveBeenCalledWith({
-      kind: 'file',
-      srcFs: '/root',
+      srcFs: join('/root'),
       srcRemote: 'file.bin',
       dstFs: '_ul-file:',
       dstRemote: 'dest/file.bin',
@@ -84,13 +84,12 @@ describe('expandUpload', () => {
     expect(listFilesRecursive).toHaveBeenCalledWith('/root/movies')
     expect(result).toHaveLength(2)
     expect(manager.enqueue).toHaveBeenNthCalledWith(1, {
-      kind: 'file',
       srcFs: '/root/movies',
       srcRemote: 'a.mkv',
       dstFs: '_ul-dir:',
       dstRemote: 'dest/movies/a.mkv',
       displayName: 'movies/a.mkv',
-      localPath: '/root/movies/a.mkv',
+      localPath: join('/root', 'movies', 'a.mkv'),
       size: 10,
       segments: 1,
       direction: 'upload',
@@ -98,13 +97,12 @@ describe('expandUpload', () => {
       cleanupRemote: '_ul-dir'
     })
     expect(manager.enqueue).toHaveBeenNthCalledWith(2, {
-      kind: 'file',
       srcFs: '/root/movies',
       srcRemote: 'sub/b.mkv',
       dstFs: '_ul-dir:',
       dstRemote: 'dest/movies/sub/b.mkv',
       displayName: 'movies/sub/b.mkv',
-      localPath: '/root/movies/sub/b.mkv',
+      localPath: join('/root', 'movies', 'sub', 'b.mkv'),
       size: 20,
       segments: 1,
       direction: 'upload',

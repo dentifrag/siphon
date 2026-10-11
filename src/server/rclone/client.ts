@@ -1,5 +1,5 @@
 import type { RcloneSupervisor } from './supervisor'
-import type { DirectoryCopyConfig, MultiThreadConfig } from './chunk'
+import type { MultiThreadConfig } from './chunk'
 
 export interface RcloneListEntry {
   Path: string
@@ -106,12 +106,12 @@ export class RcloneClient {
     )
   }
 
-  listRecursiveFiles(fs: string, remote: string): Promise<RcloneListEntry[]> {
+  listRecursiveEntries(fs: string, remote: string): Promise<RcloneListEntry[]> {
     return this.call<{ list?: RcloneListEntry[] }>('operations/list', {
       fs,
       remote,
-      opt: { recurse: true, filesOnly: true, noModTime: true }
-    }).then((r) => (r.list ?? []).filter((entry) => !entry.IsDir))
+      opt: { recurse: true, noModTime: true }
+    }).then((r) => r.list ?? [])
   }
 
   stat(fs: string, remote: string): Promise<RcloneListEntry | null> {
@@ -133,22 +133,6 @@ export class RcloneClient {
       srcRemote: input.srcRemote,
       dstFs: input.dstFs,
       dstRemote: input.dstRemote,
-      _async: true,
-      _group: input.group,
-      _config: input.config
-    }).then((r) => r.jobid)
-  }
-
-  copyDirAsync(input: {
-    srcFs: string
-    dstFs: string
-    group: string
-    config: DirectoryCopyConfig
-  }): Promise<number> {
-    return this.call<{ jobid: number }>('sync/copy', {
-      srcFs: input.srcFs,
-      dstFs: input.dstFs,
-      createEmptySrcDirs: true,
       _async: true,
       _group: input.group,
       _config: input.config

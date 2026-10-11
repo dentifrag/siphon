@@ -6,10 +6,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('RcloneClient.copyDirAsync', () => {
-  it('starts an asynchronous sync/copy job without deleting destination-only files', async () => {
+describe('RcloneClient.listRecursiveEntries', () => {
+  it('lists both files and directories so the destination tree can be created first', async () => {
+    const entries = [
+      { Path: 'movies/a.mkv', Size: 10, IsDir: false },
+      { Path: 'movies/empty', Size: -1, IsDir: true }
+    ]
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ jobid: 42 }), {
+      new Response(JSON.stringify({ list: entries }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       })
@@ -23,22 +27,10 @@ describe('RcloneClient.copyDirAsync', () => {
     } as unknown as RcloneSupervisor
     const client = new RcloneClient(supervisor)
 
-    await expect(
-      client.copyDirAsync({
-        srcFs: '_dl-test:movies',
-        dstFs: 'D:\\Downloads\\movies',
-        group: 'job-test',
-        config: {
-          MultiThreadStreams: 4,
-          MultiThreadCutoff: '1048576B',
-          MultiThreadChunkSize: '5242880B',
-          Transfers: 1
-        }
-      })
-    ).resolves.toBe(42)
+    await expect(client.listRecursiveEntries('_dl-test:', 'movies')).resolves.toEqual(entries)
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:5572/sync/copy',
+      'http://127.0.0.1:5572/operations/list',
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -46,17 +38,9 @@ describe('RcloneClient.copyDirAsync', () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          srcFs: '_dl-test:movies',
-          dstFs: 'D:\\Downloads\\movies',
-          createEmptySrcDirs: true,
-          _async: true,
-          _group: 'job-test',
-          _config: {
-            MultiThreadStreams: 4,
-            MultiThreadCutoff: '1048576B',
-            MultiThreadChunkSize: '5242880B',
-            Transfers: 1
-          }
+          fs: '_dl-test:',
+          remote: 'movies',
+          opt: { recurse: true, noModTime: true }
         })
       })
     )

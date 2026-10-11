@@ -59,9 +59,11 @@ SFTP uploads run single-stream per file (rclone can't multi-thread a single-file
 Overall upload throughput across multiple files comes from the Concurrent setting in the
 transfer queue.
 
-Folder downloads run as one queue item. Siphon lets rclone traverse the folder and transfers
-one file at a time, while the Segments setting still controls parallel streams within each
-large file. This avoids multiplying SFTP sessions across every file in the folder.
+Folder downloads validate the remote tree and create the destination folder structure before
+queuing each file as its own transfer. Nested paths and empty subfolders inside a non-empty
+folder are preserved. Concurrent limits how many files transfer at once, while Segments
+controls the stream limit within each file. Small files can use fewer streams; the queue
+displays the stream limit, not a measured active-stream count.
 
 ## First-run setup
 

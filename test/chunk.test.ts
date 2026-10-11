@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  directoryCopyConfig,
-  multiThreadConfig,
-  planDirectoryMultiThread,
-  planMultiThread,
-  MAX_STREAMS
-} from '../src/server/rclone/chunk'
+import { multiThreadConfig, planMultiThread, MAX_STREAMS } from '../src/server/rclone/chunk'
 
 const MB = 1024 * 1024
 
@@ -56,29 +50,5 @@ describe('multiThreadConfig', () => {
     expect(config.MultiThreadChunkSize).toBe(`${plan.chunkBytes}B`)
     expect(config.MultiThreadChunkSize).toMatch(/^\d+B$/)
     expect(config.MultiThreadCutoff).toMatch(/^\d+B$/)
-  })
-
-  describe('planDirectoryMultiThread', () => {
-    it('uses the requested segment count for each file in a directory job', () => {
-      const plan = planDirectoryMultiThread(4)
-      expect(plan.streams).toBe(4)
-      expect(plan.chunkBytes).toBe(5 * MB)
-    })
-
-    it('clamps invalid and excessive segment counts', () => {
-      expect(planDirectoryMultiThread(0).streams).toBe(1)
-      expect(planDirectoryMultiThread(999).streams).toBe(MAX_STREAMS)
-    })
-  })
-
-  describe('directoryCopyConfig', () => {
-    it('limits a directory job to one file transfer at a time', () => {
-      expect(directoryCopyConfig(planDirectoryMultiThread(4))).toEqual({
-        MultiThreadStreams: 4,
-        MultiThreadCutoff: `${1 * MB}B`,
-        MultiThreadChunkSize: `${5 * MB}B`,
-        Transfers: 1
-      })
-    })
   })
 })

@@ -21,7 +21,6 @@ async function flushMicrotasks(times = 10): Promise<void> {
 
 function enqueueInput(overrides: Partial<RcloneEnqueueInput> = {}): RcloneEnqueueInput {
   return {
-    kind: 'file',
     srcFs: 'dl:',
     srcRemote: 'file.bin',
     dstFs: '/out',
@@ -49,45 +48,6 @@ describe('RcloneDownloadManager direction', () => {
     const uploadTransfer = manager.enqueue(enqueueInput({ direction: 'upload' }))
     expect(uploadTransfer.direction).toBe('upload')
     expect(manager.list().find((t) => t.id === uploadTransfer.id)?.direction).toBe('upload')
-  })
-
-  describe('RcloneDownloadManager directory jobs', () => {
-    it('runs a directory as one sync/copy job with one file transfer at a time', async () => {
-      const copyDirAsync = vi.fn().mockResolvedValue(41)
-      const client = {
-        coreStatsDelete: vi.fn().mockResolvedValue(undefined),
-        copyDirAsync
-      } as unknown as RcloneClient
-      const manager = new RcloneDownloadManager(client)
-
-      manager.enqueue(
-        enqueueInput({
-          kind: 'directory',
-          srcFs: 'dl:movies',
-          srcRemote: '',
-          dstFs: '/out/movies',
-          dstRemote: '',
-          displayName: '/movies',
-          localPath: '/out/movies',
-          size: 500,
-          segments: 4
-        })
-      )
-
-      await flushMicrotasks()
-
-      expect(copyDirAsync).toHaveBeenCalledWith({
-        srcFs: 'dl:movies',
-        dstFs: '/out/movies',
-        group: expect.stringMatching(/^job-/),
-        config: {
-          MultiThreadStreams: 4,
-          MultiThreadCutoff: `${1024 * 1024}B`,
-          MultiThreadChunkSize: `${5 * 1024 * 1024}B`,
-          Transfers: 1
-        }
-      })
-    })
   })
 })
 
