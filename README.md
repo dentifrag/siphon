@@ -59,6 +59,13 @@ SFTP uploads run single-stream per file (rclone can't multi-thread a single-file
 Overall upload throughput across multiple files comes from the Concurrent setting in the
 transfer queue.
 
+The Segments setting is saved with each download when it is queued. Changing Concurrent
+does not replace queued or running transfers' segment requests; changing Segments applies
+only to newly queued downloads. Configured streams can be fewer than requested because each
+chunk is at least 5 MiB: a 20 MiB file requesting eight segments is configured for four.
+Requested and configured segment counts, including the displayed active-segment count, are
+not measurements of rclone's actual runtime streams.
+
 ## First-run setup
 
 On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
