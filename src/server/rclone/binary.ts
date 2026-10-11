@@ -126,7 +126,13 @@ async function downloadRclone(destPath: string): Promise<string> {
     if (platform() !== 'win32') chmodSync(destPath, 0o755)
     return destPath
   } finally {
-    await rm(downloadDir, { recursive: true, force: true })
+    try {
+      await rm(downloadDir, { recursive: true, force: true })
+    } catch (err) {
+      console.warn(
+        `Failed to remove temporary rclone download directory "${downloadDir}": ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
   }
 }
 
