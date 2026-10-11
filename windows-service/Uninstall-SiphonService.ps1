@@ -46,6 +46,16 @@ $ErrorActionPreference = 'Stop'
 $here  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $root  = Split-Path -Parent $here
 $winsw = Join-Path $root 'dist-bin\siphon-service.exe'
+$updaterDir = Join-Path (Split-Path -Parent $winsw) 'siphon-updater'
+. (Join-Path $here 'Update-SiphonService.ps1') -Library
+Assert-SiphonNoReparse $winsw
+$updateLifecycleLock = $null
+if (Test-Path -LiteralPath $updaterDir) {
+  Assert-SiphonAncestors (Split-Path -Parent $winsw)
+  Assert-SiphonAcl $updaterDir
+  $updateLifecycleLock = Open-SiphonWorkerLock $updaterDir
+  Assert-SiphonLifecycleIdle $updaterDir
+}
 
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 
@@ -80,18 +90,26 @@ trap {
   exit 1
 }
 
+try {
 $svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
   Step "Stopping '$ServiceName'"
-  try { Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue } catch {}
+  Stop-Service $ServiceName -Force -ErrorAction Stop
+  $svc.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(45))
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Process -Name 'siphon-win-x64' -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 300
   }
+  if ($null -ne $updateLifecycleLock) {
+    try { Assert-SiphonLifecycleIdle $updaterDir } catch {
+      Start-Service $ServiceName -ErrorAction SilentlyContinue
+      throw
+    }
+  }
 
   Step "Removing '$ServiceName'"
   $removed = $false
-  if (Test-Path $winsw) {
+  if ((Test-Path $winsw) -and (Get-FileHash -LiteralPath $winsw -Algorithm SHA256).Hash -eq '05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA') {
     try { & $winsw uninstall 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { $removed = $true } } catch {}
   }
   if (-not $removed) { & sc.exe delete $ServiceName 2>$null | Out-Null }
@@ -102,6 +120,15 @@ if ($svc) {
   Write-Host "[uninstall] Service '$ServiceName' removed." -ForegroundColor Green
 } else {
   Write-Host "[uninstall] Service '$ServiceName' is not installed." -ForegroundColor DarkGray
+}
+
+if ($null -ne $updateLifecycleLock) {
+  if (Get-ScheduledTask -TaskPath '\' -TaskName 'SiphonUpdate' -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskPath '\' -TaskName 'SiphonUpdate' -Confirm:$false -ErrorAction Stop
+  }
+  $updateLifecycleLock.Dispose()
+  $updateLifecycleLock = $null
+  Remove-Item -LiteralPath $updaterDir -Recurse -Force
 }
 
 if ($Purge) {
@@ -120,3 +147,6 @@ if ($Purge) {
 }
 
 Wait-BeforeClose 'Uninstall finished.' 'Green' 15
+} finally {
+  if ($null -ne $updateLifecycleLock) { $updateLifecycleLock.Dispose() }
+}

@@ -17,6 +17,7 @@ export interface ExpandUploadInput {
   size: number
   remoteDir: string
   jobRemote: string
+  scope?: FsScope
 }
 
 export async function expandUpload(
@@ -24,7 +25,7 @@ export async function expandUpload(
   manager: RcloneDownloadManager,
   input: ExpandUploadInput
 ): Promise<TransferProgress[]> {
-  const { resolved, isDir, size, remoteDir, jobRemote } = input
+  const { resolved, isDir, size, remoteDir, jobRemote, scope } = input
   // SFTP uploads are single-stream (see README); segments is always 1.
   const segments = 1
 
@@ -32,7 +33,9 @@ export async function expandUpload(
     const dirBaseName = safeBaseName(basename(resolved))
     let files
     try {
-      files = await listFilesRecursive(resolved)
+      files = await (scope?.excludedPaths?.length
+        ? listFilesRecursive(resolved, scope)
+        : listFilesRecursive(resolved))
     } catch (err) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw err
@@ -84,47 +87,57 @@ export async function expandUpload(
 
 export function registerUploadRoutes(
   app: FastifyInstance,
-  { config, services, session }: RouteContext
+  { config, services, session, updates }: RouteContext
 ): void {
   const { client, manager } = services
-  const scope: FsScope = { roots: config.roots, confined: config.confined }
+  const scope: FsScope = {
+    roots: config.roots,
+    confined: config.confined,
+    excludedPaths: updates?.protectedPaths
+  }
 
   app.post('/api/upload', async (req) => {
-    const input = req.body as UploadEnqueueInput
-    session.remoteFs()
-
-    const resolved = await resolvePath(scope, input.localPath)
-    if (!resolved) throw httpError(400, 'That file or folder is not accessible.')
-
-    const canonicalDataDir = await resolvePath(
-      { roots: [{ name: 'data', path: config.dataDir }], confined: false },
-      config.dataDir
-    )
-    if (canonicalDataDir && isInsideDataDir(canonicalDataDir, resolved)) {
-      throw httpError(400, 'That file or folder is not accessible.')
-    }
-
-    let stats
+    const release = updates?.admitTransfer()
     try {
-      stats = await fsStat(resolved)
-    } catch {
-      throw httpError(404, 'File not found.')
-    }
+      const input = req.body as UploadEnqueueInput
+      session.remoteFs()
 
-    const remoteDir = uiToRemotePath(input.remoteDir)
-    if (remoteDir.split('/').some((seg) => seg === '..')) {
-      throw httpError(400, 'That destination folder is not allowed.')
-    }
-    const jobRemote = `_ul-${randomUUID()}`
-    await client.cloneRemote(session.remoteName(), jobRemote)
+      const resolved = await resolvePath(scope, input.localPath)
+      if (!resolved) throw httpError(400, 'That file or folder is not accessible.')
 
-    return expandUpload(client, manager, {
-      resolved,
-      isDir: stats.isDirectory(),
-      size: stats.isDirectory() ? 0 : stats.size,
-      remoteDir,
-      jobRemote
-    })
+      const canonicalDataDir = await resolvePath(
+        { roots: [{ name: 'data', path: config.dataDir }], confined: false },
+        config.dataDir
+      )
+      if (canonicalDataDir && isInsideDataDir(canonicalDataDir, resolved)) {
+        throw httpError(400, 'That file or folder is not accessible.')
+      }
+
+      let stats
+      try {
+        stats = await fsStat(resolved)
+      } catch {
+        throw httpError(404, 'File not found.')
+      }
+
+      const remoteDir = uiToRemotePath(input.remoteDir)
+      if (remoteDir.split('/').some((seg) => seg === '..')) {
+        throw httpError(400, 'That destination folder is not allowed.')
+      }
+      const jobRemote = `_ul-${randomUUID()}`
+      await client.cloneRemote(session.remoteName(), jobRemote)
+
+      return await expandUpload(client, manager, {
+        resolved,
+        isDir: stats.isDirectory(),
+        size: stats.isDirectory() ? 0 : stats.size,
+        remoteDir,
+        jobRemote,
+        scope
+      })
+    } finally {
+      release?.()
+    }
   })
 }
 

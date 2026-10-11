@@ -7,6 +7,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]*'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +39,13 @@ jobs:
         with:
           node-version: 22
 
+      - name: Require release tag and package version agreement
+        shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          node -e "const ref=process.env.RELEASE_REF;if(ref.startsWith('refs/tags/')){const tag=ref.slice(10);const version=tag.replace(/^v/,'');if(!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)||version!==require('./package.json').version){throw new Error('Stable release tag must match package.json version')}}"
+
       - name: Install dependencies
         run: npm ci
 
@@ -46,6 +54,27 @@ jobs:
 
       - name: Package executable
         run: npm run ${{ matrix.script }}
+
+      - name: Generate pinned Windows update metadata
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $asset = Get-Item .\dist-bin\siphon-win-x64.exe
+          $sha256 = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $version = (Get-Content .\package.json -Raw | ConvertFrom-Json).version
+          $manifest = [ordered]@{ protocolVersion = 1; version = $version; assetName = $asset.Name; sizeBytes = $asset.Length; sha256 = $sha256 }
+          $manifest | ConvertTo-Json | Set-Content .\dist-bin\siphon-win-x64.update.json -Encoding utf8
+          "$sha256  $($asset.Name)" | Set-Content .\dist-bin\SHA256SUMS -Encoding utf8
+
+      - name: Upload Windows update metadata
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-update-metadata
+          path: |
+            dist-bin/siphon-win-x64.update.json
+            dist-bin/SHA256SUMS
+          if-no-files-found: error
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
@@ -59,4 +88,13 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: dist-bin/${{ matrix.artifact }}
+          fail_on_unmatched_files: true
+
+      - name: Attach Windows update metadata to release
+        if: matrix.os == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist-bin/siphon-win-x64.update.json
+            dist-bin/SHA256SUMS
           fail_on_unmatched_files: true

@@ -6,6 +6,22 @@ afterEach(() => {
 })
 
 describe('update WebApi network boundary', () => {
+  it.each([false, true])(
+    'preserves explicit install acceptance %s without retrying',
+    async (accepted) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({ error: 'Update acceptance response', accepted }, { status: 503 })
+      )
+      vi.stubGlobal('fetch', fetch)
+      await expect(createWebApi().installUpdate({ offerId: 'offer' })).rejects.toMatchObject({
+        message: 'Update acceptance response',
+        status: 503,
+        accepted
+      })
+      expect(fetch).toHaveBeenCalledOnce()
+    }
+  )
+
   it('sends bounded same-origin JSON requests with no caller-controlled install fields', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}))
     vi.stubGlobal('fetch', fetch)

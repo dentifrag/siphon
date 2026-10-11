@@ -43,6 +43,89 @@ async function confirmInstall(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('in-app Updates', () => {
+  it('clears proven pre-acceptance rejection and permits another explicit confirmation', async () => {
+    const user = userEvent.setup()
+    const api = installMockWebApi({
+      getUpdateStatus: vi.fn(async () => checked),
+      installUpdate: vi.fn(async () => {
+        throw Object.assign(new Error('Could not persist or accept this update.'), {
+          status: 503,
+          accepted: false
+        })
+      })
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    await open(user)
+    await confirmInstall(user)
+    expect(await screen.findByText('Could not persist or accept this update.')).toBeInTheDocument()
+    await waitFor(() => expect(localStorage.getItem(markerKey)).toBeNull())
+    expect(screen.getByRole('button', { name: /^install update$/i })).toBeEnabled()
+    expect(api.installUpdate).toHaveBeenCalledOnce()
+    await user.click(screen.getByRole('button', { name: /^install update$/i }))
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toHaveFocus()
+    expect(api.installUpdate).toHaveBeenCalledOnce()
+  })
+
+  it.each([true, undefined])(
+    'retains a 503 with acceptance %s despite idle status and does not resubmit',
+    async (accepted) => {
+      const user = userEvent.setup()
+      const api = installMockWebApi({
+        getUpdateStatus: vi.fn(async () => checked),
+        installUpdate: vi.fn(async () => {
+          throw Object.assign(new Error('Scheduler response lost'), { status: 503, accepted })
+        })
+      })
+      renderWithProviders(<App canChangePassword={false} />)
+      await open(user)
+      await confirmInstall(user)
+      await waitFor(() => expect(api.getUpdateStatus).toHaveBeenCalledTimes(2))
+      expect(localStorage.getItem(markerKey)).not.toBeNull()
+      expect(screen.getByRole('button', { name: /^install update$/i })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /check for updates/i })).toBeDisabled()
+      expect(api.installUpdate).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('moves keyboard focus into confirmation and returns it on cancel and accepted submission', async () => {
+    const user = userEvent.setup()
+    let finish!: (result: UpdateJob) => void
+    const installing = new Promise<UpdateJob>((resolve) => {
+      finish = resolve
+    })
+    let status = checked
+    const api = installMockWebApi({
+      getUpdateStatus: vi.fn(async () => status),
+      installUpdate: vi.fn(() => installing)
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    await open(user)
+    const installButton = screen.getByRole('button', { name: /^install update$/i })
+    installButton.focus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('button', { name: /^install update$/i })).toHaveFocus()
+    expect(api.installUpdate).not.toHaveBeenCalled()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: /install and restart/i })).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('heading', { name: /confirm installation/i })).toHaveFocus()
+    status = {
+      ...checked,
+      job: { ...job, phase: 'accepted' },
+      maintenance: true,
+      canInstall: false
+    }
+    finish(status.job!)
+    await waitFor(() =>
+      expect(screen.getByText(/Updates replace only Siphon's executable/)).toHaveFocus()
+    )
+    expect(api.installUpdate).toHaveBeenCalledOnce()
+  })
+
   it('shows installed/latest versions without an automatic check and explains unsupported installs', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi()

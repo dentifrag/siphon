@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdateJob } from '../src/shared/api'
@@ -30,6 +30,45 @@ async function journal(job: UpdateJob) {
 }
 
 describe('update coordinator', () => {
+  it.each(['inspection', 'persistence'])(
+    'proves a pre-acceptance %s rejection without reserving maintenance',
+    async (failure) => {
+      let taskIdle = true
+      const { updates, schedule } = await coordinatorFixture(directory.dir, {
+        inspect: async () => ({ capability: { supported: true }, taskIdle })
+      })
+      const offer = (await updates.check()).offer!
+      if (failure === 'inspection') taskIdle = false
+      else await mkdir(join(directory.dir, 'request.json'))
+      await expect(updates.install(offer.id)).rejects.toMatchObject({
+        statusCode: 503,
+        accepted: false
+      })
+      expect(schedule).not.toHaveBeenCalled()
+      expect(await updates.status()).toMatchObject({ maintenance: false, job: null })
+      expect(updates.admitTransfer()()).toBeUndefined()
+    }
+  )
+
+  it('reports persisted scheduling uncertainty as accepted rather than a proven rejection', async () => {
+    const { updates } = await coordinatorFixture(directory.dir, {
+      schedule: async () => {
+        throw new Error('Scheduler response lost')
+      }
+    })
+    const offer = (await updates.check()).offer!
+    await expect(updates.install(offer.id)).rejects.toMatchObject({
+      statusCode: 503,
+      accepted: true
+    })
+    expect(await updates.status()).toMatchObject({
+      maintenance: true,
+      canInstall: false,
+      job: { offerId: offer.id, phase: 'accepted' }
+    })
+    expect(() => updates.admitTransfer()).toThrow()
+  })
+
   it('status is local, checks are explicit and bounded, and network failure revokes the offer', async () => {
     const { updates, fetch } = await coordinatorFixture(directory.dir)
     expect(await updates.status()).toMatchObject({

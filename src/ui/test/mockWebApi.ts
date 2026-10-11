@@ -1,6 +1,7 @@
 import { vi } from 'vitest'
 import type { WebApi, AuthStatus } from '../../web/api'
 import type { RemoteStat } from '@shared/types'
+import type { UpdateStatus } from '@shared/api'
 
 export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
   const base: WebApi = {
@@ -15,7 +16,7 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
     setup: vi.fn(async () => undefined),
     changePassword: vi.fn(async () => undefined),
     serverConfig: vi.fn(async () => ({ downloadDir: '', roots: [] })),
-    getUpdateStatus: vi.fn(async () => ({
+    getUpdateStatus: vi.fn(async (): Promise<UpdateStatus> => ({
       currentVersion: '1.0.2',
       capability: {
         supported: false as const,
@@ -32,6 +33,9 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
       throw new Error('Updates are not supported in this installation.')
     }),
     installUpdate: vi.fn(async () => {
+      throw new Error('Updates are not supported in this installation.')
+    }),
+    retryUpdateTask: vi.fn(async () => {
       throw new Error('Updates are not supported in this installation.')
     }),
     getVersionHealth: vi.fn(async () => ({ app: 'siphon' as const, version: '1.0.2' })),

@@ -9,12 +9,14 @@ import { registerDownloadRoutes } from './routes/downloads'
 import { registerUploadRoutes } from './routes/uploads'
 import { registerProfileRoutes } from './routes/profiles'
 import { registerStatic } from './routes/static'
+import { registerUpdateRoutes } from './routes/updates'
 
 export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   await app.register(fastifyCookie)
   app.addHook('preHandler', authGuard(ctx.auth))
   registerAuthRoutes(app, ctx)
   registerSystemRoutes(app, ctx)
+  registerUpdateRoutes(app, ctx)
   registerConnectionRoutes(app, ctx)
   registerBrowseRoutes(app, ctx)
   registerDownloadRoutes(app, ctx)

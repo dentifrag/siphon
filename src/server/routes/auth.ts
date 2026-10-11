@@ -27,7 +27,7 @@ export function sessionCookieName(secure: boolean): string {
   return secure ? SECURE_COOKIE : STANDARD_COOKIE
 }
 
-function readSessionIds(req: FastifyRequest): string[] {
+export function readSessionIds(req: FastifyRequest): string[] {
   const values = [req.cookies?.[SECURE_COOKIE], req.cookies?.[STANDARD_COOKIE]].filter(
     (value): value is string => Boolean(value)
   )
@@ -47,6 +47,7 @@ export function authGuard(auth: AuthService) {
   return (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void => {
     const path = apiPath(req.url)
     if (!path.startsWith('/api/')) return done()
+    if (req.method === 'GET' && path === '/api/health') return done()
 
     const state = auth.state
     if (state === 'setup') {

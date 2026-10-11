@@ -9,6 +9,8 @@ import { createServices } from './services'
 import { ConnectionSession } from './session'
 import { registerRoutes } from './app'
 import { RcloneUnavailableError } from './rclone/binary'
+import { createInstalledUpdates } from './updates'
+import { currentVersion } from './version'
 
 function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1'
@@ -138,7 +140,13 @@ async function main(): Promise<void> {
   const execDir = dirname(process.execPath)
   const services = await createServices(config, execDir, (message) => app.log.info(message))
   const session = new ConnectionSession(services)
-  await registerRoutes(app, { config, auth, limiter, services, session, execDir })
+  const updates = await createInstalledUpdates({
+    currentVersion,
+    host: config.host,
+    port: config.port,
+    listTransfers: () => services.manager.list()
+  })
+  await registerRoutes(app, { config, auth, limiter, services, session, execDir, updates })
 
   const shutdown = async (): Promise<void> => {
     await services.supervisor.stop().catch(() => undefined)

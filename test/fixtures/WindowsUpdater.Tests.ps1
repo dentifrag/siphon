@@ -132,6 +132,8 @@ Assert-Equal $script:state.liveVersion $request.toVersion 'Healthy update did no
 Assert-True ($script:state.calls.IndexOf('backup') -lt $script:state.calls.IndexOf('replace')) 'Replacement ran before backup'
 Assert-True ($script:state.calls.IndexOf('journal:replacing') -ge 0) 'Replacement intent was not journaled'
 Assert-True ($script:state.calls.IndexOf('journal:replacing') -lt $script:state.calls.IndexOf('replace')) 'Replacement intent was journaled too late'
+$replacementJournal = $script:state.journals | Where-Object { $_.phase -eq 'replacing' } | Select-Object -First 1
+Assert-True $replacementJournal.replacementIntentReached 'Replacement journal did not persist destructive-step provenance'
 Assert-True ($script:state.calls.IndexOf('health:1.10.0') -lt $script:state.calls.IndexOf('remove-backup')) 'Backup removed before version health'
 Assert-True $script:state.calls.Contains('unlock') 'Healthy update leaked the worker lock'
 
@@ -189,4 +191,103 @@ try { $null = Run-Core $operations } catch { $rejected = $true }
 Assert-True $rejected 'Missing injected operations did not fail closed'
 Assert-Equal $script:state.calls.Count 0 'Missing injected operations fell back to real operations or started work'
 
-Write-Output 'PASS: 8 safe updater scenarios'
+$operations = New-Fixture
+$normalStop = $operations.StopService
+$operations.StopService = {
+    param($Config)
+    $script:state.calls.Add('stop')
+    $script:state.running = $false
+    throw 'stop obstruction'
+}
+$result = Run-Core $operations
+Assert-Equal $result.phase 'rollback-failed' 'Pre-backup stop obstruction did not persist failed recovery'
+Assert-Equal $script:state.journal.replacementIntentReached $false 'Pre-backup recovery lost untouched-executable provenance'
+Assert-True (-not $script:state.calls.Contains('backup')) 'Stop obstruction reached backup'
+Assert-True (-not $script:state.calls.Contains('replace')) 'Stop obstruction reached replacement'
+$script:state.calls.Clear()
+$operations.StopService = $normalStop
+$result = Run-Core $operations
+Assert-Equal $result.phase 'rolled-back' 'Retry after pre-backup obstruction did not recover'
+Assert-Equal $result.serviceHealth 'healthy' 'Retry skipped old-version health'
+Assert-True $script:state.running 'Retry did not restart the untouched executable'
+Assert-True $script:state.calls.Contains('start') 'Retry refused to restart without a backup'
+foreach ($forbidden in @('download', 'backup', 'replace', 'restore')) {
+    Assert-True (-not $script:state.calls.Contains($forbidden)) "Pre-backup recovery called $forbidden"
+}
+
+foreach ($phase in @('stopping', 'backing-up')) {
+    $operations = New-Fixture
+    $normalStop = $operations.StopService
+    $script:state.running = $false
+    $script:state.journal = @{
+        id = $request.id
+        fromVersion = $request.fromVersion
+        toVersion = $request.toVersion
+        phase = $phase
+        serviceHealth = 'unknown'
+        startedAt = '2026-10-10T00:00:00Z'
+        updatedAt = '2026-10-10T00:00:00Z'
+    }
+    $operations.StopService = {
+        param($Config)
+        $script:state.calls.Add('stop')
+        throw 'interrupted recovery stop obstruction'
+    }
+    $result = Run-Core $operations
+    Assert-Equal $result.phase 'rollback-failed' "$phase recovery obstruction was not persisted"
+    Assert-Equal $script:state.journal.replacementIntentReached $false "$phase recovery did not reconstruct pre-replacement provenance"
+    $script:state.calls.Clear()
+    $operations.StopService = $normalStop
+    $result = Run-Core $operations
+    Assert-Equal $result.phase 'rolled-back' "$phase recovery retry incorrectly required a backup"
+    Assert-Equal $result.serviceHealth 'healthy' "$phase recovery did not verify old-version health"
+    Assert-True $script:state.running "$phase retry left the old executable stopped"
+    foreach ($forbidden in @('download', 'backup', 'replace', 'restore')) {
+        Assert-True (-not $script:state.calls.Contains($forbidden)) "$phase recovery called $forbidden"
+    }
+}
+
+$operations = New-Fixture
+$script:state.running = $false
+$script:state.journal = @{
+    id = $request.id
+    fromVersion = $request.fromVersion
+    toVersion = $request.toVersion
+    phase = 'rolling-back'
+    replacementIntentReached = $false
+    serviceHealth = 'unknown'
+    startedAt = '2026-10-10T00:00:00Z'
+    updatedAt = '2026-10-10T00:00:00Z'
+} | ConvertTo-Json | ConvertFrom-Json
+$result = Run-Core $operations
+Assert-Equal $result.phase 'rolled-back' 'Interrupted pre-backup rollback incorrectly required a backup'
+Assert-Equal $result.serviceHealth 'healthy' 'Interrupted pre-backup rollback skipped exact health'
+Assert-True $script:state.calls.Contains('start') 'Interrupted pre-backup rollback did not restart'
+Assert-True (-not $script:state.calls.Contains('restore')) 'Interrupted pre-backup rollback attempted a nonexistent backup'
+
+$operations = New-Fixture
+$script:state.liveVersion = $request.toVersion
+$script:state.running = $false
+$script:state.journal = @{
+    id = $request.id
+    fromVersion = $request.fromVersion
+    toVersion = $request.toVersion
+    phase = 'rollback-failed'
+    replacementIntentReached = $true
+    serviceHealth = 'unhealthy'
+    startedAt = '2026-10-10T00:00:00Z'
+    updatedAt = '2026-10-10T00:00:00Z'
+}
+$result = Run-Core $operations
+Assert-Equal $result.phase 'rollback-failed' 'Post-replacement retry accepted a missing backup'
+Assert-True (-not $script:state.calls.Contains('start')) 'Post-replacement retry started an un-restored executable'
+Assert-True (-not $script:state.calls.Contains('remove-backup')) 'Post-replacement retry discarded recovery state'
+Assert-Equal $script:state.journal.replacementIntentReached $true 'Post-replacement provenance was cleared'
+
+$script:state.journal.PSObject.Properties.Remove('replacementIntentReached')
+$script:state.calls.Clear()
+$result = Run-Core $operations
+Assert-Equal $result.phase 'rollback-failed' 'Legacy ambiguous rollback retry accepted a missing backup'
+Assert-True (-not $script:state.calls.Contains('start')) 'Legacy ambiguous rollback retry started an un-restored executable'
+
+Write-Output 'PASS: 14 safe updater scenarios'

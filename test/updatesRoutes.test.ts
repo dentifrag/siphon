@@ -89,6 +89,27 @@ async function server(mode: 'password' | 'open' | 'setup' = 'password') {
 }
 
 describe('update HTTP boundary', () => {
+  it.each([false, true])(
+    'returns authoritative install acceptance %s on a 503',
+    async (accepted) => {
+      const { app, headers, updates, schedule, stateDir } = await server()
+      const offer = (await updates.check()).offer!
+      if (accepted) schedule.mockRejectedValueOnce(new Error('Scheduler response lost'))
+      else await mkdir(join(stateDir, 'request.json'))
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/updates/install',
+        headers,
+        payload: { offerId: offer.id }
+      })
+      expect(response.statusCode).toBe(503)
+      expect(response.json()).toMatchObject({ accepted, error: expect.any(String) })
+      expect((await updates.status()).maintenance).toBe(accepted)
+      if (accepted) expect(schedule).toHaveBeenCalledOnce()
+      else expect(schedule).not.toHaveBeenCalled()
+    }
+  )
+
   it.each(['setup', 'password', 'open'] as const)(
     'exposes only exact GET version health publicly in %s mode',
     async (mode) => {
