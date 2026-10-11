@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerDownloadRoutes } from '../src/server/routes/downloads'
@@ -6,6 +7,7 @@ import {
   RcloneDownloadManager,
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
+import { validateDownloadDestination } from '../src/server/localFs'
 import type { RcloneClient } from '../src/server/rclone/client'
 import type { RouteContext } from '../src/server/context'
 import type { ServerConfig } from '../src/server/config'
@@ -77,7 +79,7 @@ function makeClient(overrides: Partial<RcloneClient> = {}) {
   return { client: client as unknown as RcloneClient, jobStatuses }
 }
 
-function buildApp(client: RcloneClient, manager: RcloneDownloadManager) {
+function buildApp(client: RcloneClient, manager: RcloneDownloadManager, session?: unknown) {
   const app = Fastify()
   const config = {
     roots: [],
@@ -90,11 +92,30 @@ function buildApp(client: RcloneClient, manager: RcloneDownloadManager) {
     auth: {} as unknown,
     limiter: {} as unknown,
     services: { supervisor: {} as unknown, client, manager, remotes: {} as unknown } as Services,
-    session: {} as unknown,
+    session: (session ?? {}) as unknown,
     execDir: ''
   } as unknown as RouteContext
   registerDownloadRoutes(app, ctx)
   return app
+}
+
+// Minimal stand-in for ConnectionSession.bind/acquireJobRemote, per the real route's needs --
+// not the full session class, just the two methods /api/download actually calls.
+function makeStubSession(revision = 'rev-1') {
+  let counter = 0
+  return {
+    bind: vi.fn(() => ({ remoteName: 'conn', revision, fs: 'conn:' })),
+    acquireJobRemote: vi.fn(async (prefix: string) => {
+      counter += 1
+      const remoteName = `${prefix}job${counter}`
+      return {
+        remoteName,
+        revision,
+        fs: `${remoteName}:`,
+        release: vi.fn().mockResolvedValue(undefined)
+      }
+    })
+  }
 }
 
 async function failOrigin(
@@ -333,4 +354,132 @@ describe('POST /api/download/:id/retry', () => {
       await app.close()
     }
   })
+})
+
+describe('POST /api/download canonical destination identity', () => {
+  // This flow has no retry-watchdog timers to drive; real timers avoid any interaction
+  // between fake timers and Fastify's own inject() internals.
+  beforeEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Settles the one active transfer (and synchronously drops any still-queued one) so the
+  // manager's real setInterval ticker stops before the test ends, instead of leaking a live
+  // timer into later tests.
+  async function settleAndStopTicker(
+    manager: RcloneDownloadManager,
+    jobStatuses: Map<number, { finished: boolean; success: boolean; error: string }>
+  ): Promise<void> {
+    jobStatuses.set(1, { finished: true, success: false, error: '' })
+    manager.cancelAll()
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS + 100))
+  }
+
+  it('revalidates the canonical sink via the real validateDownloadDestination callback at dispatch time, not only during initial enqueue, when the default directory and an explicit alias collide', async () => {
+    const { client, jobStatuses } = makeClient()
+    // Only resolvePath is mocked at the boundary; validateDownloadDestination itself is the
+    // real production function, and it is wired into the manager's constructor exactly like
+    // src/server/services.ts does, so runJob()'s mid-flight revalidation genuinely executes.
+    const validateDestination = vi.fn((input: RcloneEnqueueInput) =>
+      validateDownloadDestination({ roots: [], confined: false }, input, resolvePathMock)
+    )
+    const manager = new RcloneDownloadManager(client, validateDestination)
+    manager.setMaxConcurrent(2)
+    const session = makeStubSession()
+    const app = buildApp(client, manager, session)
+    try {
+      resolvePathMock.mockImplementation(async (_scope: unknown, candidate: string) => {
+        if (candidate === '/out' || candidate === '/out/alias') return '/canonical/out'
+        return candidate
+      })
+
+      // Omits downloadDir entirely so the route genuinely falls through to config.defaultDir
+      // ('/out'), rather than re-asserting an explicit '/out' that never exercises the default.
+      const first = await app.inject({
+        method: 'POST',
+        url: '/api/download',
+        payload: { remotePath: '/file.bin', segments: 4 }
+      })
+      expect(first.statusCode).toBe(200)
+
+      const second = await app.inject({
+        method: 'POST',
+        url: '/api/download',
+        payload: { remotePath: '/file.bin', downloadDir: '/out/alias', segments: 4 }
+      })
+      expect(second.statusCode).toBe(200)
+
+      await flushMicrotasks()
+      const all = manager.list()
+      expect(all.filter((t) => t.status === 'downloading')).toHaveLength(1)
+      const queued = all.filter((t) => t.status === 'queued')
+      expect(queued).toHaveLength(1)
+      expect(typeof queued[0].waitingReason).toBe('string')
+      expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+
+      // Canonicalization genuinely ran for the SINK path of both the default and the aliased
+      // request (not just the route's own directory-level resolution).
+      const sinkCandidate = join('/canonical/out', 'file.bin')
+      expect(resolvePathMock.mock.calls.some(([, candidate]) => candidate === sinkCandidate)).toBe(
+        true
+      )
+      expect(resolvePathMock).toHaveBeenCalledWith(expect.anything(), '/out')
+      expect(resolvePathMock).toHaveBeenCalledWith(expect.anything(), '/out/alias')
+
+      // Proves dispatch-time revalidation actually ran: validateDestination is only invoked
+      // from inside runJob() once a transfer starts, so this is distinct from -- and could not
+      // be satisfied by -- the initial /api/download route handler's own resolvePath calls.
+      expect(validateDestination).toHaveBeenCalledTimes(1)
+
+      await settleAndStopTicker(manager, jobStatuses)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it.skipIf(process.platform !== 'win32')(
+    'treats two case-differing but otherwise identical resolved paths as the same destination on Windows, via the real validateDownloadDestination callback',
+    async () => {
+      const { client, jobStatuses } = makeClient()
+      const validateDestination = vi.fn((input: RcloneEnqueueInput) =>
+        validateDownloadDestination({ roots: [], confined: false }, input, resolvePathMock)
+      )
+      const manager = new RcloneDownloadManager(client, validateDestination)
+      manager.setMaxConcurrent(2)
+      const session = makeStubSession()
+      const app = buildApp(client, manager, session)
+      try {
+        resolvePathMock.mockImplementation(async (_scope: unknown, candidate: string) => {
+          if (candidate === '/out') return 'C:\\data\\Out'
+          if (candidate === '/OUT') return 'C:\\DATA\\OUT'
+          return candidate
+        })
+
+        const first = await app.inject({
+          method: 'POST',
+          url: '/api/download',
+          payload: { remotePath: '/file.bin', downloadDir: '/out', segments: 4 }
+        })
+        expect(first.statusCode).toBe(200)
+
+        const second = await app.inject({
+          method: 'POST',
+          url: '/api/download',
+          payload: { remotePath: '/file.bin', downloadDir: '/OUT', segments: 4 }
+        })
+        expect(second.statusCode).toBe(200)
+
+        await flushMicrotasks()
+        const all = manager.list()
+        expect(all.filter((t) => t.status === 'downloading')).toHaveLength(1)
+        expect(all.filter((t) => t.status === 'queued')).toHaveLength(1)
+        expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+        expect(validateDestination).toHaveBeenCalledTimes(1)
+
+        await settleAndStopTicker(manager, jobStatuses)
+      } finally {
+        await app.close()
+      }
+    }
+  )
 })

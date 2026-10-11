@@ -208,4 +208,70 @@ describe('App download retry', () => {
     expect(screen.getByLabelText('a.txt 77%')).toBeInTheDocument()
     expect(screen.queryByLabelText('a.txt 0%')).not.toBeInTheDocument()
   })
+
+  it.each([
+    {
+      name: 'the origin row is removed via an SSE remove event',
+      trigger: (emit: (event: DownloadEvent) => void) => emit({ type: 'remove', id: 't1' }),
+      assertFinal: () => {
+        expect(screen.getByText('No transfers yet.')).toBeInTheDocument()
+      }
+    },
+    {
+      name: 'a reset SSE event arrives without the origin',
+      trigger: (emit: (event: DownloadEvent) => void) => emit({ type: 'reset', transfers: [] }),
+      assertFinal: () => {
+        expect(screen.getByText('No transfers yet.')).toBeInTheDocument()
+      }
+    },
+    {
+      name: 'the successor was already delivered via SSE and then removed',
+      trigger: (emit: (event: DownloadEvent) => void) => {
+        emit({
+          type: 'update',
+          transfer: makeTransfer({
+            id: 't2',
+            retryOf: 't1',
+            status: 'downloading',
+            transferred: 33,
+            retryable: undefined,
+            error: undefined
+          })
+        })
+        emit({ type: 'remove', id: 't2' })
+      },
+      assertFinal: () => {
+        // The origin itself was never removed, so it must still be visible, unaffected.
+        expect(screen.getByLabelText('a.txt 40%')).toBeInTheDocument()
+      }
+    }
+  ])(
+    'does not resurrect the retry successor from a late HTTP response once $name',
+    async ({ trigger, assertFinal }) => {
+      const gate = deferred<TransferProgress>()
+      const retryDownload = vi.fn(() => gate.promise)
+      const { row, emit } = await renderWithTransfer(makeTransfer(), { retryDownload })
+
+      await userEvent.setup().click(within(row).getByRole('button', { name: /retry/i }))
+
+      trigger(emit)
+
+      gate.resolve(
+        makeTransfer({
+          id: 't2',
+          retryOf: 't1',
+          status: 'downloading',
+          transferred: 33,
+          retryable: undefined,
+          error: undefined
+        })
+      )
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(screen.queryByLabelText('a.txt 33%')).not.toBeInTheDocument()
+      assertFinal()
+    }
+  )
 })
