@@ -81,6 +81,66 @@ export interface LocalDirListing {
   entries: LocalEntry[]
 }
 
+export type UpdateCapability =
+  | { supported: true }
+  | {
+      supported: false
+      reason: 'not-windows-service' | 'setup-required' | 'incompatible-helper' | 'unsafe-install'
+      message: string
+    }
+
+export interface UpdateOffer {
+  id: string
+  version: string
+  sizeBytes: number
+  protocolVersion: 1
+}
+
+export type UpdatePhase =
+  | 'accepted'
+  | 'downloading'
+  | 'verifying-download'
+  | 'stopping'
+  | 'backing-up'
+  | 'replacing'
+  | 'starting'
+  | 'verifying-new'
+  | 'rolling-back'
+  | 'verifying-old'
+  | 'succeeded'
+  | 'failed'
+  | 'rolled-back'
+  | 'rollback-failed'
+
+export interface UpdateJob {
+  id: string
+  offerId?: string
+  fromVersion: string
+  toVersion: string
+  phase: UpdatePhase
+  startedAt: string
+  updatedAt: string
+  serviceHealth: 'healthy' | 'unhealthy' | 'unknown'
+  error?: string
+}
+
+export interface UpdateStatus {
+  currentVersion: string
+  capability: UpdateCapability
+  check: { state: 'idle' | 'checked' | 'error'; error?: string }
+  offer: UpdateOffer | null
+  job: UpdateJob | null
+  maintenance: boolean
+  canInstall: boolean
+  canCheck?: boolean
+  blockedReason?: string
+}
+
+export interface VersionHealth {
+  app: 'siphon'
+  version: string
+}
+
 export interface SftpApi {
   connect(config: ConnectionConfig, profileId?: string): Promise<ConnectResult>
   disconnect(): Promise<void>

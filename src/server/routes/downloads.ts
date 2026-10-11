@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { dirname, join, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
@@ -19,6 +19,7 @@ export interface ExpandDownloadInput {
   targetDir: string
   segments: number
   jobRemote: string
+  scope?: FsScope
 }
 
 export async function expandDownload(
@@ -26,7 +27,21 @@ export async function expandDownload(
   manager: RcloneDownloadManager,
   input: ExpandDownloadInput
 ): Promise<TransferProgress[]> {
-  const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote } = input
+  const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote, scope } = input
+
+  async function allowed(path: string): Promise<void> {
+    if (!scope) return
+    const canonical = await resolvePath(scope, path)
+    const sameDestination =
+      canonical &&
+      (process.platform === 'win32'
+        ? canonical.toLowerCase() === resolve(path).toLowerCase()
+        : canonical === resolve(path))
+    if (!canonical || (scope.excludedPaths?.length && !sameDestination)) {
+      await client.deleteRemote(jobRemote).catch(() => undefined)
+      throw httpError(400, 'That download destination is protected, symlinked, or not accessible.')
+    }
+  }
 
   if (item.IsDir) {
     const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
@@ -66,6 +81,8 @@ export async function expandDownload(
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw new Error('Recursive listing returned an unsafe file path.')
     }
+    await allowed(destinationRoot)
+    for (const { localPath } of plannedEntries) await allowed(localPath)
 
     const directories = new Set([
       destinationRoot,
@@ -97,6 +114,7 @@ export async function expandDownload(
       })
   }
 
+  await allowed(join(targetDir, wrappingName))
   return [
     manager.enqueue({
       srcFs: `${jobRemote}:`,
@@ -114,38 +132,48 @@ export async function expandDownload(
 
 export function registerDownloadRoutes(
   app: FastifyInstance,
-  { config, services, session }: RouteContext
+  { config, services, session, updates }: RouteContext
 ): void {
   const { client, manager } = services
-  const scope: FsScope = { roots: config.roots, confined: config.confined }
+  const scope: FsScope = {
+    roots: config.roots,
+    confined: config.confined,
+    excludedPaths: updates?.protectedPaths
+  }
 
   app.post('/api/download', async (req) => {
-    const input = req.body as DownloadEnqueueInput
-    const srcRemote = uiToRemotePath(input.remotePath)
-    const item = await client.stat(session.remoteFs(), srcRemote)
-    if (!item) throw httpError(404, 'File not found.')
+    const release = updates?.admitTransfer()
+    try {
+      const input = req.body as DownloadEnqueueInput
+      const srcRemote = uiToRemotePath(input.remotePath)
+      const item = await client.stat(session.remoteFs(), srcRemote)
+      if (!item) throw httpError(404, 'File not found.')
 
-    const requested = input.downloadDir?.trim()
-    let targetDir = config.defaultDir
-    if (requested) {
-      const resolved = await resolvePath(scope, requested)
-      if (!resolved) throw httpError(400, 'That download folder is not accessible.')
-      targetDir = resolved
+      const requested = input.downloadDir?.trim()
+      let targetDir = config.defaultDir
+      {
+        const resolved = await resolvePath(scope, requested || config.defaultDir)
+        if (!resolved) throw httpError(400, 'That download folder is not accessible.')
+        targetDir = resolved
+      }
+      const baseName = safeBaseName(input.remotePath)
+
+      const jobRemote = `_dl-${randomUUID()}`
+      await client.cloneRemote(session.remoteName(), jobRemote)
+
+      return await expandDownload(client, manager, {
+        item,
+        remotePath: input.remotePath,
+        dirPath: srcRemote,
+        wrappingName: baseName,
+        targetDir,
+        segments: input.segments,
+        jobRemote,
+        scope
+      })
+    } finally {
+      release?.()
     }
-    const baseName = safeBaseName(input.remotePath)
-
-    const jobRemote = `_dl-${randomUUID()}`
-    await client.cloneRemote(session.remoteName(), jobRemote)
-
-    return expandDownload(client, manager, {
-      item,
-      remotePath: input.remotePath,
-      dirPath: srcRemote,
-      wrappingName: baseName,
-      targetDir,
-      segments: input.segments,
-      jobRemote
-    })
   })
 
   app.post('/api/download/cancel', async (req) => {

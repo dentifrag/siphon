@@ -3,6 +3,7 @@ import type { AuthService } from './auth'
 import type { LoginLimiter } from './loginLimiter'
 import type { Services } from './services'
 import type { ConnectionSession } from './session'
+import type { UpdateCoordinator } from './updates'
 
 export interface RouteContext {
   config: ServerConfig
@@ -11,4 +12,5 @@ export interface RouteContext {
   services: Services
   session: ConnectionSession
   execDir: string
+  updates?: UpdateCoordinator
 }

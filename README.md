@@ -68,7 +68,8 @@ displays the stream limit, not a measured active-stream count.
 ## First-run setup
 
 On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
-Only setup APIs are available until setup is completed.
+Operational APIs are blocked until setup is completed. The minimal public
+`GET /api/health` probe returns only the app name and bundled version.
 
 Open the app in a browser and choose one of these:
 
@@ -101,6 +102,38 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
   For a first-time build of the exe, add `-Build`. See [`windows-service/`](windows-service/)
   for details.
 - **Linux:** point a systemd unit at the binary with `Restart=always`.
+
+## In-app Windows service updates
+
+The **Updates** header button can check and install the latest published stable release
+for an existing Windows service. Checking is explicit; opening the dialog does not contact
+GitHub or install anything. Docker, development processes, standalone launches, and other
+operating systems are not updated.
+
+First, complete the [one-time administrator setup](windows-service/README.md#update).
+An existing executable is **not** rebuilt by the installer's `-Build` switch. Rebuild with
+`npm run package:build` and `npm run package:win`, then rerun the service installer, or run
+one last `update.ps1` followed by the service installer.
+
+Sign in with a password, finish or cancel queued/running transfers, choose **Check for
+updates**, then confirm **Install and restart**. A protected independent SYSTEM task
+downloads the pinned release while Siphon serves, verifies size and SHA-256, replaces only
+the existing executable, restarts the service, and verifies its exact version. If startup
+fails, it restores and verifies the old executable. Data, settings, and rclone are preserved.
+
+The browser reconnects without resubmitting an install. You may need to sign in again
+after the service restarts. Closing the dialog does not cancel an update. A reconnect
+deadline reports an unknown outcome, not a proven failure; **Retry status** resumes reading
+the result. **Retry accepted task** retries only the already-pinned request after the helper
+verifies its task is idle. Failed recovery keeps transfers blocked and preserves the backup
+for administrator recovery.
+
+Updates require the Windows protocol-v1 manifest published alongside future releases.
+Numeric and `v`-prefixed stable tags are supported; prereleases and snapshot tags are not.
+The existing `1.0.2` release can report current without a manifest, but a newer release
+without compatible metadata cannot be installed. A future incompatible helper protocol
+requires another explicit administrator setup. The installation directory is excluded from
+the app's folder and transfer APIs.
 
 ## Authentication and security
 
