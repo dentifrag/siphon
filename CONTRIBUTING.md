@@ -8,9 +8,10 @@ when you open a pull request.
 
 - **Node.js `^22.22.2`, `^24.15.0`, or `>=26.0.0`** (required by the jsdom and Vite dev tooling;
   the project builds and packages against Node 22).
-- **rclone** on your `PATH`, or point Siphon at a binary with the `RCLONE_PATH` environment
-  variable. rclone does the actual transfer work; Siphon is the front end.
-- An SFTP server to test against (any box you can reach over SSH works).
+- **rclone** is reused from your `PATH` or `RCLONE_PATH` binary override, or downloaded
+  automatically into the dev sandbox. The first download requires internet access and uses
+  PowerShell to extract on Windows or `unzip` on macOS/Linux.
+- No Docker or separate SSH/SFTP server is required for local development.
 
 ## Getting started
 
@@ -20,24 +21,73 @@ cd siphon
 npm install
 ```
 
-Run the API and the UI in two terminals:
+Start the isolated full stack from the checkout or worktree:
 
 ```bash
-npm run web:server   # API on http://localhost:8080 (needs rclone on PATH or RCLONE_PATH)
-npm run web:dev      # UI on http://localhost:5174 with hot reload
+npm run dev
 ```
 
-The dev UI proxies API calls to the server, so open the UI URL in your browser.
+When ready, open **http://127.0.0.1:5174** and finish the normal app setup. The command starts
+the UI with hot reload, the real API with watch reload on `127.0.0.1:8081`, and an rclone SFTP
+server on `127.0.0.1:2022`. Use the local host, port, username, and generated password printed
+in the terminal in the normal SFTP connection form. The SFTP password is separate from the
+app login you choose.
+
+Browse `Sample folder`, download it to exercise nested files, filenames with spaces, and
+empty subfolders, then use the upload picker to send `Upload sample.txt` back to the remote.
+You can also edit files directly under `.siphon-dev/remote` while developing.
+
+Everything persists under `.siphon-dev` in this checkout, including app setup and saved
+connections in `data/`, remote samples in `remote/`, local files in `downloads/`, generated
+credentials in `credentials.json`, and configuration/cache files. Existing samples and
+config files are not overwritten. Production environment overrides are removed except the
+`RCLONE_PATH` binary override, and local data/download paths and loopback listeners are
+enforced. Connecting to a real remote is optional and deliberate; local destinations and
+upload sources stay confined to `.siphon-dev/downloads`.
+
+Press **Ctrl+C** to stop the UI, API, and all owned rclone processes. For a fresh start,
+stop the instance, delete **only `.siphon-dev`** in this checkout, and run `npm run dev` again.
+Normal `data/` and `downloads/` directories are not part of this reset.
+
+### Running concurrent worktrees
+
+The defaults are UI `5174`, API `8081`, and SFTP `2022`. All three must be free and distinct;
+invalid or occupied ports fail before the launcher writes files or starts services.
+Override them in your shell when another worktree is running:
+
+```bash
+DEV_API_PORT=8082 DEV_UI_PORT=5175 DEV_SFTP_PORT=2023 npm run dev
+```
+
+In PowerShell:
+
+```powershell
+$env:DEV_API_PORT = '8082'
+$env:DEV_UI_PORT = '5175'
+$env:DEV_SFTP_PORT = '2023'
+npm run dev
+```
+
+The ready message prints the selected UI URL and SFTP connection settings.
+
+### Manual API/UI commands
+
+You can still run `npm run web:server` and `npm run web:dev` in separate terminals.
+The API defaults to `:8080`; open the UI at `http://127.0.0.1:5174`, which proxies API calls
+to `127.0.0.1:8080`. These commands use normal environment settings and app paths rather
+than the isolated sandbox. They do not start a local sample SFTP server; prefer `npm run dev`
+for local development without touching your live service.
 
 ## Everyday commands
 
 | Command                | What it does                               |
 | ---------------------- | ------------------------------------------ |
+| `npm run dev`          | Run isolated UI, API, and sample SFTP.     |
 | `npm run web:server`   | Run the API with live reload (tsx watch).  |
 | `npm run web:dev`      | Run the UI with Vite hot reload.           |
 | `npm test`             | Run the test suite once (Vitest).          |
 | `npm run test:watch`   | Run tests in watch mode.                   |
-| `npm run typecheck`    | Type-check the server and web projects.    |
+| `npm run typecheck`    | Type-check server, dev scripts, and web.   |
 | `npm run lint`         | Lint with oxlint.                          |
 | `npm run lint:fix`     | Apply oxlint autofixes.                    |
 | `npm run format`       | Format the repo with Prettier.             |

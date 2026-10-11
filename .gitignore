@@ -6,6 +6,7 @@ dist-server
 release
 data
 downloads
+.siphon-dev
 dist-bin
 *.log
 .DS_Store
