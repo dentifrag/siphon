@@ -7,14 +7,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-11
+
 ### Added
 
+- Manual retries for eligible failed downloads, with a new attempt that retains the original
+  connection, destination, and segment request. Downloads to the same destination run one
+  at a time, and uncertain transfer outcomes keep that destination blocked.
+- Adjustable desktop browser columns with pointer, keyboard, and numeric controls, plus
+  filename wrapping and an auto-fill Name column.
 - A password-authenticated Updates dialog for installed Windows services, with explicit
   release checks, confirmed installation, bounded browser reconnect, and persisted progress.
 - One-time administrator setup of a protected independent SYSTEM update task. It verifies
   the pinned release size/digest, restarts and health-checks the exact version, and restores
   the previous executable on failure without changing data, settings, or rclone.
 - Protocol-v1 Windows release manifests and safe injected Windows updater core checks in CI.
+- An isolated localhost development stack with hot reload, a sample SFTP server, and
+  checkout-local data and downloads.
+
+### Changed
+
+- Refreshed runtime dependencies and the development toolchain.
 
 ### Fixed
 
@@ -24,6 +37,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The transfer queue displays the stream limit instead of an inferred active-stream count.
 - The download folder now defaults to the last path selected in the UI instead of resetting to
   the configured default on every load.
+- Queued downloads retain their own segment settings when Concurrent changes.
+- Editing saved-site connection fields requires re-entering the password instead of silently
+  reusing saved credentials.
+- Stale tabs detect shared-connection changes instead of sending new transfers to the wrong
+  server, and stale navigation and queue responses no longer replace newer UI state.
+- Destination paths are preserved without corrupting valid path characters.
 
 ## [1.0.2] - 2026-08-25
 
@@ -68,7 +87,8 @@ The first public release.
 - Docker image with rclone bundled, plus single-file binaries for Windows, macOS, and Linux.
 - Windows service installer for running Siphon at boot.
 
-[Unreleased]: https://github.com/dentifrag/siphon/compare/1.0.2...HEAD
+[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/dentifrag/siphon/compare/1.0.2...v1.0.3
 [1.0.2]: https://github.com/dentifrag/siphon/compare/1.0.1...1.0.2
 [1.0.1]: https://github.com/dentifrag/siphon/compare/v1.0.0...1.0.1
 [1.0.0]: https://github.com/dentifrag/siphon/releases/tag/v1.0.0
