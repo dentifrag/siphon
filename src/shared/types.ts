@@ -40,6 +40,11 @@ export interface TransferProgress {
   status: TransferStatus
   canceling?: boolean
   error?: string
+  retryable?: boolean
+  retryOf?: string
+  retriedAs?: string
+  retryUnavailableReason?: string
+  waitingReason?: string
   direction?: 'download' | 'upload'
   uploadRemoteDir?: string
 }

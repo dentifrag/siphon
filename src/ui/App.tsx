@@ -134,6 +134,9 @@ export default function App({ canChangePassword }: AppProps) {
           onMaxConcurrentChange={transfers.handleMaxConcurrentChange}
           onCancel={transfers.handleCancelDownload}
           onRemove={transfers.handleRemoveDownload}
+          onRetry={transfers.handleRetryDownload}
+          retryingIds={transfers.retryingIds}
+          retryErrors={transfers.retryErrors}
           onClearFinished={transfers.handleClearFinished}
           onClearAll={transfers.handleClearAll}
         />

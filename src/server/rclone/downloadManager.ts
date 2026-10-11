@@ -4,6 +4,8 @@ import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
 import type { RcloneClient } from './client'
 import { multiThreadConfig, planMultiThread } from './chunk'
+import { httpError } from '../http'
+import { downloadDestinationKey } from '../localFs'
 
 export interface RcloneEnqueueInput {
   srcFs: string
@@ -17,6 +19,7 @@ export interface RcloneEnqueueInput {
   cleanupRemote?: string
   direction?: 'download' | 'upload'
   uploadRemoteDir?: string
+  destinationKey?: string
 }
 
 interface InternalTransfer {
@@ -30,6 +33,11 @@ interface InternalTransfer {
   removePending: boolean
   polling: boolean
   samples: SpeedSample[]
+  settled: boolean
+  submission: 'none' | 'pending' | 'known'
+  observedFinish: boolean
+  finishedFailure: boolean
+  retryAdmission: Promise<TransferProgress> | null
 }
 
 export const POLL_INTERVAL_MS = 400
@@ -37,6 +45,9 @@ export const DEFAULT_MAX_CONCURRENT = 3
 export const MIN_MAX_CONCURRENT = 1
 export const MAX_MAX_CONCURRENT = 8
 export const CANCEL_SETTLE_TIMEOUT_MS = 4000
+const TARGET_WAIT_REASON = 'Waiting for another download to this file.'
+const QUARANTINE_REASON =
+  'A previous download may still be writing to this file. Retry is blocked. Restart Siphon only after confirming its old rclone backend has stopped.'
 
 function clampMaxConcurrent(value: number): number {
   const n = Math.floor(value)
@@ -49,10 +60,15 @@ export class RcloneDownloadManager extends EventEmitter {
   private readonly order: string[] = []
   private readonly activeIds = new Set<string>()
   private readonly remoteRefs = new Map<string, number>()
+  private readonly activeByKey = new Map<string, string>()
+  private readonly quarantined = new Set<string>()
   private maxConcurrent = DEFAULT_MAX_CONCURRENT
   private ticker: ReturnType<typeof setInterval> | null = null
 
-  constructor(private readonly client: RcloneClient) {
+  constructor(
+    private readonly client: RcloneClient,
+    private readonly validateDestination?: (input: RcloneEnqueueInput) => Promise<string>
+  ) {
     super()
   }
 
@@ -85,6 +101,22 @@ export class RcloneDownloadManager extends EventEmitter {
   }
 
   enqueue(input: RcloneEnqueueInput): TransferProgress {
+    return this.enqueueBatch([input])[0]
+  }
+
+  enqueueBatch(inputs: RcloneEnqueueInput[]): TransferProgress[] {
+    const created = inputs.map((input) => this.createTransfer(input))
+    for (const t of created) {
+      const key = this.destinationKey(t)
+      if (key && this.quarantined.has(key)) this.failQuarantined(t)
+      else this.emitUpdate(t.progress.id)
+    }
+    this.pump()
+    return created.map((t) => ({ ...t.progress }))
+  }
+
+  private createTransfer(input: RcloneEnqueueInput, retained = false): InternalTransfer {
+    input = Object.freeze({ ...input, direction: input.direction ?? 'download' })
     const id = randomUUID()
     const progress: TransferProgress = {
       id,
@@ -99,7 +131,7 @@ export class RcloneDownloadManager extends EventEmitter {
       direction: input.direction ?? 'download',
       uploadRemoteDir: input.uploadRemoteDir
     }
-    this.transfers.set(id, {
+    const t: InternalTransfer = {
       progress,
       input,
       group: `job-${id}`,
@@ -109,25 +141,108 @@ export class RcloneDownloadManager extends EventEmitter {
       cleaned: false,
       removePending: false,
       polling: false,
-      samples: []
-    })
-    this.order.push(id)
-    if (input.cleanupRemote) {
-      const name = input.cleanupRemote
-      this.remoteRefs.set(name, (this.remoteRefs.get(name) ?? 0) + 1)
+      samples: [],
+      settled: false,
+      submission: 'none',
+      observedFinish: false,
+      finishedFailure: false,
+      retryAdmission: null
     }
-    this.emitUpdate(id)
-    this.pump()
-    return { ...progress }
+    this.transfers.set(id, t)
+    this.order.push(id)
+    if (!retained) this.retainRemote(input.cleanupRemote)
+    return t
+  }
+
+  async retry(
+    id: string,
+    validate: (input: RcloneEnqueueInput) => Promise<RcloneEnqueueInput>
+  ): Promise<TransferProgress> {
+    const t = this.transfers.get(id)
+    if (!t) throw httpError(404, 'Transfer not found.')
+    if (t.progress.retriedAs) {
+      const successor = this.transfers.get(t.progress.retriedAs)
+      if (!successor) throw httpError(409, 'The retry successor has been removed.')
+      return { ...successor.progress }
+    }
+    if (t.retryAdmission) return t.retryAdmission
+    this.assertRetryable(t)
+    this.retainRemote(t.input.cleanupRemote)
+    const admission = Promise.resolve().then(() => this.admitRetry(id, t, validate))
+    t.retryAdmission = admission
+    try {
+      return await admission
+    } finally {
+      if (t.retryAdmission === admission) t.retryAdmission = null
+    }
+  }
+
+  private async admitRetry(
+    id: string,
+    t: InternalTransfer,
+    validate: (input: RcloneEnqueueInput) => Promise<RcloneEnqueueInput>
+  ): Promise<TransferProgress> {
+    let transferredLease = false
+    try {
+      const refreshed = await validate(Object.freeze({ ...t.input }))
+      if (this.transfers.get(id) !== t) throw httpError(404, 'Transfer not found.')
+      this.assertRetryable(t)
+      if (!Number.isFinite(refreshed.size)) throw httpError(400, 'Invalid source file size.')
+      const key = this.destinationKey(t)
+      if (refreshed.destinationKey !== undefined && refreshed.destinationKey !== key) {
+        throw httpError(409, 'The download destination has changed.')
+      }
+      const successor = this.createTransfer({ ...t.input, size: Math.max(0, refreshed.size) }, true)
+      transferredLease = true
+      successor.progress.retryOf = id
+      t.progress.retriedAs = successor.progress.id
+      t.progress.retryable = false
+      this.finalize(t)
+      this.emitUpdate(id)
+      this.emitUpdate(successor.progress.id)
+      this.pump()
+      return { ...successor.progress }
+    } finally {
+      if (!transferredLease) this.releaseRemote(t.input.cleanupRemote)
+    }
+  }
+
+  private assertRetryable(t: InternalTransfer): void {
+    if (
+      !t.finishedFailure ||
+      t.progress.direction !== 'download' ||
+      t.progress.status !== 'error' ||
+      t.canceled ||
+      t.cleaned ||
+      t.removePending ||
+      t.progress.retriedAs
+    ) {
+      throw httpError(409, t.progress.retryUnavailableReason ?? 'This transfer cannot be retried.')
+    }
+    const key = this.destinationKey(t)
+    if (key && this.quarantined.has(key)) throw httpError(409, QUARANTINE_REASON)
+    for (const other of this.transfers.values()) {
+      if (
+        other !== t &&
+        this.destinationKey(other) === key &&
+        (other.progress.status === 'queued' || other.progress.status === 'downloading')
+      ) {
+        throw httpError(409, 'Another download is queued or active for this file.')
+      }
+    }
   }
 
   cancel(id: string): void {
     const t = this.transfers.get(id)
     if (!t) return
     if (t.progress.status === 'queued') {
+      t.canceled = true
+      t.settled = true
       t.progress.status = 'canceled'
+      t.progress.waitingReason = undefined
       this.finalize(t)
       this.emitUpdate(id)
+      this.pump()
     } else if (t.progress.status === 'downloading') {
       t.canceled = true
       t.canceledAt = Date.now()
@@ -186,21 +301,32 @@ export class RcloneDownloadManager extends EventEmitter {
 
   private pump(): void {
     while (this.activeIds.size < this.maxConcurrent) {
-      const nextId = this.order.find((id) => this.transfers.get(id)!.progress.status === 'queued')
-      if (!nextId) break
-      this.activeIds.add(nextId)
-      void this.runJob(nextId).catch((err) => {
-        const t = this.transfers.get(nextId)
-        if (!t) {
-          this.activeIds.delete(nextId)
-          this.pump()
-          return
-        }
-        t.progress.status = 'error'
-        t.progress.error = err instanceof Error ? err.message : String(err)
-        t.progress.activeSegments = 0
-        this.settleTerminal(nextId, t)
+      const nextId = this.order.find((id) => {
+        const t = this.transfers.get(id)!
+        const key = this.destinationKey(t)
+        return (
+          t.progress.status === 'queued' &&
+          (!key || (!this.activeByKey.has(key) && !this.quarantined.has(key)))
+        )
       })
+      if (!nextId) break
+      const t = this.transfers.get(nextId)!
+      const key = this.destinationKey(t)
+      this.activeIds.add(nextId)
+      if (key) this.activeByKey.set(key, nextId)
+      t.progress.waitingReason = undefined
+      void this.runJob(nextId).catch((err) => {
+        this.failRun(nextId, t, err)
+      })
+    }
+    for (const t of this.transfers.values()) {
+      if (t.progress.status !== 'queued') continue
+      const key = this.destinationKey(t)
+      const reason = key && this.activeByKey.has(key) ? TARGET_WAIT_REASON : undefined
+      if (t.progress.waitingReason !== reason) {
+        t.progress.waitingReason = reason
+        this.emitUpdate(t.progress.id)
+      }
     }
     if (this.activeIds.size > 0) this.startTicker()
     else this.stopTicker()
@@ -228,7 +354,22 @@ export class RcloneDownloadManager extends EventEmitter {
       this.emitUpdate(id)
 
       await this.client.coreStatsDelete(t.group).catch(() => undefined)
-      t.jobid = await this.client.copyFileAsync({
+      if (!this.ownsActive(id, t)) return
+      if (!t.canceled && this.validateDestination && t.progress.direction === 'download') {
+        const key = await this.validateDestination(t.input)
+        if (!this.ownsActive(id, t)) return
+        if (key !== this.destinationKey(t)) {
+          throw httpError(409, 'The download destination has changed.')
+        }
+      }
+      if (!this.ownsActive(id, t)) return
+      if (t.canceled) {
+        t.progress.status = 'canceled'
+        this.settleTerminal(id, t)
+        return
+      }
+      t.submission = 'pending'
+      const jobid = await this.client.copyFileAsync({
         srcFs: t.input.srcFs,
         srcRemote: t.input.srcRemote,
         dstFs: t.input.dstFs,
@@ -236,9 +377,16 @@ export class RcloneDownloadManager extends EventEmitter {
         group: t.group,
         config: multiThreadConfig(plan)
       })
+      if (!this.ownsActive(id, t)) {
+        void this.client.jobStop(jobid).catch(() => undefined)
+        return
+      }
+      t.jobid = jobid
+      t.submission = 'known'
 
       if (t.canceled) {
         void this.client.jobStop(t.jobid).catch(() => undefined)
+        this.quarantine(t)
         t.progress.status = 'canceled'
         t.progress.activeSegments = 0
         this.settleTerminal(id, t)
@@ -247,10 +395,7 @@ export class RcloneDownloadManager extends EventEmitter {
       }
       this.pump()
     } catch (err) {
-      t.progress.status = 'error'
-      t.progress.error = err instanceof Error ? err.message : String(err)
-      t.progress.activeSegments = 0
-      this.settleTerminal(id, t)
+      this.failRun(id, t, err)
     }
   }
 
@@ -271,7 +416,7 @@ export class RcloneDownloadManager extends EventEmitter {
 
   private async poll(id: string): Promise<void> {
     const t = this.transfers.get(id)
-    if (!t) return
+    if (!t || !this.ownsActive(id, t)) return
 
     if (
       t.canceled &&
@@ -282,6 +427,7 @@ export class RcloneDownloadManager extends EventEmitter {
       t.progress.activeSegments = 0
       t.progress.speedBytesPerSec = 0
       if (t.jobid !== null) void this.client.jobStop(t.jobid).catch(() => undefined)
+      this.quarantine(t)
       this.settleTerminal(id, t)
       await this.client.coreStatsDelete(t.group).catch(() => undefined)
       return
@@ -292,6 +438,7 @@ export class RcloneDownloadManager extends EventEmitter {
 
     try {
       const stats = await this.client.coreStats(t.group)
+      if (!this.ownsActive(id, t)) return
       const transferred = stats.bytes ?? t.progress.transferred
       t.progress.transferred = Math.min(transferred, t.progress.size || transferred)
       const inFlight = (stats.transferring?.length ?? 0) > 0
@@ -300,8 +447,9 @@ export class RcloneDownloadManager extends EventEmitter {
       t.progress.speedBytesPerSec = rollingSpeed(t.samples)
 
       const job = await this.client.jobStatus(t.jobid)
-      if (!this.activeIds.has(id)) return
+      if (!this.ownsActive(id, t)) return
       if (job.finished) {
+        t.observedFinish = true
         if (job.success) {
           t.progress.status = 'completed'
           t.progress.transferred = t.progress.size || t.progress.transferred
@@ -311,6 +459,7 @@ export class RcloneDownloadManager extends EventEmitter {
           t.progress.status = 'error'
           t.progress.error =
             job.error || (t.progress.direction === 'upload' ? 'Upload failed.' : 'Download failed.')
+          t.finishedFailure = t.progress.direction === 'download'
         }
         t.progress.activeSegments = 0
         t.progress.speedBytesPerSec = 0
@@ -326,8 +475,21 @@ export class RcloneDownloadManager extends EventEmitter {
   }
 
   private settleTerminal(id: string, t: InternalTransfer): void {
+    if (!this.ownsActive(id, t)) return
+    t.settled = true
+    const key = this.destinationKey(t)
+    if (key && this.activeByKey.get(key) === id) this.activeByKey.delete(key)
     this.activeIds.delete(id)
-    this.finalize(t)
+    t.progress.canceling = undefined
+    t.progress.waitingReason = undefined
+    t.progress.retryable =
+      t.finishedFailure &&
+      !t.canceled &&
+      !t.removePending &&
+      !t.cleaned &&
+      !t.progress.retriedAs &&
+      (!key || !this.quarantined.has(key))
+    if (!t.progress.retryable) this.finalize(t)
     if (t.removePending) {
       this.deleteTransfer(id)
       this.emitRemove(id)
@@ -341,14 +503,79 @@ export class RcloneDownloadManager extends EventEmitter {
     const name = t.input.cleanupRemote
     if (name && !t.cleaned) {
       t.cleaned = true
-      const remaining = (this.remoteRefs.get(name) ?? 1) - 1
-      if (remaining <= 0) {
-        this.remoteRefs.delete(name)
-        void this.client.deleteRemote(name).catch(() => undefined)
-      } else {
-        this.remoteRefs.set(name, remaining)
+      this.releaseRemote(name)
+    }
+  }
+
+  private retainRemote(name: string | undefined): void {
+    if (name) this.remoteRefs.set(name, (this.remoteRefs.get(name) ?? 0) + 1)
+  }
+
+  private releaseRemote(name: string | undefined): void {
+    if (!name) return
+    const remaining = (this.remoteRefs.get(name) ?? 1) - 1
+    if (remaining <= 0) {
+      this.remoteRefs.delete(name)
+      void this.client.deleteRemote(name).catch(() => undefined)
+    } else {
+      this.remoteRefs.set(name, remaining)
+    }
+  }
+
+  private destinationKey(t: InternalTransfer): string | undefined {
+    if (t.progress.direction === 'upload') return undefined
+    return t.input.destinationKey ?? downloadDestinationKey(t.input.localPath)
+  }
+
+  private ownsActive(id: string, t: InternalTransfer): boolean {
+    const key = this.destinationKey(t)
+    return (
+      !t.settled &&
+      this.transfers.get(id) === t &&
+      this.activeIds.has(id) &&
+      (!key || this.activeByKey.get(key) === id)
+    )
+  }
+
+  private failQuarantined(t: InternalTransfer): void {
+    t.settled = true
+    t.progress.status = 'error'
+    t.progress.error = QUARANTINE_REASON
+    t.progress.retryable = false
+    t.progress.retryUnavailableReason = QUARANTINE_REASON
+    t.progress.waitingReason = undefined
+    this.finalize(t)
+    this.emitUpdate(t.progress.id)
+  }
+
+  private quarantine(t: InternalTransfer): void {
+    const key = this.destinationKey(t)
+    if (!key || t.submission === 'none' || t.observedFinish) return
+    this.quarantined.add(key)
+    t.progress.retryUnavailableReason = QUARANTINE_REASON
+    for (const other of this.transfers.values()) {
+      if (other.progress.status === 'queued' && this.destinationKey(other) === key) {
+        this.failQuarantined(other)
+      } else if (other !== t && other.progress.retryable && this.destinationKey(other) === key) {
+        other.progress.retryable = false
+        other.progress.retryUnavailableReason = QUARANTINE_REASON
+        this.finalize(other)
+        this.emitUpdate(other.progress.id)
       }
     }
+  }
+
+  private failRun(id: string, t: InternalTransfer, err: unknown): void {
+    if (!this.ownsActive(id, t)) return
+    this.quarantine(t)
+    t.progress.status = t.canceled ? 'canceled' : 'error'
+    const message = err instanceof Error ? err.message : String(err)
+    t.progress.error = t.progress.retryUnavailableReason
+      ? `${message} ${t.progress.retryUnavailableReason}`
+      : message
+    t.progress.activeSegments = 0
+    t.progress.speedBytesPerSec = 0
+    this.settleTerminal(id, t)
   }
 
   private emitUpdate(id: string): void {

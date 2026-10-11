@@ -114,6 +114,10 @@ export function createWebApi(): WebApi {
       ),
     enqueueDownload: (input: DownloadEnqueueInput) =>
       request<TransferProgress[]>('/api/download', { method: 'POST', body: input }),
+    retryDownload: (id: string) =>
+      request<TransferProgress>(`/api/download/${encodeURIComponent(id)}/retry`, {
+        method: 'POST'
+      }),
     enqueueUpload: (input: UploadEnqueueInput) =>
       request<TransferProgress[]>('/api/upload', { method: 'POST', body: input }),
     cancelDownload: async (id: string) => {

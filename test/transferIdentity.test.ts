@@ -77,6 +77,7 @@ function makeManager(): RcloneDownloadManager {
   })
   return {
     enqueue,
+    enqueueBatch: (inputs: RcloneEnqueueInput[]) => inputs.map((input) => enqueue(input)),
     list: vi.fn(() => []),
     onUpdate: vi.fn(() => () => undefined),
     onRemove: vi.fn(() => () => undefined)
