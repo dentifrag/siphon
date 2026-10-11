@@ -594,7 +594,7 @@ export async function createInstalledUpdates(input: {
   const inspect = async () => {
     const { stdout } = await runFile(
       powershell,
-      ['-NoProfile', '-NonInteractive', '-File', worker, '-Inspect'],
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', worker, '-Inspect'],
       { windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024, shell: false }
     )
     const record = object(JSON.parse(stdout))

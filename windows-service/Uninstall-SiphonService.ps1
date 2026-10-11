@@ -45,13 +45,13 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administra
 $ErrorActionPreference = 'Stop'
 $here  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $root  = Split-Path -Parent $here
+$exe   = Join-Path $root 'dist-bin\siphon-win-x64.exe'
 $winsw = Join-Path $root 'dist-bin\siphon-service.exe'
 $updaterDir = Join-Path (Split-Path -Parent $winsw) 'siphon-updater'
 . (Join-Path $here 'Update-SiphonService.ps1') -Library
-Assert-SiphonNoReparse $winsw
+Assert-SiphonServicePaths -ExecutablePath $exe -WrapperPath $winsw
 $updateLifecycleLock = $null
 if (Test-Path -LiteralPath $updaterDir) {
-  Assert-SiphonAncestors (Split-Path -Parent $winsw)
   Assert-SiphonAcl $updaterDir
   $updateLifecycleLock = Open-SiphonWorkerLock $updaterDir
   Assert-SiphonLifecycleIdle $updaterDir

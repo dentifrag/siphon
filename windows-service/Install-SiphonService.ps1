@@ -204,12 +204,7 @@ $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccou
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::FromMinutes(45)) -StartWhenAvailable
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $trigger.Delay = 'PT30S'
-Assert-SiphonAncestors (Split-Path -Parent $exe)
-Assert-SiphonLocalVolume (Split-Path -Parent $exe)
-Assert-SiphonNoReparse (Split-Path -Parent $exe)
-foreach ($path in @($exe, $winsw, [IO.Path]::ChangeExtension($winsw, '.xml'))) {
-  Assert-SiphonNoReparse $path
-}
+Assert-SiphonServicePaths -ExecutablePath $exe -WrapperPath $winsw
 foreach ($name in @('SiphonUpdater.Core.ps1', 'Update-SiphonService.ps1', 'installation.json', 'staged.exe', 'previous.exe')) {
   Assert-SiphonNoReparse (Join-Path $updaterDir $name)
 }

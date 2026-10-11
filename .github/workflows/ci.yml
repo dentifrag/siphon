@@ -28,7 +28,11 @@ jobs:
       - name: Verify installer preflight without service or task operations
         shell: powershell
         run: |
-          & .\test\fixtures\WindowsInstallerPreflight.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path
+          & .\test\fixtures\WindowsInstallerPreflight.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario bind
+      - name: Verify existing service-path ACLs without host mutations
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsInstallerPreflight.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario acl
 
   check:
     name: Type check, lint, test, build

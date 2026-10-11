@@ -45,8 +45,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File windows-service/Install-Siph
 The installer validates configuration and the local health address before stopping an
 existing `Siphon` service. It downloads + verifies WinSW into `dist-bin/siphon-service.exe`,
 writes `dist-bin/siphon-service.xml` from your config, then installs, starts, and checks
-`/api/health` on the recorded bind address. Unsupported hostname binds are rejected before
-service removal; use a wildcard, loopback, or local interface IP address.
+`/api/health` on the recorded bind address. Hostname binds, including `localhost`, are
+rejected before service changes; use `0.0.0.0`, `::`, an explicit IPv4/IPv6 loopback IP
+(`127.0.0.1` or `::1`), or a local interface IP address.
 
 ## Configure
 
@@ -113,10 +114,16 @@ TrustedInstaller, with no untrusted delete/ownership permissions. An administrat
 individual user SID is not treated as a substitute for group ownership. Prepare the
 installation folder's ownership and ACLs before setup; do not weaken the helper's checks
 to use a user-profile checkout.
+Both installer and uninstaller check the full owner/DACL of the existing `dist-bin`
+directory and every existing app executable, WinSW executable, and WinSW XML file before
+modifying permissions, stopping/removing the service, or invoking WinSW. Untrusted owners
+or writers are rejected, not repaired by changing the parent directory's ACL. Missing
+wrapper/XML files are allowed on first install; an existing app executable must pass.
 
 The existing WinSW service must run as LocalSystem and retain the recorded executable,
-wrapper, bind address, and port. Health checks support wildcard/loopback binds and local
-interface IP addresses, without proxies or redirects. The installer records these settings,
+wrapper, bind address, and port. Health checks support wildcard binds, explicit IPv4/IPv6
+loopback IPs, and local interface IP addresses, without proxies or redirects. `localhost`
+is not a supported bind identity. The installer records these settings,
 copies the protocol-v1 core and worker, and installs the fixed `\SiphonUpdate` SYSTEM
 Scheduled Task. Its protected action takes no caller-controlled shell arguments, ignores
 concurrent instances, permits battery operation, and has a 45-minute execution budget.
@@ -170,6 +177,8 @@ only after task-idle inspection. It does not fetch or substitute a newer release
 delete a pending request/journal to bypass maintenance. For failed recovery, an administrator
 must inspect the protected journal and backup, stop the recorded service, restore the backup
 to the recorded executable path, restart, and verify `/api/health` against the old version.
+Use the recorded local interface or explicit loopback IP for recovery health checks;
+do not substitute a `localhost` bind or bypass existing service-path ownership/DACL checks.
 The accepted task can then reconcile recovery. Do not run `update.ps1` over an unfinished
 in-app update. Installer/uninstaller operations refuse live or nonterminal jobs and hold the
 same worker lock.

@@ -79,6 +79,16 @@ function Assert-SiphonAncestors([string]$Directory) {
     }
 }
 
+function Assert-SiphonServicePaths {
+    param([string]$ExecutablePath, [string]$WrapperPath)
+    $directory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ExecutablePath))
+    Assert-SiphonLocalVolume $directory
+    Assert-SiphonAncestors $directory
+    foreach ($path in @($directory, $ExecutablePath, $WrapperPath, [IO.Path]::ChangeExtension($WrapperPath, '.xml'))) {
+        Assert-SiphonAcl $path
+    }
+}
+
 function Set-SiphonProtection([string]$Path, [switch]$Readable) {
     Assert-SiphonNoReparse $Path
     $item = Get-Item -LiteralPath $Path -Force
@@ -184,7 +194,7 @@ function Retire-SiphonCompletedRequest([string]$Directory) {
 
 function Get-SiphonHealthUri([string]$Bind, [int]$Port) {
     if ($Port -lt 1 -or $Port -gt 65535) { throw 'Invalid installed service port.' }
-    $address = if ($Bind -in @('0.0.0.0', 'localhost', '127.0.0.1')) {
+    $address = if ($Bind -in @('0.0.0.0', '127.0.0.1')) {
         '127.0.0.1'
     } elseif ($Bind -in @('::', '::1')) {
         '[::1]'
