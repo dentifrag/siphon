@@ -283,7 +283,8 @@ if ($Scenario -eq 'identity') {
 }
 
 foreach ($addresses in @(
-    @('127.0.0.1', '127.0.0.1'), @('::1', '::1'), @('192.0.2.10', '192.0.2.10')
+    @('127.0.0.1', '127.0.0.1'), @('::1', '::1'), @('192.0.2.10', '192.0.2.10'),
+    @('fe80::1%12', 'fe80::2%12')
 )) {
     Reset-Health $addresses[0] $addresses[1]
     $health = Get-SiphonVersionHealth $config

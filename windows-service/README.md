@@ -144,6 +144,12 @@ release storage, checks the pinned size and SHA-256 before stopping the service,
 replaces only `siphon-win-x64.exe`. It preserves data/configuration, rclone, executable
 location, and service settings. Success requires both a running service and the exact
 installed version from the public, uncached `GET /api/health`.
+Installer and updater health checks use one bounded numeric-IP TCP connection. They verify
+the response socket's exact connected address/port tuple belongs to the recorded Siphon
+process, directly parented by the running SYSTEM WinSW service. The same tuple, process
+IDs, creation times, executable paths, and service identity must still match after reading
+the bounded HTTP response. An unrelated responder or changed/closed connection cannot
+authorize success or recovery-backup cleanup, even if it returns the expected JSON.
 
 The browser stores non-sensitive reconnect intent before submitting. A lost POST response
 is reconciled through status, not resubmitted. A restart can invalidate your session; sign

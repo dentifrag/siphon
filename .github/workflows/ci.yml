@@ -33,6 +33,14 @@ jobs:
         shell: powershell
         run: |
           & .\test\fixtures\WindowsInstallerPreflight.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario acl
+      - name: Verify connected health identity without host or network operations
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsHealth.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario identity
+      - name: Verify bounded health HTTP with injected sockets
+        shell: powershell
+        run: |
+          & .\test\fixtures\WindowsHealth.Tests.ps1 -WorkerPath (Resolve-Path .\windows-service\Update-SiphonService.ps1).Path -Scenario http
 
   check:
     name: Type check, lint, test, build

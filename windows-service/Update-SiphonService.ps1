@@ -457,40 +457,185 @@ function Start-SiphonInstalledService($Config) {
     $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(45))
 }
 
+function Get-SiphonHealthMilliseconds([long]$Deadline) {
+    $remaining = [math]::Floor(($Deadline - [Diagnostics.Stopwatch]::GetTimestamp()) * 1000 / [Diagnostics.Stopwatch]::Frequency)
+    if ($remaining -le 0) { throw 'Local health deadline exceeded.' }
+    return [int][math]::Min(3000, $remaining)
+}
+
+function Get-SiphonHealthCim {
+    param([string]$ClassName, [string]$Filter, [long]$Deadline, [string]$Namespace = 'ROOT/cimv2')
+    $seconds = [int][math]::Floor((Get-SiphonHealthMilliseconds $Deadline) / 1000)
+    if ($seconds -lt 1) { throw 'Insufficient time remains for bounded health identity verification.' }
+    $result = Get-CimInstance -ClassName $ClassName -Namespace $Namespace -Filter $Filter -OperationTimeoutSec $seconds -ErrorAction Stop
+    $null = Get-SiphonHealthMilliseconds $Deadline
+    return $result
+}
+
+function Get-SiphonHealthAddress([Net.IPAddress]$Address) {
+    if ($Address.IsIPv4MappedToIPv6) { return $Address.MapToIPv4() }
+    return $Address
+}
+
+function Get-SiphonHealthConnectionOwner {
+    param([Net.IPEndPoint]$LocalEndpoint, [Net.IPEndPoint]$RemoteEndpoint, [long]$Deadline)
+    $clientAddress = Get-SiphonHealthAddress $LocalEndpoint.Address
+    $serverAddress = Get-SiphonHealthAddress $RemoteEndpoint.Address
+    $rows = @(Get-SiphonHealthCim -ClassName 'MSFT_NetTCPConnection' -Namespace 'ROOT/StandardCimv2' -Filter "State = 5 AND LocalPort = $($RemoteEndpoint.Port) AND RemotePort = $($LocalEndpoint.Port)" -Deadline $Deadline)
+    $matches = @($rows | Where-Object {
+        $_.State -eq 5 -and $_.LocalPort -eq $RemoteEndpoint.Port -and $_.RemotePort -eq $LocalEndpoint.Port -and
+        (Get-SiphonHealthAddress ([Net.IPAddress]::Parse($_.LocalAddress))).Equals($serverAddress) -and
+        (Get-SiphonHealthAddress ([Net.IPAddress]::Parse($_.RemoteAddress))).Equals($clientAddress)
+    })
+    if ($matches.Count -ne 1 -or [long]$matches[0].OwningProcess -le 0) {
+        throw 'Health response connection has no unique established server owner.'
+    }
+    return [long]$matches[0].OwningProcess
+}
+
+function Assert-SiphonHealthConnection {
+    param(
+        $Config,
+        [Net.IPEndPoint]$LocalEndpoint,
+        [Net.IPEndPoint]$RemoteEndpoint,
+        [long]$Deadline = ([Diagnostics.Stopwatch]::GetTimestamp() + 3 * [Diagnostics.Stopwatch]::Frequency)
+    )
+    if ($null -eq $LocalEndpoint -or $null -eq $RemoteEndpoint -or $Config.serviceName -cne 'Siphon') {
+        throw 'Invalid recorded health connection identity.'
+    }
+    $ownerId = Get-SiphonHealthConnectionOwner -LocalEndpoint $LocalEndpoint -RemoteEndpoint $RemoteEndpoint -Deadline $Deadline
+    $services = @(Get-SiphonHealthCim -ClassName 'Win32_Service' -Filter "Name = 'Siphon'" -Deadline $Deadline)
+    if ($services.Count -ne 1 -or $null -eq $services[0]) { throw 'Recorded health service is missing or ambiguous.' }
+    $service = $services[0]
+    $serviceId = [long]$service.ProcessId
+    $serviceName = [string]$service.Name
+    $serviceState = [string]$service.State
+    $serviceAccount = [string]$service.StartName
+    $servicePath = [string]$service.PathName
+    if (
+        $serviceName -cne $Config.serviceName -or $serviceState -cne 'Running' -or $serviceId -le 0 -or
+        $serviceAccount -notin @('LocalSystem', 'NT AUTHORITY\SYSTEM') -or
+        $servicePath -cnotin @($Config.wrapperPath, "`"$($Config.wrapperPath)`"")
+    ) { throw 'Health responder does not belong to the recorded running SYSTEM service.' }
+    $apps = @(Get-SiphonHealthCim -ClassName 'Win32_Process' -Filter "ProcessId = $ownerId" -Deadline $Deadline)
+    if ($apps.Count -ne 1 -or $null -eq $apps[0]) { throw 'Connected Siphon responder is missing or ambiguous.' }
+    $app = $apps[0]
+    $appId = [long]$app.ProcessId
+    $parentId = [long]$app.ParentProcessId
+    $appPath = [string]$app.ExecutablePath
+    $appBirth = $app.CreationDate
+    if (
+        $appId -ne $ownerId -or $parentId -ne $serviceId -or $appPath -cne $Config.executablePath -or
+        $appBirth -isnot [datetime]
+    ) { throw 'Connected health responder is not the recorded direct Siphon service child.' }
+    $wrappers = @(Get-SiphonHealthCim -ClassName 'Win32_Process' -Filter "ProcessId = $serviceId" -Deadline $Deadline)
+    if ($wrappers.Count -ne 1 -or $null -eq $wrappers[0]) { throw 'Recorded WinSW process is missing or ambiguous.' }
+    $wrapper = $wrappers[0]
+    $wrapperId = [long]$wrapper.ProcessId
+    $wrapperPath = [string]$wrapper.ExecutablePath
+    $wrapperBirth = $wrapper.CreationDate
+    if (
+        $wrapperId -ne $serviceId -or $wrapperPath -cne $Config.wrapperPath -or
+        $wrapperBirth -isnot [datetime] -or $wrapperBirth.ToUniversalTime() -gt $appBirth.ToUniversalTime()
+    ) { throw 'Recorded WinSW parent identity or process creation order is invalid.' }
+    $confirmedOwner = Get-SiphonHealthConnectionOwner -LocalEndpoint $LocalEndpoint -RemoteEndpoint $RemoteEndpoint -Deadline $Deadline
+    if ($confirmedOwner -ne $ownerId) { throw 'Health connection ownership changed during identity verification.' }
+    return ([ordered]@{
+        localAddress = (Get-SiphonHealthAddress $LocalEndpoint.Address).ToString()
+        localPort = $LocalEndpoint.Port
+        remoteAddress = (Get-SiphonHealthAddress $RemoteEndpoint.Address).ToString()
+        remotePort = $RemoteEndpoint.Port
+        appPid = $appId
+        appBirth = $appBirth.ToUniversalTime().Ticks
+        appPath = $appPath
+        parentPid = $parentId
+        wrapperPid = $wrapperId
+        wrapperBirth = $wrapperBirth.ToUniversalTime().Ticks
+        wrapperPath = $wrapperPath
+        serviceName = $serviceName
+        serviceState = $serviceState
+        serviceAccount = $serviceAccount
+        servicePath = $servicePath
+    } | ConvertTo-Json -Compress)
+}
+
 function Get-SiphonVersionHealth($Config) {
-    Add-Type -AssemblyName System.Net.Http
-    $handler = New-Object Net.Http.HttpClientHandler
-    $handler.AllowAutoRedirect = $false
-    $handler.UseProxy = $false
-    $client = New-Object Net.Http.HttpClient($handler)
-    $client.Timeout = [TimeSpan]::FromSeconds(3)
-    $cancel = New-Object Threading.CancellationTokenSource
-    $cancel.CancelAfter(3000)
+    $deadline = [Diagnostics.Stopwatch]::GetTimestamp() + 3 * [Diagnostics.Stopwatch]::Frequency
+    $uri = [uri]$Config.healthUri
+    $address = $null
+    if (
+        -not $uri.IsAbsoluteUri -or $uri.Scheme -cne 'http' -or $uri.AbsolutePath -cne '/api/health' -or
+        $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.Port -lt 1 -or $uri.Port -gt 65535 -or
+        -not [Net.IPAddress]::TryParse($uri.DnsSafeHost.Trim([char[]]'[]'), [ref]$address)
+    ) { throw 'Health transport requires the recorded numeric IP endpoint.' }
+    $client = New-Object Net.Sockets.TcpClient -ArgumentList $address.AddressFamily
+    $stream = $null
     try {
-        $response = $client.GetAsync($Config.healthUri, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $cancel.Token).GetAwaiter().GetResult()
-        try {
-            if (-not $response.IsSuccessStatusCode) { throw 'Local version health is unavailable.' }
-            if ($response.Content.Headers.ContentLength -gt 4096) { throw 'Local health response exceeds the allowed size.' }
-            $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-            $output = New-Object IO.MemoryStream
-            try {
-                $buffer = New-Object byte[] 1024
-                for (;;) {
-                    $count = $stream.ReadAsync($buffer, 0, $buffer.Length, $cancel.Token).GetAwaiter().GetResult()
-                    if ($count -eq 0) { break }
-                    if ($output.Length + $count -gt 4096) { throw 'Local health response exceeds the allowed size.' }
-                    $output.Write($buffer, 0, $count)
+        $connecting = $client.ConnectAsync($address, $uri.Port)
+        if (-not $connecting.Wait((Get-SiphonHealthMilliseconds $deadline))) { throw 'Local health connection timed out.' }
+        $null = $connecting.GetAwaiter().GetResult()
+        if (-not $client.Connected -or -not $client.Client.Connected) { throw 'Local health connection is closed.' }
+        $before = Assert-SiphonHealthConnection -Config $Config -LocalEndpoint $client.Client.LocalEndPoint -RemoteEndpoint $client.Client.RemoteEndPoint -Deadline $deadline
+        $stream = $client.GetStream()
+        $hostPart = if ($address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6) { "[$address]" } else { "$address" }
+        $request = [Text.Encoding]::ASCII.GetBytes("GET /api/health HTTP/1.1`r`nHost: ${hostPart}:$($uri.Port)`r`nAccept: application/json`r`nAccept-Encoding: identity`r`nConnection: keep-alive`r`n`r`n")
+        $stream.WriteTimeout = Get-SiphonHealthMilliseconds $deadline
+        $stream.Write($request, 0, $request.Length)
+        $headers = New-Object 'System.Collections.Generic.List[byte]'
+        for (;;) {
+            if ($headers.Count -ge 4096) { throw 'Local health headers exceed the allowed size.' }
+            $stream.ReadTimeout = Get-SiphonHealthMilliseconds $deadline
+            $value = $stream.ReadByte()
+            if ($value -lt 0) { throw 'Truncated local health response headers.' }
+            if ($value -gt 126 -or ($value -lt 32 -and $value -notin @(9, 10, 13))) { throw 'Malformed local health response headers.' }
+            $headers.Add([byte]$value)
+            $size = $headers.Count
+            if ($size -ge 4 -and $headers[$size - 4] -eq 13 -and $headers[$size - 3] -eq 10 -and $headers[$size - 2] -eq 13 -and $headers[$size - 1] -eq 10) { break }
+        }
+        $headerText = [Text.Encoding]::ASCII.GetString($headers.ToArray())
+        $lines = $headerText.Substring(0, $headerText.Length - 4) -split "`r`n"
+        if ($lines[0] -cnotmatch '^HTTP/1\.1 200 [\x20-\x7e]*$') { throw 'Local health requires a successful HTTP/1.1 response.' }
+        $length = $null
+        for ($index = 1; $index -lt $lines.Count; $index++) {
+            $field = [regex]::Match($lines[$index], '^(?<name>[!#$%&''*+.^_`|~0-9A-Za-z-]+):(?<value>[\t\x20-\x7e]*)$')
+            if (-not $field.Success) { throw 'Malformed local health response header.' }
+            $name = $field.Groups['name'].Value.ToLowerInvariant()
+            $value = $field.Groups['value'].Value.Trim()
+            if ($name -eq 'content-length') {
+                if ($null -ne $length -or $value -cnotmatch '^[0-9]{1,4}$' -or [int]$value -gt 4096) {
+                    throw 'Local health requires one bounded Content-Length.'
                 }
-                $text = [Text.Encoding]::UTF8.GetString($output.ToArray())
-            } finally { $output.Dispose(); $stream.Dispose() }
-            $health = $text | ConvertFrom-Json
-            return @{
-                app = $health.app
-                version = $health.version
-                serviceRunning = (Get-Service -Name $Config.serviceName).Status -eq 'Running'
+                $length = [int]$value
+            } elseif ($name -eq 'transfer-encoding' -or ($name -eq 'content-encoding' -and $value -ine 'identity')) {
+                throw 'Encoded or transfer-encoded local health responses are unsupported.'
             }
-        } finally { $response.Dispose() }
-    } finally { $cancel.Dispose(); $client.Dispose(); $handler.Dispose() }
+        }
+        if ($null -eq $length) { throw 'Local health response lacks Content-Length.' }
+        $body = New-Object byte[] $length
+        $offset = 0
+        while ($offset -lt $length) {
+            $stream.ReadTimeout = Get-SiphonHealthMilliseconds $deadline
+            $count = $stream.Read($body, $offset, $length - $offset)
+            if ($count -le 0) { throw 'Truncated local health response body.' }
+            $offset += $count
+        }
+        if (-not $client.Connected -or -not $client.Client.Connected) { throw 'Health connection closed before response verification.' }
+        $after = Assert-SiphonHealthConnection -Config $Config -LocalEndpoint $client.Client.LocalEndPoint -RemoteEndpoint $client.Client.RemoteEndPoint -Deadline $deadline
+        if ($before -cne $after -or -not $client.Connected -or -not $client.Client.Connected) {
+            throw 'Health responder identity changed or its connection closed while reading.'
+        }
+        $encoding = New-Object Text.UTF8Encoding -ArgumentList $false, $true
+        $health = $encoding.GetString($body) | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $health -or $health -is [array] -or $health.app -isnot [string] -or $health.version -isnot [string]) {
+            throw 'Malformed local version health JSON.'
+        }
+        $null = Get-SiphonHealthMilliseconds $deadline
+        return @{ app = $health.app; version = $health.version; serviceRunning = $true }
+    } finally {
+        try {
+            if ($null -ne $stream) { $stream.Dispose() }
+        } finally { $client.Dispose() }
+    }
 }
 
 if ($Library) { return }

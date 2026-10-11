@@ -330,9 +330,8 @@ $ok = $false
 for ($i = 1; $i -le 8 -and -not $ok; $i++) {
   Start-Sleep 2
   try {
-    $r = Invoke-WebRequest $installation.healthUri -UseBasicParsing -TimeoutSec 6 -MaximumRedirection 0
-    $health = $r.Content | ConvertFrom-Json
-    if ($r.StatusCode -eq 200 -and $health.app -ceq 'siphon' -and (Test-SiphonVersion $health.version)) { $ok = $true }
+    $health = Get-SiphonVersionHealth $installation
+    if ($health.app -ceq 'siphon' -and (Test-SiphonVersion $health.version) -and $health.serviceRunning) { $ok = $true }
   } catch {}
 }
 
