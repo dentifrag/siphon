@@ -6,6 +6,7 @@ import {
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
 import type { RcloneClient } from '../src/server/rclone/client'
+import { join } from 'node:path'
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void
@@ -19,14 +20,17 @@ async function flushMicrotasks(times = 10): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve()
 }
 
+let destinationIndex = 0
+
 function enqueueInput(overrides: Partial<RcloneEnqueueInput> = {}): RcloneEnqueueInput {
+  const destination = overrides.srcRemote ?? `file-${destinationIndex++}.bin`
   return {
     srcFs: 'dl:',
     srcRemote: 'file.bin',
     dstFs: '/out',
-    dstRemote: 'file.bin',
+    dstRemote: destination,
     displayName: '/file.bin',
-    localPath: '/out/file.bin',
+    localPath: join('/out', destination),
     size: 100 * 1024 * 1024,
     segments: 4,
     ...overrides
@@ -72,7 +76,8 @@ describe('RcloneDownloadManager cancellation race', () => {
     const manager = new RcloneDownloadManager(client)
     const enqueued = manager.enqueue(enqueueInput({ cleanupRemote: '_dl-abc' }))
 
-    await Promise.resolve()
+    await flushMicrotasks()
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
     manager.cancel(enqueued.id)
 
     startJob.resolve(42)
@@ -223,7 +228,7 @@ describe('RcloneDownloadManager concurrency', () => {
 
       expect(manager.list().find(({ id }) => id === failed.id)).toMatchObject({
         status: 'error',
-        error: 'copy failed'
+        error: failure === 'start failure' ? expect.stringContaining('copy failed') : 'copy failed'
       })
       expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('downloading')
       expect(

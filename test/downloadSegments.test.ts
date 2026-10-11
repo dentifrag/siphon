@@ -24,7 +24,10 @@ function makeManager() {
       status: 'queued'
     }
   })
-  return { enqueue } as unknown as RcloneDownloadManager
+  return {
+    enqueue,
+    enqueueBatch: (inputs: RcloneEnqueueInput[]) => inputs.map((input) => enqueue(input))
+  } as unknown as RcloneDownloadManager
 }
 
 function listEntry(path: string, isDir = false): RcloneListEntry {

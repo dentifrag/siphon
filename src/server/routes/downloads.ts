@@ -4,10 +4,15 @@ import type { DownloadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
 import type { RouteContext } from '../context'
 import { httpError, parseConnectionRevision } from '../http'
-import { resolvePath, type FsScope } from '../localFs'
+import {
+  downloadDestinationKey,
+  resolvePath,
+  validateDownloadDestination,
+  type FsScope
+} from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
 import type { RcloneClient, RcloneListEntry } from '../rclone/client'
-import type { RcloneDownloadManager } from '../rclone/downloadManager'
+import type { RcloneDownloadManager, RcloneEnqueueInput } from '../rclone/downloadManager'
 
 export interface ExpandDownloadInput {
   item: RcloneListEntry
@@ -17,6 +22,29 @@ export interface ExpandDownloadInput {
   targetDir: string
   segments: number
   jobRemote: string
+  scope?: FsScope
+}
+
+async function enqueuePlannedDownloads(
+  client: RcloneClient,
+  manager: RcloneDownloadManager,
+  planned: RcloneEnqueueInput[],
+  scope: FsScope | undefined
+): Promise<TransferProgress[]> {
+  try {
+    if (scope) {
+      for (const input of planned) {
+        const canonical = await resolvePath(scope, input.localPath)
+        if (!canonical) throw httpError(400, 'That download destination is not accessible.')
+        input.destinationKey = downloadDestinationKey(canonical)
+      }
+    }
+  } catch (err) {
+    const remote = planned[0]?.cleanupRemote
+    if (remote) await client.deleteRemote(remote).catch(() => undefined)
+    throw err
+  }
+  return manager.enqueueBatch(planned)
 }
 
 export async function expandDownload(
@@ -65,8 +93,8 @@ export async function expandDownload(
       throw new Error('Recursive listing returned an unsafe file path.')
     }
 
-    return plannedFiles.map(({ entry, relativePath, localPath }) => {
-      return manager.enqueue({
+    const planned = plannedFiles.map(({ entry, relativePath, localPath }): RcloneEnqueueInput => {
+      return {
         srcFs: `${jobRemote}:`,
         srcRemote: entry.Path,
         dstFs: targetDir,
@@ -76,23 +104,29 @@ export async function expandDownload(
         size: entry.Size < 0 ? 0 : entry.Size,
         segments,
         cleanupRemote: jobRemote
-      })
+      }
     })
+    return enqueuePlannedDownloads(client, manager, planned, input.scope)
   }
 
-  return [
-    manager.enqueue({
-      srcFs: `${jobRemote}:`,
-      srcRemote: dirPath,
-      dstFs: targetDir,
-      dstRemote: wrappingName,
-      displayName: remotePath,
-      localPath: join(targetDir, wrappingName),
-      size: item.Size < 0 ? 0 : item.Size,
-      segments,
-      cleanupRemote: jobRemote
-    })
-  ]
+  return enqueuePlannedDownloads(
+    client,
+    manager,
+    [
+      {
+        srcFs: `${jobRemote}:`,
+        srcRemote: dirPath,
+        dstFs: targetDir,
+        dstRemote: wrappingName,
+        displayName: remotePath,
+        localPath: join(targetDir, wrappingName),
+        size: item.Size < 0 ? 0 : item.Size,
+        segments,
+        cleanupRemote: jobRemote
+      }
+    ],
+    input.scope
+  )
 }
 
 export function registerDownloadRoutes(
@@ -114,12 +148,10 @@ export function registerDownloadRoutes(
       item = await client.stat(job.fs, srcRemote)
       if (!item) throw httpError(404, 'File not found.')
 
-      const requested = input.downloadDir?.trim()
-      if (requested) {
-        const resolved = await resolvePath(scope, requested)
-        if (!resolved) throw httpError(400, 'That download folder is not accessible.')
-        targetDir = resolved
-      }
+      const requested = input.downloadDir?.trim() || config.defaultDir
+      const resolved = await resolvePath(scope, requested)
+      if (!resolved) throw httpError(400, 'That download folder is not accessible.')
+      targetDir = resolved
       baseName = safeBaseName(input.remotePath)
     } catch (error) {
       await job.release()
@@ -133,7 +165,20 @@ export function registerDownloadRoutes(
       wrappingName: baseName,
       targetDir,
       segments: input.segments,
-      jobRemote: job.remoteName
+      jobRemote: job.remoteName,
+      scope
+    })
+  })
+
+  app.post<{ Params: { id: string } }>('/api/download/:id/retry', async (req) => {
+    return manager.retry(req.params.id, async (input) => {
+      const destinationKey = await validateDownloadDestination(scope, input, resolvePath)
+      const item = await client.stat(input.srcFs, input.srcRemote)
+      if (!item) throw httpError(404, 'File not found.')
+      if (item.IsDir || !Number.isFinite(item.Size)) {
+        throw httpError(400, 'The retry source is not a valid file.')
+      }
+      return { ...input, size: Math.max(0, item.Size), destinationKey }
     })
   })
 

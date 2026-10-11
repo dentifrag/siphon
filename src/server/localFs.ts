@@ -2,6 +2,8 @@ import { mkdir, readdir, realpath, lstat } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import type { DownloadRoot } from './config'
+import { httpError } from './http'
+import type { RcloneEnqueueInput } from './rclone/downloadManager'
 
 export interface LocalEntry {
   name: string
@@ -18,6 +20,28 @@ export interface LocalDirListing {
 export interface FsScope {
   roots: DownloadRoot[]
   confined: boolean
+}
+
+export function downloadDestinationKey(path: string): string {
+  const normalized = resolve(path)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+export async function validateDownloadDestination(
+  scope: FsScope,
+  input: RcloneEnqueueInput,
+  resolver: typeof resolvePath = resolvePath
+): Promise<string> {
+  const canonical = await resolver(scope, join(input.dstFs, input.dstRemote))
+  if (!canonical) throw httpError(400, 'That download destination is not accessible.')
+  const key = downloadDestinationKey(canonical)
+  if (key !== (input.destinationKey ?? downloadDestinationKey(input.localPath))) {
+    throw httpError(
+      409,
+      'The download destination has changed. Remove this transfer and download it again.'
+    )
+  }
+  return key
 }
 
 function isInside(parent: string, child: string): boolean {

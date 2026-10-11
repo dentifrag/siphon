@@ -92,6 +92,7 @@ export interface SftpApi {
   list(dir: string, connectionRevision?: string): Promise<RemoteEntry[]>
   stat(path: string, connectionRevision?: string): Promise<RemoteStat>
   enqueueDownload(input: DownloadEnqueueInput): Promise<TransferProgress[]>
+  retryDownload(id: string): Promise<TransferProgress>
   enqueueUpload(input: UploadEnqueueInput): Promise<TransferProgress[]>
   cancelDownload(id: string): Promise<void>
   cancelAllDownloads(): Promise<void>
