@@ -31,6 +31,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Packaged apps can install rclone on first run without an unsupported dynamic-import error.
 - Folder downloads now create the validated destination folder structure before queuing
   individual files. Concurrent still limits active file transfers, and Segments controls
   parallel streams within each file.
