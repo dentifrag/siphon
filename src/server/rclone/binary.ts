@@ -1,4 +1,4 @@
-import { chmodSync, createWriteStream, existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { arch, platform } from 'node:os'
@@ -121,7 +121,6 @@ async function downloadRclone(destPath: string): Promise<string> {
     if (!extracted)
       throw new RcloneUnavailableError(helpText('the downloaded archive had no rclone binary'))
 
-    const { copyFileSync } = await import('node:fs')
     copyFileSync(extracted, destPath)
     if (platform() !== 'win32') chmodSync(destPath, 0o755)
     return destPath
