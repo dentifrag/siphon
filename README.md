@@ -93,6 +93,41 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 - Downloads keep running on the server even if you close the tab or your phone.
 - Save connections so you don't retype credentials, and pick a save folder per download.
 
+### Retry failed downloads
+
+Retry appears only for eligible downloads that rclone has reported as finished with a
+failure. It starts a new attempt with a new transfer ID and job, not a byte-level resume.
+The old row keeps its failure diagnostics and shows Retried. Each failed row can create
+only one successor; repeating the request returns that same successor. If the successor
+also fails, it can become eligible for its own Retry.
+
+Retries use the original connection snapshot, source path, local destination, and per-item
+segment request. Switching or disconnecting the browsing connection, or changing or
+deleting a saved profile, does not redirect the retry or adopt new credentials. A missing
+source, private key, or connection configuration remains an error. Source size is checked
+again; the content at the same source path may have changed.
+
+Downloads to the same canonical final local file run one at a time, including retries.
+A queued row shows "Waiting for another download to this file." Other destinations and
+uploads still share the Concurrent capacity.
+
+If a submission's outcome is unknown or cancellation has not been confirmed, that target
+stays blocked for the lifetime of the running server's download manager. Existing queued
+and newly requested downloads to it show an explicit reason. Not every error is retryable;
+canceled transfers and uploads cannot Retry. Remove and Clear finished discard the removed
+rows' diagnostics and retry options, but do not clear uncertain-target protection.
+
+Clear all, reconnecting, closing the browser, waiting for a timer, or a stop request
+returning does not prove the backend stopped or clear that protection. Before restarting
+Siphon to unblock a target, confirm that its old supervised rclone backend has actually
+terminated. A full server restart empties the in-memory queue and forgets target protection;
+an app restart alone is not proof that old writers stopped. Orphaned or external writers
+are outside this protection.
+
+Retries are manual: there is no automatic retry, backoff, Retry all, persistent history,
+or polling-based recovery. Retry does not guarantee overwrite behavior, atomic replacement,
+partial-file handling, or byte-level resume.
+
 ### Browser columns
 
 Name defaults to filling the remaining table width, with sensible default widths for Size
