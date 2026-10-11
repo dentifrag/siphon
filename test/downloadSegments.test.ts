@@ -8,6 +8,11 @@ import type {
 } from '../src/server/rclone/downloadManager'
 import type { TransferProgress } from '../src/shared/types'
 
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>()),
+  mkdir: vi.fn().mockResolvedValue(undefined)
+}))
+
 function makeManager() {
   let counter = 0
   const enqueue = vi.fn((input: RcloneEnqueueInput): TransferProgress => {
@@ -43,7 +48,7 @@ function listEntry(path: string, isDir = false): RcloneListEntry {
 describe('download expansion segment requests', () => {
   it('forwards eight requested segments when expanding a single file', async () => {
     const client = {
-      listRecursiveFiles: vi.fn(),
+      listRecursiveEntries: vi.fn(),
       deleteRemote: vi.fn()
     } as unknown as RcloneClient
     const manager = makeManager()
@@ -73,13 +78,13 @@ describe('download expansion segment requests', () => {
     })
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ status: 'queued', segments: 8 })
-    expect(client.listRecursiveFiles).not.toHaveBeenCalled()
+    expect(client.listRecursiveEntries).not.toHaveBeenCalled()
     expect(client.deleteRemote).not.toHaveBeenCalled()
   })
 
   it('forwards eight requested segments to every recursively expanded directory file', async () => {
     const client = {
-      listRecursiveFiles: vi
+      listRecursiveEntries: vi
         .fn()
         .mockResolvedValue([listEntry('media/folder/a.bin'), listEntry('media/folder/sub/b.bin')]),
       deleteRemote: vi.fn()
@@ -97,15 +102,15 @@ describe('download expansion segment requests', () => {
       jobRemote: '_dl-folder'
     })
 
-    expect(client.listRecursiveFiles).toHaveBeenCalledTimes(1)
-    expect(client.listRecursiveFiles).toHaveBeenCalledWith('_dl-folder:', 'media/folder')
+    expect(client.listRecursiveEntries).toHaveBeenCalledTimes(1)
+    expect(client.listRecursiveEntries).toHaveBeenCalledWith('_dl-folder:', 'media/folder')
     expect(manager.enqueue).toHaveBeenCalledTimes(2)
     for (const [index, relativePath] of ['a.bin', 'sub/b.bin'].entries()) {
       expect(manager.enqueue).toHaveBeenNthCalledWith(index + 1, {
         srcFs: '_dl-folder:',
         srcRemote: `media/folder/${relativePath}`,
-        dstFs: targetDir,
-        dstRemote: `folder/${relativePath}`,
+        dstFs: join(targetDir, 'folder'),
+        dstRemote: relativePath,
         displayName: `folder/${relativePath}`,
         localPath: join(targetDir, 'folder', relativePath),
         size: 100 * 1024 * 1024,

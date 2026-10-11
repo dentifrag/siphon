@@ -63,8 +63,14 @@ The Segments setting is saved with each download when it is queued. Changing Con
 does not replace queued or running transfers' segment requests; changing Segments applies
 only to newly queued downloads. Configured streams can be fewer than requested because each
 chunk is at least 5 MiB: a 20 MiB file requesting eight segments is configured for four.
-Requested and configured segment counts, including the displayed active-segment count, are
-not measurements of rclone's actual runtime streams.
+Requested and configured segment counts are not measurements of rclone's actual runtime
+streams.
+
+Folder downloads validate the remote tree and create the destination folder structure before
+queuing each file as its own transfer. Nested paths and empty subfolders inside a non-empty
+folder are preserved. Concurrent limits how many files transfer at once, while Segments
+controls the stream limit within each file. Small files can use fewer streams; the queue
+displays the stream limit, not a measured active-stream count.
 
 ## First-run setup
 
@@ -91,7 +97,8 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 - Upload files and folders that already exist on the Siphon server's local disk into the
   remote folder you are browsing.
 - Downloads keep running on the server even if you close the tab or your phone.
-- Save connections so you don't retype credentials, and pick a save folder per download.
+- Save connections so you don't retype credentials. Siphon remembers the last download folder
+  you selected.
 
 ### Retry failed downloads
 

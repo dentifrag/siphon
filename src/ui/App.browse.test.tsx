@@ -5,8 +5,23 @@ import { installMockWebApi } from './test/mockWebApi'
 import App from './App'
 import type { ConnectionProfileMeta, ResolvedProfile } from '@shared/api'
 import type { RemoteEntry } from '@shared/types'
+import { DOWNLOAD_DIR_STORAGE_KEY } from './lib/storage'
 
 describe('App browse behavior', () => {
+  it('loads and updates the last manually selected download folder', async () => {
+    localStorage.setItem(DOWNLOAD_DIR_STORAGE_KEY, 'D:\\Downloads')
+    installMockWebApi({
+      defaultDownloadDir: vi.fn(async () => 'C:\\Downloads')
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+
+    const input = await screen.findByLabelText('Download folder')
+    expect(input).toHaveValue('D:\\Downloads')
+
+    fireEvent.change(input, { target: { value: 'E:\\Media' } })
+    expect(localStorage.getItem(DOWNLOAD_DIR_STORAGE_KEY)).toBe('E:\\Media')
+  })
+
   it('defaultDownloadDir does not clobber a profile-provided download dir', async () => {
     let resolveDefaultDir: (dir: string) => void = () => {}
     const defaultDirPromise = new Promise<string>((resolvePromise) => {

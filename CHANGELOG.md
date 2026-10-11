@@ -7,7 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- Folder downloads now create the validated destination folder structure before queuing
+  individual files. Concurrent still limits active file transfers, and Segments controls
+  parallel streams within each file.
+- The transfer queue displays the stream limit instead of an inferred active-stream count.
+- The download folder now defaults to the last path selected in the UI instead of resetting to
+  the configured default on every load.
 
 ## [1.0.2] - 2026-08-25
 

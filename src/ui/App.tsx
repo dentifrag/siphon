@@ -8,6 +8,7 @@ import { PasswordDialog } from './components/PasswordDialog'
 import { useConnection } from './hooks/useConnection'
 import { useBrowser } from './hooks/useBrowser'
 import { useTransfers } from './hooks/useTransfers'
+import { DOWNLOAD_DIR_STORAGE_KEY, loadStoredDownloadDir } from './lib/storage'
 
 interface AppProps {
   canChangePassword: boolean
@@ -15,7 +16,7 @@ interface AppProps {
 
 export default function App({ canChangePassword }: AppProps) {
   const [segments, setSegments] = useState(4)
-  const [downloadDir, setDownloadDir] = useState('')
+  const [downloadDir, setDownloadDir] = useState(loadStoredDownloadDir)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerMode, setPickerMode] = useState<'chooseDir' | 'chooseItems'>('chooseDir')
   const [mobileTab, setMobileTab] = useState<'files' | 'transfers'>('files')
@@ -55,6 +56,10 @@ export default function App({ canChangePassword }: AppProps) {
   })
 
   const connected = connection.connState === 'connected'
+  const handleManualDownloadDirChange = useCallback((dir: string) => {
+    localStorage.setItem(DOWNLOAD_DIR_STORAGE_KEY, dir)
+    setDownloadDir(dir)
+  }, [])
 
   return (
     <div className={connected ? 'app app--connected' : 'app'}>
@@ -79,7 +84,7 @@ export default function App({ canChangePassword }: AppProps) {
           setPickerMode('chooseDir')
           setPickerOpen(true)
         }}
-        onDownloadDirChange={setDownloadDir}
+        onDownloadDirChange={handleManualDownloadDirChange}
         profiles={connection.profiles}
         selectedProfileId={connection.selectedProfileId}
         onSelectProfile={connection.handleSelectProfile}
@@ -158,7 +163,7 @@ export default function App({ canChangePassword }: AppProps) {
               if (upload) void upload(paths)
               return
             }
-            setDownloadDir(paths[0])
+            handleManualDownloadDirChange(paths[0])
             setPickerOpen(false)
           }}
         />

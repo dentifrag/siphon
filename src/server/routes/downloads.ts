@@ -1,4 +1,5 @@
-import { join, sep } from 'node:path'
+import { mkdir } from 'node:fs/promises'
+import { dirname, join, sep } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
@@ -29,7 +30,8 @@ async function enqueuePlannedDownloads(
   client: RcloneClient,
   manager: RcloneDownloadManager,
   planned: RcloneEnqueueInput[],
-  scope: FsScope | undefined
+  scope: FsScope | undefined,
+  directories: string[] = []
 ): Promise<TransferProgress[]> {
   try {
     if (scope) {
@@ -39,6 +41,13 @@ async function enqueuePlannedDownloads(
         input.destinationKey = downloadDestinationKey(canonical)
       }
     }
+    const canonicalDirectories: string[] = []
+    for (const directory of directories) {
+      const canonical = scope ? await resolvePath(scope, directory) : directory
+      if (!canonical) throw httpError(400, 'That download destination is not accessible.')
+      canonicalDirectories.push(canonical)
+    }
+    for (const directory of canonicalDirectories) await mkdir(directory, { recursive: true })
   } catch (err) {
     const remote = planned[0]?.cleanupRemote
     if (remote) await client.deleteRemote(remote).catch(() => undefined)
@@ -56,32 +65,32 @@ export async function expandDownload(
 
   if (item.IsDir) {
     const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
-    let files
+    let entries
     try {
-      files = await client.listRecursiveFiles(`${jobRemote}:`, normalizedDirPath)
+      entries = await client.listRecursiveEntries(`${jobRemote}:`, normalizedDirPath)
     } catch (err) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw err
     }
 
-    if (files.length === 0) {
+    if (!entries.some((entry) => !entry.IsDir)) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       return []
     }
 
     const prefix = normalizedDirPath ? `${normalizedDirPath}/` : ''
-    if (prefix && files.some((entry) => !entry.Path.startsWith(prefix))) {
+    if (prefix && entries.some((entry) => !entry.Path.startsWith(prefix))) {
       await client.deleteRemote(jobRemote).catch(() => undefined)
       throw new Error('Recursive listing returned a file outside the requested directory.')
     }
 
     const destinationRoot = join(targetDir, wrappingName)
-    const plannedFiles = files.map((entry) => {
+    const plannedEntries = entries.map((entry) => {
       const relativePath = entry.Path.slice(prefix.length)
       const localPath = join(destinationRoot, relativePath)
       return { entry, relativePath, localPath }
     })
-    const hasUnsafePath = plannedFiles.some(
+    const hasUnsafePath = plannedEntries.some(
       ({ relativePath, localPath }) =>
         !relativePath ||
         relativePath.startsWith('/') ||
@@ -93,20 +102,28 @@ export async function expandDownload(
       throw new Error('Recursive listing returned an unsafe file path.')
     }
 
-    const planned = plannedFiles.map(({ entry, relativePath, localPath }): RcloneEnqueueInput => {
-      return {
-        srcFs: `${jobRemote}:`,
-        srcRemote: entry.Path,
-        dstFs: targetDir,
-        dstRemote: `${wrappingName}/${relativePath}`,
-        displayName: `${wrappingName}/${relativePath}`,
-        localPath,
-        size: entry.Size < 0 ? 0 : entry.Size,
-        segments,
-        cleanupRemote: jobRemote
-      }
-    })
-    return enqueuePlannedDownloads(client, manager, planned, input.scope)
+    const directories = new Set([
+      destinationRoot,
+      ...plannedEntries.map(({ entry, localPath }) =>
+        entry.IsDir ? localPath : dirname(localPath)
+      )
+    ])
+    const planned = plannedEntries
+      .filter(({ entry }) => !entry.IsDir)
+      .map(({ entry, relativePath, localPath }): RcloneEnqueueInput => {
+        return {
+          srcFs: `${jobRemote}:`,
+          srcRemote: entry.Path,
+          dstFs: destinationRoot,
+          dstRemote: relativePath,
+          displayName: `${wrappingName}/${relativePath}`,
+          localPath,
+          size: entry.Size < 0 ? 0 : entry.Size,
+          segments,
+          cleanupRemote: jobRemote
+        }
+      })
+    return enqueuePlannedDownloads(client, manager, planned, input.scope, [...directories])
   }
 
   return enqueuePlannedDownloads(

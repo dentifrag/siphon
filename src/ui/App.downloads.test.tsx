@@ -23,6 +23,46 @@ function makeTransfer(overrides: Partial<TransferProgress> = {}): TransferProgre
 }
 
 describe('App download behaviors', () => {
+  it.each([0, 4])(
+    'shows the configured stream limit instead of an active count of %i',
+    async (activeSegments) => {
+      installMockWebApi({
+        onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
+          callback({
+            type: 'reset',
+            transfers: [
+              makeTransfer({
+                remotePath: '/movies',
+                localPath: '/local/movies',
+                size: 4096,
+                segments: 4,
+                activeSegments
+              })
+            ]
+          })
+          return () => {}
+        })
+      })
+      renderWithProviders(<App canChangePassword={false} />)
+
+      expect(await screen.findByText(/up to 4 segments/)).toBeInTheDocument()
+      expect(screen.queryByText(/\d+\/4 segments/)).not.toBeInTheDocument()
+    }
+  )
+
+  it('does not show a download stream limit for uploads', async () => {
+    installMockWebApi({
+      onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
+        callback({ type: 'reset', transfers: [makeTransfer({ direction: 'upload' })] })
+        return () => {}
+      })
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+
+    expect(await screen.findByText('Uploading')).toBeInTheDocument()
+    expect(screen.queryByText(/segments/)).not.toBeInTheDocument()
+  })
+
   it('shows an error and does not enqueue when no download dir is chosen', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
