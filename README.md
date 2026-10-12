@@ -72,6 +72,10 @@ folder are preserved. Concurrent limits how many files transfer at once, while S
 controls the stream limit within each file. Small files can use fewer streams; the queue
 displays the stream limit, not a measured active-stream count.
 
+Successfully completed transfers show a full green bar and 100%, including empty files and
+files within folder downloads whose sizes or byte statistics are unavailable. The byte
+counts still reflect the reported metadata; completion does not invent missing bytes.
+
 ## First-run setup
 
 On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.

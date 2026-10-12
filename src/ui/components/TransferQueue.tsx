@@ -128,7 +128,10 @@ export function TransferQueue(props: TransferQueueProps) {
         ) : (
           <ul className="transfer-list">
             {transfers.map((transfer) => {
-              const percent = formatPercent(transfer.transferred, transfer.size)
+              const percent =
+                transfer.status === 'completed'
+                  ? 100
+                  : formatPercent(transfer.transferred, transfer.size)
               const active = transfer.status === 'downloading'
               const isUpload = transfer.direction === 'upload'
               const canceling = transfer.canceling === true && transfer.status === 'downloading'
