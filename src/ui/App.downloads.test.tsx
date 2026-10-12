@@ -23,6 +23,161 @@ function makeTransfer(overrides: Partial<TransferProgress> = {}): TransferProgre
 }
 
 describe('App download behaviors', () => {
+  it.each([
+    {
+      name: 'ordinary file',
+      transfer: { size: 100, transferred: 100 },
+      bytes: '100 B / 100 B'
+    },
+    {
+      name: 'directory child',
+      transfer: {
+        remotePath: 'movies/sub/a.txt',
+        localPath: 'C:\\downloads\\movies\\sub\\a.txt',
+        size: 100,
+        transferred: 100
+      },
+      bytes: '100 B / 100 B'
+    },
+    {
+      name: 'empty file',
+      transfer: { size: 0, transferred: 0 },
+      bytes: '0 B / 0 B'
+    },
+    {
+      name: 'directory child without reported bytes',
+      transfer: {
+        remotePath: 'movies/sub/a.txt',
+        localPath: 'C:\\downloads\\movies\\sub\\a.txt',
+        size: 0,
+        transferred: 0
+      },
+      bytes: '0 B / 0 B'
+    },
+    {
+      name: 'unknown-size file with reported bytes',
+      transfer: { size: 0, transferred: 50 },
+      bytes: '50 B / 0 B'
+    },
+    {
+      name: 'file with incomplete byte statistics',
+      transfer: { size: 100, transferred: 50 },
+      bytes: '50 B / 100 B'
+    },
+    {
+      name: 'empty upload',
+      transfer: { direction: 'upload' as const, size: 0, transferred: 0 },
+      bytes: '0 B / 0 B'
+    }
+  ])(
+    'shows a full green completed bar for $name without changing bytes',
+    async ({ transfer, bytes }) => {
+      installMockWebApi({
+        onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
+          callback({
+            type: 'reset',
+            transfers: [makeTransfer({ ...transfer, status: 'completed' })]
+          })
+          return () => {}
+        })
+      })
+      renderWithProviders(<App canChangePassword={false} />)
+
+      const bar = await screen.findByRole('progressbar')
+      expect(bar.style.getPropertyValue('--progress-width')).toBe('100%')
+      expect(bar.style.getPropertyValue('--progress-bg')).toBe('var(--bgColor-success-emphasis)')
+      expect(bar).toHaveAccessibleName('a.txt 100%')
+      expect(bar).toHaveAttribute('aria-valuenow', '100')
+      expect(
+        screen.getByText(
+          transfer.direction === 'upload' ? 'Upload completed' : 'Download completed'
+        )
+      ).toBeInTheDocument()
+      expect(screen.getByText(`${bytes} (100%)`)).toBeInTheDocument()
+    }
+  )
+
+  it.each([
+    { status: 'queued', size: 100, transferred: 0, percent: 0, bg: 'accent' },
+    { status: 'downloading', size: 100, transferred: 50, percent: 50, bg: 'accent' },
+    { status: 'downloading', size: 0, transferred: 0, percent: 0, bg: 'accent' },
+    { status: 'downloading', size: 0, transferred: 50, percent: 100, bg: 'accent' },
+    { status: 'error', size: 100, transferred: 50, percent: 50, bg: 'danger' },
+    { status: 'error', size: 0, transferred: 0, percent: 0, bg: 'danger' },
+    { status: 'canceled', size: 100, transferred: 50, percent: 50, bg: 'neutral' },
+    { status: 'canceled', size: 0, transferred: 0, percent: 0, bg: 'neutral' },
+    {
+      status: 'downloading',
+      canceling: true,
+      size: 100,
+      transferred: 50,
+      percent: 50,
+      bg: 'accent'
+    }
+  ] as const)(
+    'preserves byte-based progress and color for $status ($transferred/$size, canceling=$canceling)',
+    async ({ percent, bg, ...input }) => {
+      installMockWebApi({
+        onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
+          callback({ type: 'reset', transfers: [makeTransfer(input)] })
+          return () => {}
+        })
+      })
+      renderWithProviders(<App canChangePassword={false} />)
+
+      const bar = await screen.findByRole('progressbar')
+      expect(bar.style.getPropertyValue('--progress-width')).toBe(`${percent}%`)
+      expect(bar.style.getPropertyValue('--progress-bg')).toBe(`var(--bgColor-${bg}-emphasis)`)
+      expect(bar).toHaveAccessibleName(`a.txt ${percent}%`)
+      expect(bar).toHaveAttribute('aria-valuenow', String(percent))
+      expect(
+        screen.getByText(`${input.transferred} B / ${input.size} B (${percent}%)`)
+      ).toBeInTheDocument()
+      if ('canceling' in input) {
+        expect(screen.getByText('Canceling…')).toBeInTheDocument()
+      }
+    }
+  )
+
+  it('fills the bar when a directory child completes without byte statistics', async () => {
+    let capturedCallback: ((event: DownloadEvent) => void) | undefined
+    installMockWebApi({
+      onDownloadUpdate: vi.fn((callback) => {
+        capturedCallback = callback
+        return () => {}
+      })
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    await screen.findByText('No transfers yet.')
+
+    const transfer = makeTransfer({
+      remotePath: 'movies/sub/a.txt',
+      localPath: 'C:\\downloads\\movies\\sub\\a.txt',
+      size: 0,
+      transferred: 0
+    })
+    act(() => {
+      capturedCallback?.({ type: 'update', transfer })
+    })
+    const bar = screen.getByRole('progressbar')
+    expect(bar.style.getPropertyValue('--progress-width')).toBe('0%')
+    expect(screen.getByText('Downloading')).toBeInTheDocument()
+
+    act(() => {
+      capturedCallback?.({
+        type: 'update',
+        transfer: { ...transfer, status: 'completed', speedBytesPerSec: 0, activeSegments: 0 }
+      })
+    })
+
+    expect(bar.style.getPropertyValue('--progress-width')).toBe('100%')
+    expect(bar.style.getPropertyValue('--progress-bg')).toBe('var(--bgColor-success-emphasis)')
+    expect(bar).toHaveAccessibleName('a.txt 100%')
+    expect(bar).toHaveAttribute('aria-valuenow', '100')
+    expect(screen.getByText('Download completed')).toBeInTheDocument()
+    expect(screen.getByText('0 B / 0 B (100%)')).toBeInTheDocument()
+  })
+
   it.each([0, 4])(
     'shows the configured stream limit instead of an active count of %i',
     async (activeSegments) => {

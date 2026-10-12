@@ -109,6 +109,24 @@ describe('expandDownload', () => {
     expect(client.deleteRemote).not.toHaveBeenCalled()
   })
 
+  it.each([0, -1])('queues directory children with size %i as zero-byte metadata', async (size) => {
+    const client = makeClient([listEntry('media/movies/sub/file.bin', size)])
+    const manager = makeManager()
+
+    const result = await expandDownload(client, manager, downloadInput())
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      remotePath: 'movies/sub/file.bin',
+      localPath: join('/out', 'movies', 'sub', 'file.bin'),
+      size: 0,
+      transferred: 0,
+      status: 'queued'
+    })
+    expect(mkdir).toHaveBeenCalledWith(join('/out', 'movies', 'sub'), { recursive: true })
+    expect(client.deleteRemote).not.toHaveBeenCalled()
+  })
+
   it('waits for destination creation to finish before starting any transfers', async () => {
     let finishMkdir!: () => void
     vi.mocked(mkdir).mockImplementationOnce(
@@ -292,32 +310,35 @@ describe('expandDownload', () => {
     )
   })
 
-  it('enqueues an individual file without listing or creating folders', async () => {
-    const client = makeClient()
-    const manager = makeManager()
+  it.each([500, 0, -1])(
+    'enqueues a file of size %i without listing or creating folders',
+    async (size) => {
+      const client = makeClient()
+      const manager = makeManager()
 
-    const result = await expandDownload(client, manager, {
-      ...downloadInput(),
-      item: listEntry('downloads/file.bin', 500),
-      remotePath: '/downloads/file.bin',
-      dirPath: 'downloads/file.bin',
-      wrappingName: 'file.bin'
-    })
+      const result = await expandDownload(client, manager, {
+        ...downloadInput(),
+        item: listEntry('downloads/file.bin', size),
+        remotePath: '/downloads/file.bin',
+        dirPath: 'downloads/file.bin',
+        wrappingName: 'file.bin'
+      })
 
-    expect(result).toHaveLength(1)
-    expect(manager.enqueue).toHaveBeenCalledWith({
-      srcFs: '_dl-test:',
-      srcRemote: 'downloads/file.bin',
-      dstFs: '/out',
-      dstRemote: 'file.bin',
-      displayName: '/downloads/file.bin',
-      localPath: join('/out', 'file.bin'),
-      size: 500,
-      segments: 4,
-      cleanupRemote: '_dl-test'
-    })
-    expect(client.listRecursiveEntries).not.toHaveBeenCalled()
-    expect(client.deleteRemote).not.toHaveBeenCalled()
-    expect(mkdir).not.toHaveBeenCalled()
-  })
+      expect(result).toHaveLength(1)
+      expect(manager.enqueue).toHaveBeenCalledWith({
+        srcFs: '_dl-test:',
+        srcRemote: 'downloads/file.bin',
+        dstFs: '/out',
+        dstRemote: 'file.bin',
+        displayName: '/downloads/file.bin',
+        localPath: join('/out', 'file.bin'),
+        size: Math.max(0, size),
+        segments: 4,
+        cleanupRemote: '_dl-test'
+      })
+      expect(client.listRecursiveEntries).not.toHaveBeenCalled()
+      expect(client.deleteRemote).not.toHaveBeenCalled()
+      expect(mkdir).not.toHaveBeenCalled()
+    }
+  )
 })
