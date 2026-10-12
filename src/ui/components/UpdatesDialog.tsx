@@ -331,7 +331,7 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
                 {job.error && <p className="banner banner--error">{job.error}</p>}
               </div>
             )}
-            {status.maintenance && (
+            {status.maintenance && status.canRetryTask === true && (
               <Button disabled={submitting} onClick={() => void retryTask()}>
                 Retry accepted task
               </Button>

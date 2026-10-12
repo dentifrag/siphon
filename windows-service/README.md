@@ -204,6 +204,26 @@ task file's protection separately. Older helpers can reject this valid installat
 the service installer from a checkout containing the corrected helper to deploy the fix.
 Changing the app password or repeatedly restarting the service cannot correct that check.
 
+Reinstalls also require a helper that passes a true null backup path to Windows PowerShell's
+atomic metadata replacement API. Health verification has a 10-second cumulative budget for
+its before/after identity queries; each socket and CIM operation remains bounded to three
+seconds, and connection ownership and process identity are still checked on both sides of
+the response. Old-version startup readiness is bounded to two minutes; each new-version
+or rollback health-retry loop is bounded to five minutes, including identity queries and
+retry delays. These shared deadlines retain recovery time within the task's 45-minute limit.
+
+Official release requests share a 20-second metadata or 10-minute executable-download
+budget across redirects, headers, body reads, and EOF. Each asynchronous operation also
+has a 30-second idle limit. The helper explicitly bounds waits and disposes timed-out
+transports because Windows PowerShell's response streams do not reliably honor read
+cancellation tokens. Errors identify the failed network stage.
+
+The metadata and executable-swap paths share the same atomic replacement helper, including
+the true null backup-path handling required by Windows PowerShell. **Retry accepted task**
+appears only while an accepted request needs recovery and the helper verifies the worker
+and task are idle. It is not shown while a normal update is running; retrying never selects
+a different release or submits a second installation.
+
 Release checks have a 60-second browser budget for local helper inspections and two bounded
 metadata requests. A timeout is reported explicitly and does not trigger an automatic
 retry or installation. After an installation submission times out, use **Retry status** to

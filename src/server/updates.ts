@@ -402,6 +402,16 @@ export async function createUpdateCoordinator(options: UpdateCoordinatorOptions)
       canInstall: Boolean(
         checkedOffer && capability.supported && taskIdle && !maintenance && !busy()
       ),
+      canRetryTask: Boolean(
+        maintenance &&
+        active &&
+        options.inspect &&
+        !scheduling &&
+        revision === readRevision &&
+        active === readRequest &&
+        taskIdle &&
+        capability.supported
+      ),
       ...(blockedReason ? { blockedReason } : {})
     }
   }

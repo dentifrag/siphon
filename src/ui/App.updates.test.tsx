@@ -43,6 +43,47 @@ async function confirmInstall(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('in-app Updates', () => {
+  it.each([false, undefined])(
+    'does not show task recovery during an update without authoritative permission (%s)',
+    async (canRetryTask) => {
+      const user = userEvent.setup()
+      installMockWebApi({
+        getUpdateStatus: vi.fn(async () => ({
+          ...checked,
+          job,
+          maintenance: true,
+          canInstall: false,
+          canRetryTask
+        }))
+      })
+      renderWithProviders(<App canChangePassword={false} />)
+      const dialog = await open(user)
+      expect(within(dialog).getByText(/Verifying the new version/i)).toBeInTheDocument()
+      expect(
+        within(dialog).queryByRole('button', { name: /retry accepted task/i })
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it('shows explicit recovery only when the accepted task is verified idle', async () => {
+    const user = userEvent.setup()
+    const api = installMockWebApi({
+      getUpdateStatus: vi.fn(async (): Promise<UpdateStatus> => ({
+        ...checked,
+        job: { ...job, phase: 'accepted' },
+        maintenance: true,
+        canInstall: false,
+        canRetryTask: true
+      })),
+      retryUpdateTask: vi.fn(async () => job)
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    const dialog = await open(user)
+    await user.click(within(dialog).getByRole('button', { name: /retry accepted task/i }))
+    expect(api.retryUpdateTask).toHaveBeenCalledOnce()
+    expect(api.installUpdate).not.toHaveBeenCalled()
+  })
+
   it('clears proven pre-acceptance rejection and permits another explicit confirmation', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({

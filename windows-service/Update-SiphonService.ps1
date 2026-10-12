@@ -125,6 +125,10 @@ function Set-SiphonProtection([string]$Path, [switch]$Readable) {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
+function Replace-SiphonFile([string]$Source, [string]$Destination) {
+    [IO.File]::Replace($Source, $Destination, [NullString]::Value)
+}
+
 function Write-SiphonJson([string]$Path, $Value) {
     Assert-SiphonNoReparse $Path
     $pending = "$Path.$([Guid]::NewGuid().ToString('N')).pending"
@@ -134,7 +138,7 @@ function Write-SiphonJson([string]$Path, $Value) {
         try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
         Set-SiphonProtection $pending
         if (Test-Path -LiteralPath $Path) {
-            [IO.File]::Replace($pending, $Path, $null)
+            Replace-SiphonFile $pending $Path
         } else {
             [IO.File]::Move($pending, $Path)
         }
@@ -338,6 +342,49 @@ function Get-SiphonInstallation([string]$Directory) {
     }
 }
 
+function Wait-SiphonFetchTask {
+    param(
+        [Threading.Tasks.Task]$Task,
+        [Diagnostics.Stopwatch]$Budget,
+        [double]$BudgetSeconds,
+        [string]$Phase,
+        [int]$IdleMilliseconds = 30000
+    )
+    if (-not ('SiphonUpdateTaskWaiter' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.Threading;
+using System.Threading.Tasks;
+
+public static class SiphonUpdateTaskWaiter {
+    public static bool Wait(Task task, int milliseconds) {
+        bool completed = Task.WaitAny(new[] { task }, milliseconds) == 0;
+        if (!completed) {
+            task.ContinueWith(t => { var error = t.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        } else if (task.IsFaulted) {
+            var error = task.Exception;
+        }
+        return completed;
+    }
+}
+'@
+    }
+    $remaining = [math]::Floor($BudgetSeconds * 1000 - $Budget.Elapsed.TotalMilliseconds)
+    $milliseconds = [int][math]::Max(0, [math]::Min($IdleMilliseconds, $remaining))
+    if (
+        -not [SiphonUpdateTaskWaiter]::Wait($Task, $milliseconds) -or
+        $Budget.Elapsed.TotalSeconds -ge $BudgetSeconds
+    ) {
+        throw [TimeoutException]::new("Official release $Phase exceeded its idle or overall time limit.")
+    }
+    try {
+        return $Task.GetAwaiter().GetResult()
+    } catch {
+        throw [IO.IOException]::new("Official release $Phase failed: $($_.Exception.GetBaseException().Message)", $_.Exception)
+    }
+}
+
 function Invoke-SiphonFetch([string]$Uri, [long]$Limit, [string]$Destination = '') {
     Add-Type -AssemblyName System.Net.Http
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -363,7 +410,7 @@ function Invoke-SiphonFetch([string]$Uri, [long]$Limit, [string]$Destination = '
                 $address.Scheme -cne 'https' -or -not $address.IsDefaultPort -or $address.UserInfo -or
                 $address.Fragment -or -not ($isApi -or $isDownload -or $isStorage)
             ) { throw 'Network request is outside the official Siphon release channel.' }
-            $response = $client.GetAsync($address, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            $response = Wait-SiphonFetchTask -Task ($client.GetAsync($address, [Net.Http.HttpCompletionOption]::ResponseHeadersRead)) -Budget $budget -BudgetSeconds $budgetSeconds -Phase 'response headers'
             if ([int]$response.StatusCode -in @(301, 302, 303, 307, 308)) {
                 $next = $response.Headers.Location
                 if ($null -eq $next) { throw 'Official asset redirect has no location.' }
@@ -376,7 +423,7 @@ function Invoke-SiphonFetch([string]$Uri, [long]$Limit, [string]$Destination = '
             }
             if (-not $response.IsSuccessStatusCode) { throw "Official release request failed ($([int]$response.StatusCode))." }
             if ($response.Content.Headers.ContentLength -gt $Limit) { throw 'Official release asset exceeds the pinned size limit.' }
-            $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $inputStream = Wait-SiphonFetchTask -Task ($response.Content.ReadAsStreamAsync()) -Budget $budget -BudgetSeconds $budgetSeconds -Phase 'response stream'
             $output = if ($Destination) {
                 Assert-SiphonNoReparse $Destination
                 [IO.File]::Open($Destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -384,12 +431,7 @@ function Invoke-SiphonFetch([string]$Uri, [long]$Limit, [string]$Destination = '
             $buffer = New-Object byte[] 65536
             $total = 0L
             for (;;) {
-                $cancel = New-Object Threading.CancellationTokenSource
-                try {
-                    $remaining = [math]::Max(1, ($budgetSeconds - $budget.Elapsed.TotalSeconds) * 1000)
-                    $cancel.CancelAfter([int][math]::Min(30000, $remaining))
-                    $count = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $cancel.Token).GetAwaiter().GetResult()
-                } finally { $cancel.Dispose() }
+                $count = Wait-SiphonFetchTask -Task ($inputStream.ReadAsync($buffer, 0, $buffer.Length)) -Budget $budget -BudgetSeconds $budgetSeconds -Phase 'body read'
                 if ($count -eq 0) { break }
                 $total += $count
                 if ($total -gt $Limit -or $budget.Elapsed.TotalSeconds -gt $budgetSeconds) {
@@ -508,7 +550,7 @@ function Assert-SiphonHealthConnection {
         $Config,
         [Net.IPEndPoint]$LocalEndpoint,
         [Net.IPEndPoint]$RemoteEndpoint,
-        [long]$Deadline = ([Diagnostics.Stopwatch]::GetTimestamp() + 3 * [Diagnostics.Stopwatch]::Frequency)
+        [long]$Deadline = ([Diagnostics.Stopwatch]::GetTimestamp() + 10 * [Diagnostics.Stopwatch]::Frequency)
     )
     if ($null -eq $LocalEndpoint -or $null -eq $RemoteEndpoint -or $Config.serviceName -cne 'Siphon') {
         throw 'Invalid recorded health connection identity.'
@@ -569,8 +611,9 @@ function Assert-SiphonHealthConnection {
     } | ConvertTo-Json -Compress)
 }
 
-function Get-SiphonVersionHealth($Config) {
-    $deadline = [Diagnostics.Stopwatch]::GetTimestamp() + 3 * [Diagnostics.Stopwatch]::Frequency
+function Get-SiphonVersionHealth {
+    param($Config, [long]$Deadline = [long]::MaxValue)
+    $deadline = [math]::Min($Deadline, [Diagnostics.Stopwatch]::GetTimestamp() + 10 * [Diagnostics.Stopwatch]::Frequency)
     $uri = [uri]$Config.healthUri
     $address = $null
     if (
@@ -697,12 +740,14 @@ $operations = @{
         param($Request, $Config)
         $null = Get-SiphonInstallation $directory
         $oldHealthy = $false
-        for ($attempt = 0; $attempt -lt 30 -and -not $oldHealthy; $attempt++) {
+        $readinessDeadline = [Diagnostics.Stopwatch]::GetTimestamp() + 120 * [Diagnostics.Stopwatch]::Frequency
+        for ($attempt = 0; $attempt -lt 30 -and -not $oldHealthy -and [Diagnostics.Stopwatch]::GetTimestamp() -lt $readinessDeadline; $attempt++) {
             try {
-                $health = Get-SiphonVersionHealth $Config
+                $health = Get-SiphonVersionHealth -Config $Config -Deadline $readinessDeadline
                 $oldHealthy = $health.app -ceq 'siphon' -and $health.version -ceq $Request.fromVersion -and $health.serviceRunning
             } catch {}
-            if (-not $oldHealthy) { Start-Sleep -Seconds 1 }
+            $remaining = [math]::Floor(($readinessDeadline - [Diagnostics.Stopwatch]::GetTimestamp()) * 1000 / [Diagnostics.Stopwatch]::Frequency)
+            if (-not $oldHealthy -and $remaining -gt 0) { Start-Sleep -Milliseconds ([int][math]::Min(1000, $remaining)) }
         }
         if (-not $oldHealthy) { throw 'Installed service does not match the pinned old version.' }
         Assert-SiphonPublishedRequest $Request $directory
@@ -741,11 +786,11 @@ $operations = @{
         param($Config)
         Assert-SiphonAcl $Config.stagePath
         Assert-SiphonAcl $Config.executablePath
-        [IO.File]::Replace($Config.stagePath, $Config.executablePath, $null)
+        Replace-SiphonFile $Config.stagePath $Config.executablePath
         Set-SiphonProtection $Config.executablePath -Readable
     }
     StartService = { param($Config) Start-SiphonInstalledService $Config }
-    CheckHealth = { param($ExpectedVersion, $Config) Get-SiphonVersionHealth $Config }
+    CheckHealth = { param($ExpectedVersion, $Config, [long]$Deadline = [long]::MaxValue) Get-SiphonVersionHealth -Config $Config -Deadline $Deadline }
     Restore = {
         param($Config)
         Assert-SiphonAcl $Config.backupPath

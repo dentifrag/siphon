@@ -65,6 +65,7 @@ export function registerUpdateRoutes(app: FastifyInstance, { auth, updates }: Ro
           ...status,
           canInstall: false,
           canCheck: false,
+          canRetryTask: false,
           blockedReason: 'Password authentication is required for Windows service updates.'
         }
   })

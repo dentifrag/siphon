@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { UpdateJob } from '../src/shared/api'
+import type { UpdateCapability, UpdateJob } from '../src/shared/api'
 import type { TransferProgress } from '../src/shared/types'
 import { createUpdateCoordinator } from '../src/server/updates'
 import {
@@ -31,6 +31,99 @@ async function journal(job: UpdateJob) {
 }
 
 describe('update coordinator', () => {
+  it('offers task recovery only for an accepted request whose verified task is idle', async () => {
+    let taskIdle = true
+    const schedule = vi.fn(async () => {
+      taskIdle = false
+    })
+    const { updates } = await coordinatorFixture(directory.dir, {
+      inspect: async () => ({ capability: { supported: true }, taskIdle }),
+      schedule
+    })
+    expect((await updates.status()).canRetryTask).toBe(false)
+    const offer = (await updates.check()).offer!
+    const accepted = await updates.install(offer.id)
+    expect(await updates.status()).toMatchObject({
+      maintenance: true,
+      canRetryTask: false
+    })
+    await expect(updates.retryAcceptedTask()).rejects.toMatchObject({ statusCode: 409 })
+    expect(schedule).toHaveBeenCalledOnce()
+    taskIdle = true
+    expect((await updates.status()).canRetryTask).toBe(true)
+    expect(await updates.retryAcceptedTask()).toMatchObject({ id: accepted.id })
+    expect(schedule).toHaveBeenCalledTimes(2)
+    expect((await updates.status()).canRetryTask).toBe(false)
+    await journal({ ...accepted, phase: 'rolled-back', serviceHealth: 'healthy' })
+    taskIdle = true
+    expect(await updates.status()).toMatchObject({
+      maintenance: false,
+      canRetryTask: false
+    })
+  })
+
+  it.each(['unsupported', 'failed'] as const)(
+    'does not offer task recovery when idle inspection is %s',
+    async (failure) => {
+      let failInspection = false
+      const { updates, schedule } = await coordinatorFixture(directory.dir, {
+        inspect: async () => {
+          if (failInspection && failure === 'failed') throw new Error('Inspector unavailable')
+          return {
+            capability: failInspection
+              ? ({
+                  supported: false,
+                  reason: 'unsafe-install',
+                  message: 'Installation cannot be trusted.'
+                } satisfies UpdateCapability)
+              : { supported: true },
+            taskIdle: true
+          }
+        }
+      })
+      const offer = (await updates.check()).offer!
+      await updates.install(offer.id)
+      failInspection = true
+      expect(await updates.status()).toMatchObject({
+        maintenance: true,
+        canRetryTask: false,
+        capability: { supported: false }
+      })
+      await expect(updates.retryAcceptedTask()).rejects.toBeDefined()
+      expect(schedule).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('does not offer recovery from a stale idle inspection while retry scheduling is active', async () => {
+    const inspected = deferred<{ capability: UpdateCapability; taskIdle: boolean }>()
+    const scheduled = deferred<void>()
+    let holdInspection = false
+    let holdScheduling = false
+    const schedule = vi.fn(async () => {
+      if (holdScheduling) await scheduled.promise
+    })
+    const { updates } = await coordinatorFixture(directory.dir, {
+      inspect: async () => {
+        if (holdInspection) return inspected.promise
+        return { capability: { supported: true }, taskIdle: true }
+      },
+      schedule
+    })
+    const offer = (await updates.check()).offer!
+    await updates.install(offer.id)
+    holdInspection = true
+    const staleStatus = updates.status()
+    holdInspection = false
+    holdScheduling = true
+    const retry = updates.retryAcceptedTask()
+    inspected.resolve({ capability: { supported: true }, taskIdle: true })
+    expect(await staleStatus).toMatchObject({ maintenance: true, canRetryTask: false })
+    scheduled.resolve()
+    await retry
+    expect(schedule).toHaveBeenCalledTimes(2)
+    expect((await updates.status()).canRetryTask).toBe(true)
+  })
+
   it('reports release metadata timeouts explicitly without leaving an installable offer', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
       (_url, options) =>

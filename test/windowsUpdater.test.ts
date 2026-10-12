@@ -47,6 +47,44 @@ describe('Windows installer preflight ordering', () => {
 describe.skipIf(process.platform !== 'win32')(
   'Windows updater core (injected operations only)',
   () => {
+    it('enforces native response-header, stalled-body, trickle, and EOF deadlines without trusting cancellation', () => {
+      const output = execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          resolve('test', 'fixtures', 'WindowsFetch.Tests.ps1'),
+          '-WorkerPath',
+          resolve('windows-service', 'Update-SiphonService.ps1')
+        ],
+        { encoding: 'utf8', timeout: 30_000, windowsHide: true }
+      )
+      expect(output).toContain('PASS: bounded native release transport')
+    }, 35_000)
+
+    it('creates and atomically replaces existing metadata under Windows PowerShell without a backup path', () => {
+      const output = execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          resolve('test', 'fixtures', 'WindowsInstallerPreflight.Tests.ps1'),
+          '-WorkerPath',
+          resolve('windows-service', 'Update-SiphonService.ps1'),
+          '-Scenario',
+          'atomic-json'
+        ],
+        { encoding: 'utf8', timeout: 30_000, windowsHide: true }
+      )
+      expect(output).toContain('PASS: native atomic metadata replacement')
+    }, 35_000)
+
     it('accepts normalized Task Scheduler descriptors only when task storage and effective permissions remain protected', () => {
       const output = execFileSync(
         'powershell.exe',

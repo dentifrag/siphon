@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$WorkerPath,
-    [ValidateSet('bind', 'acl', 'task-acl')][string]$Scenario = 'bind'
+    [ValidateSet('bind', 'acl', 'task-acl', 'atomic-json')][string]$Scenario = 'bind'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +21,66 @@ $config = @{ host = '0.0.0.0'; port = 8080; dataDir = 'X:\fake\data' }
 $executable = 'X:\fake\siphon-win-x64.exe'
 $wrapper = 'X:\fake\siphon-service.exe'
 $directory = 'X:\fake\siphon-updater'
+
+if ($Scenario -eq 'atomic-json') {
+    $testDirectory = Join-Path $PSScriptRoot ('.atomic-json-' + [Guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($testDirectory) | Out-Null
+    $path = Join-Path $testDirectory 'installation.json'
+    $script:protectedPaths = [System.Collections.Generic.List[string]]::new()
+    function Set-SiphonProtection {
+        param([string]$Path, [switch]$Readable)
+        $script:protectedPaths.Add($Path)
+    }
+    try {
+        Write-SiphonJson $path @{ version = '1.0.2' }
+        Assert-True (([IO.File]::ReadAllText($path) | ConvertFrom-Json).version -ceq '1.0.2') 'Initial metadata write failed.'
+        Write-SiphonJson $path @{ version = '1.0.3' }
+        Assert-True (([IO.File]::ReadAllText($path) | ConvertFrom-Json).version -ceq '1.0.3') 'Atomic metadata replacement failed.'
+        Write-SiphonJson $path @{ version = '1.0.4' }
+        Assert-True (([IO.File]::ReadAllText($path) | ConvertFrom-Json).version -ceq '1.0.4') 'Repeated metadata replacement failed.'
+        Assert-True ($script:protectedPaths.Count -eq 3) 'Metadata was not protected before every atomic write.'
+        $replaceConfig = @{
+            stagePath = (Join-Path $testDirectory 'staged.exe')
+            executablePath = (Join-Path $testDirectory 'installed.exe')
+        }
+        [IO.File]::WriteAllText($replaceConfig.stagePath, 'new executable')
+        [IO.File]::WriteAllText($replaceConfig.executablePath, 'old executable')
+        $script:aclPaths = [System.Collections.Generic.List[string]]::new()
+        function Assert-SiphonAcl {
+            param([string]$Path)
+            if ($Path -cnotin @($replaceConfig.stagePath, $replaceConfig.executablePath)) {
+                throw 'Host ACL reads are forbidden in this fixture.'
+            }
+            $script:aclPaths.Add($Path)
+        }
+        $tokens = $null
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile($WorkerPath, [ref]$tokens, [ref]$errors)
+        Assert-True ($errors.Count -eq 0) 'Worker source has parse errors.'
+        $assignment = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+            $node.Left.VariablePath.UserPath -ceq 'operations'
+        }, $true)
+        $table = $assignment.Right.Find({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true)
+        $pair = @($table.KeyValuePairs | Where-Object { $_.Item1.Value -ceq 'Replace' })
+        Assert-True ($pair.Count -eq 1) 'Worker has no unique executable replacement operation.'
+        $expression = $pair[0].Item2.Find({ param($node) $node -is [Management.Automation.Language.ScriptBlockExpressionAst] }, $true)
+        $operation = $expression.ScriptBlock.GetScriptBlock()
+        & $operation $replaceConfig
+        Assert-True ([IO.File]::ReadAllText($replaceConfig.executablePath) -ceq 'new executable') 'Actual worker executable replacement failed.'
+        Assert-True (-not [IO.File]::Exists($replaceConfig.stagePath)) 'Executable replacement did not consume the staged file.'
+        Assert-True ($script:aclPaths.Count -eq 2) 'Executable replacement skipped stage or installed-file ACL verification.'
+        Assert-True ($script:protectedPaths.Count -eq 4 -and $script:protectedPaths[3] -ceq $replaceConfig.executablePath) 'Executable replacement omitted final file protection.'
+        Assert-True (@(Get-ChildItem -LiteralPath $testDirectory -Force).Count -eq 2) 'Atomic writes left pending or backup files.'
+        Write-Output 'PASS: native atomic metadata replacement'
+    } finally {
+        foreach ($file in [IO.Directory]::GetFiles($testDirectory)) { [IO.File]::Delete($file) }
+        [IO.Directory]::Delete($testDirectory)
+    }
+    return
+}
 
 if ($Scenario -eq 'task-acl') {
     $taskPath = Join-Path $env:SystemRoot 'System32\Tasks\SiphonUpdate'
