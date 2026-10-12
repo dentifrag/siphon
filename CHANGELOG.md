@@ -7,6 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-11
+
+### Fixed
+
+- Completed downloads, directory-child transfers, and uploads now display a full green
+  progress bar at 100%, even when reported bytes or file sizes are zero, unknown, or incomplete.
+- Windows updater verification now accepts correctly protected stored task files even when
+  Task Scheduler omits the DACL protection flag.
+- Explicit update checks now have a bounded 60-second browser timeout, and update request
+  timeouts are reported distinctly from caller cancellation.
+
 ## [1.0.3] - 2026-10-11
 
 ### Added
@@ -88,7 +99,8 @@ The first public release.
 - Docker image with rclone bundled, plus single-file binaries for Windows, macOS, and Linux.
 - Windows service installer for running Siphon at boot.
 
-[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/dentifrag/siphon/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/dentifrag/siphon/compare/1.0.2...v1.0.3
 [1.0.2]: https://github.com/dentifrag/siphon/compare/1.0.1...1.0.2
 [1.0.1]: https://github.com/dentifrag/siphon/compare/v1.0.0...1.0.1
