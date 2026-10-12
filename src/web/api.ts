@@ -58,13 +58,22 @@ async function request<T>(
 async function updateRequest<T>(
   path: string,
   options?: { method?: string; body?: unknown },
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs = 20_000
 ): Promise<T> {
   const controller = new AbortController()
-  const abort = () => controller.abort()
+  const abort = () => controller.abort(signal?.reason)
   signal?.addEventListener('abort', abort, { once: true })
-  if (signal?.aborted) controller.abort()
-  const timeout = window.setTimeout(abort, 20_000)
+  if (signal?.aborted) abort()
+  const timeout = window.setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          `Update request timed out after ${timeoutMs / 1000} seconds. Retry status to reconnect.`
+        )
+      ),
+    timeoutMs
+  )
   try {
     return await request<T>(path, { ...options, signal: controller.signal, update: true })
   } finally {
@@ -103,7 +112,7 @@ export function createWebApi(): WebApi {
   return {
     getUpdateStatus: (signal) => updateRequest('/api/updates/status', undefined, signal),
     checkForUpdates: (signal) =>
-      updateRequest('/api/updates/check', { method: 'POST', body: {} }, signal),
+      updateRequest('/api/updates/check', { method: 'POST', body: {} }, signal, 60_000),
     installUpdate: ({ offerId }, signal) =>
       updateRequest('/api/updates/install', { method: 'POST', body: { offerId } }, signal),
     retryUpdateTask: (signal) =>

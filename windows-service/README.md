@@ -191,6 +191,24 @@ same worker lock.
 Reinstalling after a healthy terminal job retires its accepted request and backup while
 retaining the completed journal for display. It cannot retire an unfinished or unknown job.
 
+### Updater verification and timeouts
+
+Password authentication is required for updates; enabling it does not change the helper or
+Scheduled Task permissions. If the dialog says it cannot verify either, investigate the
+protected installation before retrying. Do not grant ordinary users access to the task or
+updater directory to work around the error.
+
+Windows can omit the DACL protection flag from the Task Scheduler API even when the stored
+task file is protected. The helper validates the effective task permissions and the stored
+task file's protection separately. Older helpers can reject this valid installation; rerun
+the service installer from a checkout containing the corrected helper to deploy the fix.
+Changing the app password or repeatedly restarting the service cannot correct that check.
+
+Release checks have a 60-second browser budget for local helper inspections and two bounded
+metadata requests. A timeout is reported explicitly and does not trigger an automatic
+retry or installation. After an installation submission times out, use **Retry status** to
+reconcile the accepted request rather than submitting another update.
+
 ## Uninstall
 
 ```powershell

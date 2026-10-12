@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$WorkerPath,
-    [ValidateSet('bind', 'acl')][string]$Scenario = 'bind'
+    [ValidateSet('bind', 'acl', 'task-acl')][string]$Scenario = 'bind'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +21,69 @@ $config = @{ host = '0.0.0.0'; port = 8080; dataDir = 'X:\fake\data' }
 $executable = 'X:\fake\siphon-win-x64.exe'
 $wrapper = 'X:\fake\siphon-service.exe'
 $directory = 'X:\fake\siphon-updater'
+
+if ($Scenario -eq 'task-acl') {
+    $taskPath = Join-Path $env:SystemRoot 'System32\Tasks\SiphonUpdate'
+    $normalized = 'O:BAG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)'
+    $protected = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)'
+
+    function New-FakeTaskAcl([string]$Owner = 'S-1-5-32-544', [bool]$Protected = $true, [switch]$Writable) {
+        $acl = New-Object Security.AccessControl.FileSecurity
+        $acl.SetOwner((New-Object Security.Principal.SecurityIdentifier($Owner)))
+        $acl.SetAccessRuleProtection($Protected, $false)
+        foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
+            $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+                (New-Object Security.Principal.SecurityIdentifier($sid)),
+                [Security.AccessControl.FileSystemRights]::FullControl,
+                [Security.AccessControl.AccessControlType]::Allow
+            )))
+        }
+        if ($Writable) {
+            $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+                (New-Object Security.Principal.SecurityIdentifier('S-1-1-0')),
+                [Security.AccessControl.FileSystemRights]::Write,
+                [Security.AccessControl.AccessControlType]::Allow
+            )))
+        }
+        return $acl
+    }
+    function Test-Path {
+        param([string]$LiteralPath)
+        return $LiteralPath -ceq $taskPath
+    }
+    function Get-Item {
+        param([string]$LiteralPath, [switch]$Force)
+        if ($LiteralPath -cne $taskPath) { throw 'Unexpected task path.' }
+        return @{ Attributes = [IO.FileAttributes]::Normal }
+    }
+    function Get-Acl {
+        param([string]$LiteralPath)
+        if ($LiteralPath -cne $taskPath) { throw 'Host ACL reads are forbidden in this fixture.' }
+        return $script:taskAcl
+    }
+    function Set-Acl { throw 'Host ACL changes are forbidden in this fixture.' }
+
+    $script:taskAcl = New-FakeTaskAcl
+    foreach ($descriptor in @($normalized, $protected)) {
+        Assert-SiphonTaskSecurity $descriptor
+    }
+    foreach ($entry in @(
+        @{ descriptor = 'O:BUG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)'; acl = (New-FakeTaskAcl) },
+        @{ descriptor = 'G:BAD:(A;;FA;;;SY)(A;;FA;;;BA)'; acl = (New-FakeTaskAcl) },
+        @{ descriptor = 'O:BAG:BA'; acl = (New-FakeTaskAcl) },
+        @{ descriptor = 'O:BAG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)'; acl = (New-FakeTaskAcl) },
+        @{ descriptor = $normalized; acl = (New-FakeTaskAcl -Owner 'S-1-5-21-1-2-3-1001') },
+        @{ descriptor = $normalized; acl = (New-FakeTaskAcl -Writable) },
+        @{ descriptor = $protected; acl = (New-FakeTaskAcl -Protected $false) }
+    )) {
+        $script:taskAcl = $entry.acl
+        $message = ''
+        try { Assert-SiphonTaskSecurity $entry.descriptor } catch { $message = $_.Exception.Message }
+        Assert-True ($message -match 'ownership|protected|restricted|untrusted writer') 'Task validation accepted unsafe effective permissions or storage.'
+    }
+    Write-Output 'PASS: safe normalized task security'
+    return
+}
 
 if ($Scenario -eq 'acl') {
     $serviceDirectory = 'X:\fake'

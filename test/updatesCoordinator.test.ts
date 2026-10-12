@@ -22,6 +22,7 @@ beforeEach(async () => {
   directory = await testDirectory()
 })
 afterEach(async () => {
+  vi.useRealTimers()
   await directory.dispose()
 })
 
@@ -30,6 +31,33 @@ async function journal(job: UpdateJob) {
 }
 
 describe('update coordinator', () => {
+  it('reports release metadata timeouts explicitly without leaving an installable offer', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      (_url, options) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = options?.signal
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+    )
+    const { updates, schedule } = await coordinatorFixture(directory.dir, { fetch })
+    vi.useFakeTimers()
+    const result = expect(updates.check()).resolves.toMatchObject({
+      check: {
+        state: 'error',
+        error:
+          'Release metadata request timed out after 15 seconds. Check connectivity to GitHub and try again.'
+      },
+      offer: null,
+      canInstall: false,
+      maintenance: false
+    })
+    await vi.advanceTimersByTimeAsync(15_000)
+    await result
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(schedule).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each(['inspection', 'persistence'])(
     'proves a pre-acceptance %s rejection without reserving maintenance',
     async (failure) => {
