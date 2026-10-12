@@ -148,6 +148,37 @@ describe('RcloneDownloadManager concurrency', () => {
     expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
   })
 
+  it.each([
+    { size: 0, bytes: 0, transferred: 0 },
+    { size: 0, bytes: 50, transferred: 50 },
+    { size: 100, bytes: 0, transferred: 100 }
+  ])(
+    'completes successful jobs with size $size and stats bytes $bytes without inventing unknown bytes',
+    async ({ size, bytes, transferred }) => {
+      const { manager, client, jobStatuses } = makeManager()
+      client.coreStats.mockResolvedValue({ bytes, transferring: [] })
+      const onUpdate = vi.fn()
+      manager.onUpdate(onUpdate)
+      const transfer = manager.enqueue(enqueueInput({ size }))
+      await flushMicrotasks()
+
+      jobStatuses.set(1, { finished: true, success: true, error: '' })
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+      await flushMicrotasks()
+
+      const completed = {
+        id: transfer.id,
+        status: 'completed',
+        size,
+        transferred,
+        speedBytesPerSec: 0,
+        activeSegments: 0
+      }
+      expect(manager.list().find(({ id }) => id === transfer.id)).toMatchObject(completed)
+      expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining(completed))
+    }
+  )
+
   it.each([{ segments: [8, 8, 8] }, { segments: [2, 8, 6] }])(
     'retains per-item requests $segments when raising the cap',
     async ({ segments }) => {
