@@ -6,7 +6,15 @@ import {
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
 import type { RcloneClient } from '../src/server/rclone/client'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+
+// Scheduler tests use a publication double; downloadPublication/downloadCollisions exercise disk.
+vi.mock('../src/server/downloadPublication', () => ({
+  assertDestination: vi.fn(async () => undefined),
+  createDownloadStage: vi.fn(async (path: string) => ({ directory: dirname(path), path })),
+  publishDownload: vi.fn(async () => true),
+  cleanupDownloadStage: vi.fn(async () => undefined)
+}))
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void

@@ -135,6 +135,7 @@ export interface UpdateCoordinatorOptions {
   stateDir: string
   capability: UpdateCapability
   listTransfers: () => TransferProgress[]
+  hasUncertainDownloadWriters?: () => boolean
   fetch: typeof globalThis.fetch
   schedule: (request: UpdateRequest) => Promise<void>
   inspect?: () => Promise<{ capability: UpdateCapability; taskIdle: boolean }>
@@ -306,6 +307,7 @@ export async function createUpdateCoordinator(options: UpdateCoordinatorOptions)
 
   const busy = () =>
     admissions > 0 ||
+    options.hasUncertainDownloadWriters?.() === true ||
     options.listTransfers().some((transfer) => ['queued', 'downloading'].includes(transfer.status))
 
   async function status(): Promise<UpdateStatus> {
@@ -383,9 +385,11 @@ export async function createUpdateCoordinator(options: UpdateCoordinatorOptions)
         ? capability.message
         : !taskIdle
           ? 'The update task or installer is still active.'
-          : busy()
-            ? 'Transfers are active. Finish or cancel queued and running transfers before installing.'
-            : undefined
+          : options.hasUncertainDownloadWriters?.()
+            ? 'A download writer has an uncertain outcome. Confirm the old rclone backend has stopped and restart Siphon before installing.'
+            : busy()
+              ? 'Transfers are active. Finish or cancel queued and running transfers before installing.'
+              : undefined
     return {
       currentVersion,
       capability,
@@ -599,6 +603,7 @@ export async function createInstalledUpdates(input: {
   host: string
   port: number
   listTransfers: () => TransferProgress[]
+  hasUncertainDownloadWriters?: () => boolean
   log?: Pick<FastifyBaseLogger, 'info' | 'warn'>
 }): Promise<UpdateCoordinator> {
   const execDir = dirname(process.execPath)

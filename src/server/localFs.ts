@@ -26,7 +26,13 @@ export interface FsScope {
 export function downloadDestinationKey(path: string): string {
   const normalized = resolve(path)
   if (process.platform === 'darwin') return normalized.normalize('NFC').toLowerCase()
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+  return process.platform === 'win32'
+    ? normalized
+        .split(/[\\/]/)
+        .map((part) => part.replace(/[ .]+$/, ''))
+        .join('\\')
+        .toLowerCase()
+    : normalized
 }
 
 export async function validateDownloadDestination(
@@ -40,7 +46,8 @@ export async function validateDownloadDestination(
   if (key !== (input.destinationKey ?? downloadDestinationKey(input.localPath))) {
     throw httpError(
       409,
-      'The download destination has changed. Remove this transfer and download it again.'
+      'The download destination has changed. Remove this transfer and download it again.',
+      'DESTINATION_CHANGED'
     )
   }
   return key

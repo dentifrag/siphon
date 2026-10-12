@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RemoteEntry } from '@shared/types'
 import { errorMessage } from '../lib/format'
+import { useDownloadCollisions, type CollisionChoice } from './useDownloadCollisions'
+import type { TransferProgress } from '@shared/types'
 
 interface UseBrowserOptions {
   downloadDir: string
@@ -25,6 +27,8 @@ interface UseBrowserResult {
   handleDownloadSelected: () => Promise<void>
   handleUploadSelected: (localPaths: string[]) => Promise<void>
   prepareUpload: () => (localPaths: string[]) => Promise<void>
+  collisionChoice: CollisionChoice | null
+  retryDownload: (id: string, alive: () => boolean) => Promise<TransferProgress | null>
 }
 
 interface BrowserView {
@@ -43,8 +47,8 @@ function isConnectionConflict(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
-    (('status' in error && error.status === 409) ||
-      ('statusCode' in error && error.statusCode === 409))
+    'code' in error &&
+    error.code === 'CONNECTION_CHANGED'
   )
 }
 
@@ -53,6 +57,7 @@ export function useBrowser({
   segments,
   onStatusConnected
 }: UseBrowserOptions): UseBrowserResult {
+  const collisions = useDownloadCollisions()
   const [listing, setListing] = useState<{
     view: BrowserView | null
     entries: RemoteEntry[]
@@ -74,6 +79,7 @@ export function useBrowser({
   const getCwd = useCallback(() => viewRef.current?.cwd ?? '/', [])
 
   const beginConnectionChange = useCallback(() => {
+    collisions.cancelChoice()
     revisionRef.current = null
     lifetimeRef.current += 1
     navigationRef.current += 1
@@ -83,7 +89,7 @@ export function useBrowser({
     setSelected(new Set())
     setBrowseLoading(false)
     setBrowseError(null)
-  }, [])
+  }, [collisions.cancelChoice])
 
   const navigate = useCallback(async (dir: string): Promise<NavigationResult> => {
     const revision = revisionRef.current
@@ -199,7 +205,7 @@ export function useBrowser({
   const download = useCallback(
     async (
       view: BrowserView,
-      remotePath: string,
+      remotePaths: string[],
       destination: string,
       segmentCount: number
     ): Promise<BatchResult> => {
@@ -211,19 +217,31 @@ export function useBrowser({
         return 'abort'
       }
       try {
-        const enqueued = await window.api.enqueueDownload({
-          remotePath,
-          downloadDir: destination,
-          segments: segmentCount,
-          connectionRevision: view.revision
-        })
+        const admission = await collisions.download(
+          {
+            remotePaths,
+            downloadDir: destination,
+            segments: segmentCount,
+            connectionRevision: view.revision
+          },
+          () => ownsConnection(view)
+        )
         if (!ownsConnection(view)) return 'abort'
+        if (!admission) return 'abort'
         if (
-          enqueued.length === 0 &&
+          admission.empty &&
           viewRef.current === view &&
           navigationRef.current === view.navigation
         ) {
           setBrowseError('That folder has no files to download.')
+        } else if (
+          admission.skipped.length &&
+          viewRef.current === view &&
+          navigationRef.current === view.navigation
+        ) {
+          setBrowseError(
+            `Skipped ${admission.skipped.length} file${admission.skipped.length === 1 ? '' : 's'}. Existing content was preserved.`
+          )
         }
         return 'continue'
       } catch (error) {
@@ -231,7 +249,7 @@ export function useBrowser({
         return isConnectionConflict(error) || !ownsConnection(view) ? 'abort' : 'continue'
       }
     },
-    [ownsConnection, reportTransferError]
+    [ownsConnection, reportTransferError, collisions.download]
   )
 
   const enqueue = useCallback(
@@ -239,7 +257,7 @@ export function useBrowser({
       const view = listing.view
       if (!view) return
       const settings = optionsRef.current
-      await download(view, remotePath, settings.downloadDir, settings.segments)
+      await download(view, [remotePath], settings.downloadDir, settings.segments)
     },
     [download, listing.view]
   )
@@ -249,10 +267,13 @@ export function useBrowser({
     if (!view) return
     const settings = optionsRef.current
     const targets = entries.filter((entry) => selected.has(entry.path))
-    for (const entry of targets) {
-      if ((await download(view, entry.path, settings.downloadDir, settings.segments)) === 'abort')
-        break
-    }
+    if (targets.length)
+      await download(
+        view,
+        targets.map((entry) => entry.path),
+        settings.downloadDir,
+        settings.segments
+      )
     if (
       ownsConnection(view) &&
       viewRef.current === view &&
@@ -311,6 +332,8 @@ export function useBrowser({
     enqueue,
     handleDownloadSelected,
     handleUploadSelected,
-    prepareUpload
+    prepareUpload,
+    collisionChoice: collisions.choice,
+    retryDownload: collisions.retry
   }
 }

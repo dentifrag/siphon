@@ -93,7 +93,8 @@ describe('expandDownload', () => {
       localPath: join('/out', 'movies', 'a.mkv'),
       size: 10,
       segments: 4,
-      cleanupRemote: '_dl-test'
+      cleanupRemote: '_dl-test',
+      destinationSnapshot: { kind: 'absent' }
     })
     expect(manager.enqueue).toHaveBeenNthCalledWith(2, {
       srcFs: '_dl-test:',
@@ -104,7 +105,8 @@ describe('expandDownload', () => {
       localPath: join('/out', 'movies', 'sub', 'b.mkv'),
       size: 20,
       segments: 4,
-      cleanupRemote: '_dl-test'
+      cleanupRemote: '_dl-test',
+      destinationSnapshot: { kind: 'absent' }
     })
     expect(client.deleteRemote).not.toHaveBeenCalled()
   })
@@ -334,7 +336,8 @@ describe('expandDownload', () => {
         localPath: join('/out', 'file.bin'),
         size: Math.max(0, size),
         segments: 4,
-        cleanupRemote: '_dl-test'
+        cleanupRemote: '_dl-test',
+        destinationSnapshot: { kind: 'absent' }
       })
       expect(client.listRecursiveEntries).not.toHaveBeenCalled()
       expect(client.deleteRemote).not.toHaveBeenCalled()

@@ -25,6 +25,39 @@ export interface DownloadEnqueueInput {
   connectionRevision?: string
 }
 
+export interface DownloadPlanInput {
+  remotePaths: string[]
+  downloadDir: string
+  segments: number
+  connectionRevision?: string
+}
+
+export interface DownloadConflict {
+  entryId: string
+  remotePath: string
+  localPath: string
+  canOverwrite: boolean
+}
+
+export interface DownloadPlan {
+  id: string
+  expiresAt: number
+  fileCount: number
+  batch: boolean
+  conflicts: DownloadConflict[]
+}
+
+export interface DownloadCommitInput {
+  planId: string
+  decisions: Record<string, 'overwrite' | 'skip'>
+}
+
+export interface DownloadAdmission {
+  transfers: TransferProgress[]
+  skipped: string[]
+  empty: boolean
+}
+
 export interface UploadEnqueueInput {
   localPath: string
   remoteDir: string
@@ -153,6 +186,10 @@ export interface SftpApi {
   list(dir: string, connectionRevision?: string): Promise<RemoteEntry[]>
   stat(path: string, connectionRevision?: string): Promise<RemoteStat>
   enqueueDownload(input: DownloadEnqueueInput): Promise<TransferProgress[]>
+  planDownload(input: DownloadPlanInput): Promise<DownloadPlan>
+  planDownloadRetry(id: string): Promise<DownloadPlan>
+  commitDownload(input: DownloadCommitInput): Promise<DownloadAdmission>
+  releaseDownloadPlan(id: string): Promise<void>
   retryDownload(id: string): Promise<TransferProgress>
   enqueueUpload(input: UploadEnqueueInput): Promise<TransferProgress[]>
   cancelDownload(id: string): Promise<void>

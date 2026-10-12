@@ -5,9 +5,9 @@ import { renderWithProviders } from './test/renderWithProviders'
 import { installMockWebApi } from './test/mockWebApi'
 import App from './App'
 import type { DownloadEvent, TransferProgress } from '@shared/types'
+import type { DownloadCommitInput } from '@shared/api'
 
-// Pins the UI contract for "Retry failed downloads": window.api.retryDownload(id) and the
-// TransferProgress.retryable/retryOf/retriedAs fields.
+// Pins retry lifecycle behavior through the plan/commit API and retryable/retryOf/retriedAs.
 
 type RetryableTransferProgress = TransferProgress & {
   retryable?: boolean
@@ -54,11 +54,21 @@ async function renderWithTransfer(
   overrides: Record<string, unknown> = {}
 ) {
   let capturedCallback: ((event: DownloadEvent) => void) | undefined
+  const retry = overrides.retryDownload
   const api = installMockWebApi({
     onDownloadUpdate: vi.fn((callback: (event: DownloadEvent) => void) => {
       capturedCallback = callback
       return () => {}
     }),
+    ...(typeof retry === 'function'
+      ? {
+          commitDownload: vi.fn(async (input: DownloadCommitInput) => ({
+            transfers: [(await retry(input.planId.slice('retry:'.length))) as TransferProgress],
+            skipped: [],
+            empty: false
+          }))
+        }
+      : {}),
     ...overrides
   })
   renderWithProviders(<App canChangePassword={false} />)

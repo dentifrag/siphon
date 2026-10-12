@@ -70,14 +70,14 @@ async function mountBrowser(overrides: Partial<WebApi> = {}) {
 
 describe('transfer batch ownership', () => {
   it.each(
-    (['download', 'upload'] as const).flatMap((direction) =>
+    (['upload'] as const).flatMap((direction) =>
       (['404', '400', 'network', '409', 'disconnect', 'reconnect', 'navigation'] as const).map(
         (change) => ({ direction, change })
       )
     )
   )(
     '$direction batch handles $change without changing its prepared identity',
-    async ({ direction, change }) => {
+    async ({ change }) => {
       const pending = gate<TransferProgress[]>()
       const started = gate<void>()
       let count = 0
@@ -90,7 +90,8 @@ describe('transfer batch ownership', () => {
         if (count === 2 && ['404', '400', 'network', '409', 'navigation'].includes(change)) {
           throw Object.assign(new Error('Item failed'), {
             status:
-              change === 'network' ? undefined : change === 'navigation' ? 404 : Number(change)
+              change === 'network' ? undefined : change === 'navigation' ? 404 : Number(change),
+            code: change === '409' ? 'CONNECTION_CHANGED' : undefined
           })
         }
         return [transfer(`t${count}`)]
@@ -103,10 +104,7 @@ describe('transfer batch ownership', () => {
       act(() => result.current.setSelected(new Set(files('/source').map((entry) => entry.path))))
       let batch!: Promise<void>
       act(() => {
-        batch =
-          direction === 'download'
-            ? result.current.handleDownloadSelected()
-            : result.current.handleUploadSelected(localPaths)
+        batch = result.current.handleUploadSelected(localPaths)
       })
       try {
         if (['disconnect', 'reconnect', 'navigation'].includes(change)) {
@@ -141,9 +139,7 @@ describe('transfer batch ownership', () => {
         if (expectedCount === 3) {
           expect(enqueue).toHaveBeenNthCalledWith(
             3,
-            expect.objectContaining(
-              direction === 'download' ? { remotePath: '/source/c' } : { localPath: localPaths[2] }
-            )
+            expect.objectContaining({ localPath: localPaths[2] })
           )
         }
       } finally {
@@ -385,7 +381,10 @@ describe('startup connection and restore ownership', () => {
         }
         await act(async () => {
           stored.reject(
-            Object.assign(new Error('Missing folder'), { status: outcome === '409' ? 409 : 404 })
+            Object.assign(new Error('Missing folder'), {
+              status: outcome === '409' ? 409 : 404,
+              code: outcome === '409' ? 'CONNECTION_CHANGED' : undefined
+            })
           )
         })
         if (outcome === 'failure') {

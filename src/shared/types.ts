@@ -40,6 +40,8 @@ export interface TransferProgress {
   status: TransferStatus
   canceling?: boolean
   error?: string
+  errorCode?: string
+  recoveryPath?: string
   retryable?: boolean
   retryOf?: string
   retriedAs?: string

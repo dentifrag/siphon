@@ -344,13 +344,13 @@ describe('in-app Updates', () => {
     await open(user)
     fireEvent.keyDown(window, { key: 'ArrowDown' })
     fireEvent.keyDown(window, { key: 'Enter' })
-    expect(api.enqueueDownload).not.toHaveBeenCalled()
+    expect(api.planDownload).not.toHaveBeenCalled()
     await user.click(
       within(screen.getByRole('dialog', { name: /updates/i })).getByRole('button', {
         name: /^close/i
       })
     )
     fireEvent.keyDown(window, { key: 'Enter' })
-    await waitFor(() => expect(api.enqueueDownload).toHaveBeenCalledOnce())
+    await waitFor(() => expect(api.planDownload).toHaveBeenCalledOnce())
   })
 })
