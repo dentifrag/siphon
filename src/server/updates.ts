@@ -184,7 +184,15 @@ function requestFromDisk(value: unknown): UpdateRequest {
 
 async function fetchJson(fetch: typeof globalThis.fetch, url: string, maxBytes: number) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15_000)
+  const timeout = setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          'Release metadata request timed out after 15 seconds. Check connectivity to GitHub and try again.'
+        )
+      ),
+    15_000
+  )
   try {
     const response = await fetch(url, {
       redirect: 'error',

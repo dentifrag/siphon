@@ -246,6 +246,26 @@ function New-SiphonInstallationConfig {
     }
 }
 
+function Assert-SiphonTaskSecurity([string]$SecurityDescriptor) {
+    $descriptor = New-Object Security.AccessControl.RawSecurityDescriptor($SecurityDescriptor)
+    if (
+        $null -eq $descriptor.Owner -or
+        -not (Test-SiphonTrustedSid $descriptor.Owner.Value) -or
+        $null -eq $descriptor.DiscretionaryAcl
+    ) { throw 'Scheduled Task ownership or protected access is not trusted.' }
+    foreach ($ace in $descriptor.DiscretionaryAcl) {
+        if ($ace.AceType -eq [Security.AccessControl.AceType]::AccessAllowed -and -not (Test-SiphonTrustedSid $ace.SecurityIdentifier.Value)) {
+            throw 'Scheduled Task access is not restricted to administrators and SYSTEM.'
+        }
+    }
+    # Task Scheduler omits the protection flag; verify it on the persisted task file.
+    $taskPath = Join-Path $env:SystemRoot 'System32\Tasks\SiphonUpdate'
+    Assert-SiphonAcl $taskPath
+    if (-not (Get-Acl -LiteralPath $taskPath).AreAccessRulesProtected) {
+        throw 'Scheduled Task file access is not protected.'
+    }
+}
+
 function Get-SiphonInstallation([string]$Directory) {
     $Directory = [IO.Path]::GetFullPath($Directory)
     Assert-SiphonLocalVolume $Directory
@@ -309,17 +329,7 @@ function Get-SiphonInstallation([string]$Directory) {
     $scheduler = New-Object -ComObject 'Schedule.Service'
     $scheduler.Connect()
     $registered = $scheduler.GetFolder('\').GetTask('SiphonUpdate')
-    $descriptor = New-Object Security.AccessControl.RawSecurityDescriptor($registered.GetSecurityDescriptor(7))
-    if (
-        -not (Test-SiphonTrustedSid $descriptor.Owner.Value) -or
-        $null -eq $descriptor.DiscretionaryAcl -or
-        ($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -eq 0
-    ) { throw 'Scheduled Task ownership or protected access is not trusted.' }
-    foreach ($ace in $descriptor.DiscretionaryAcl) {
-        if ($ace.AceType -eq [Security.AccessControl.AceType]::AccessAllowed -and -not (Test-SiphonTrustedSid $ace.SecurityIdentifier.Value)) {
-            throw 'Scheduled Task access is not restricted to administrators and SYSTEM.'
-        }
-    }
+    Assert-SiphonTaskSecurity $registered.GetSecurityDescriptor(7)
     return @{
         config = $config
         taskIdle = $task.State -eq 'Ready'
