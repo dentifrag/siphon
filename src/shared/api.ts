@@ -137,6 +137,7 @@ export interface UpdateStatus {
   maintenance: boolean
   canInstall: boolean
   canCheck?: boolean
+  canRetryTask?: boolean
   blockedReason?: string
 }
 

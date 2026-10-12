@@ -144,7 +144,8 @@ async function main(): Promise<void> {
     currentVersion,
     host: config.host,
     port: config.port,
-    listTransfers: () => services.manager.list()
+    listTransfers: () => services.manager.list(),
+    log: app.log
   })
   await registerRoutes(app, { config, auth, limiter, services, session, execDir, updates })
 

@@ -85,7 +85,9 @@ function New-Fixture([string]$Mode = 'healthy') {
             $script:state.running = $true
         }
         CheckHealth = {
-            param($ExpectedVersion, $Config)
+            param($ExpectedVersion, $Config, [long]$Deadline)
+            $remaining = ($Deadline - [Diagnostics.Stopwatch]::GetTimestamp()) / [Diagnostics.Stopwatch]::Frequency
+            Assert-True ($remaining -gt 0 -and $remaining -le 300) 'Health retries must pass a shared five-minute deadline'
             $script:state.calls.Add("health:$ExpectedVersion")
             if ($script:state.mode -eq 'untrusted-responder') { throw 'Connected responder is not the recorded service child.' }
             $version = $script:state.liveVersion

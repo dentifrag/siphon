@@ -93,9 +93,10 @@ function Invoke-SiphonUpdate {
         }
         $healthy = {
             param([string]$Expected)
-            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            $deadline = [Diagnostics.Stopwatch]::GetTimestamp() + 300 * [Diagnostics.Stopwatch]::Frequency
+            for ($attempt = 0; $attempt -lt 60 -and [Diagnostics.Stopwatch]::GetTimestamp() -lt $deadline; $attempt++) {
                 try {
-                    $health = & $Operations.CheckHealth $Expected $Config
+                    $health = & $Operations.CheckHealth $Expected $Config $deadline
                     if (
                         (Get-SiphonValue $health 'app') -ceq 'siphon' -and
                         (Get-SiphonValue $health 'version') -ceq $Expected -and
@@ -107,7 +108,9 @@ function Invoke-SiphonUpdate {
                         (Get-SiphonValue $health 'version') -cne $Expected
                     ) { return $false }
                 } catch {}
-                $null = & $Operations.Wait 2000
+                $remaining = [math]::Floor(($deadline - [Diagnostics.Stopwatch]::GetTimestamp()) * 1000 / [Diagnostics.Stopwatch]::Frequency)
+                if ($remaining -le 0) { break }
+                $null = & $Operations.Wait ([int][math]::Min(2000, $remaining))
             }
             return $false
         }

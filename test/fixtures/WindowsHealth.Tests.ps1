@@ -62,11 +62,15 @@ function Reset-Health([string]$Address = '127.0.0.1', [string]$ClientAddress = '
     $script:response = [Text.Encoding]::UTF8.GetBytes((New-Response))
     $script:client = $null
     $script:timeouts = [System.Collections.Generic.List[int]]::new()
+    $script:cimDelayMilliseconds = 0
+    $script:cimReads = 0
 }
 
 function Get-CimInstance {
     param([string]$ClassName, [string]$Namespace, [string]$Filter, [double]$OperationTimeoutSec, $ErrorAction)
     Assert-True ($OperationTimeoutSec -gt 0 -and $OperationTimeoutSec -le 3) 'CIM identity lookup has no finite shared-deadline timeout'
+    $script:cimReads++
+    if ($script:cimDelayMilliseconds -gt 0) { Start-Sleep -Milliseconds $script:cimDelayMilliseconds }
     if ($script:failure -eq 'cim-timeout') { throw 'Bounded identity query timed out' }
     if ($ClassName -eq 'MSFT_NetTCPConnection') {
         Assert-True ($Namespace -ieq 'ROOT/StandardCimv2') 'Connected ownership must use the underlying TCP CIM provider'
@@ -296,6 +300,24 @@ foreach ($addresses in @(
     Assert-True $script:client.Closed 'Health socket was not closed'
     Assert-True ($script:timeouts.Count -gt 0) 'Transport deadline was not applied'
 }
+
+Reset-Health
+$script:cimDelayMilliseconds = 300
+$watch = [Diagnostics.Stopwatch]::StartNew()
+$health = Get-SiphonVersionHealth $config
+Assert-True ($health.version -ceq '1.10.0' -and $health.serviceRunning) 'Cumulative bounded CIM latency rejected the verified responder.'
+Assert-True ($script:cimReads -eq 10) 'Slower health verification skipped a before/after identity query.'
+Assert-True ($watch.ElapsedMilliseconds -ge 3000 -and $watch.ElapsedMilliseconds -lt 10000) 'Health verification did not cover cumulative latency within its bounded deadline.'
+Assert-True $script:client.Closed 'Slower health verification leaked its socket.'
+
+Reset-Health
+$rejected = $false
+try { $null = Get-SiphonVersionHealth -Config $config -Deadline ([Diagnostics.Stopwatch]::GetTimestamp() - 1) } catch {
+    Assert-True ($_.Exception.Message.Contains('Local health deadline exceeded')) 'Health retries ignored their shared deadline'
+    $rejected = $true
+}
+Assert-True $rejected 'An expired recovery deadline started another health attempt'
+Assert-True ($script:cimReads -eq 0 -and $script:client.Closed) 'Expired recovery deadline queried identity or leaked its socket'
 
 foreach ($entry in @(
     @{ name = 'unrelated responder with correct JSON'; change = { $script:rows[0].OwningProcess = 999 } },
