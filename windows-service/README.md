@@ -203,6 +203,8 @@ task file is protected. The helper validates the effective task permissions and 
 task file's protection separately. Older helpers can reject this valid installation; rerun
 the service installer from a checkout containing the corrected helper to deploy the fix.
 Changing the app password or repeatedly restarting the service cannot correct that check.
+The service log records whether the real service-spawned helper inspection succeeds at
+startup; manually running `-Inspect` from a PowerShell prompt does not exercise that path.
 
 Reinstalls also require a helper that passes a true null backup path to Windows PowerShell's
 atomic metadata replacement API. Health verification has a 10-second cumulative budget for

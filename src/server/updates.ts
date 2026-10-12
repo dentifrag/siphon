@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import type { FastifyBaseLogger } from 'fastify'
 import type { UpdateCapability, UpdateJob, UpdateStatus } from '../shared/api'
 import type { TransferProgress } from '../shared/types'
 import { httpError } from './http'
@@ -598,6 +599,7 @@ export async function createInstalledUpdates(input: {
   host: string
   port: number
   listTransfers: () => TransferProgress[]
+  log?: Pick<FastifyBaseLogger, 'info' | 'warn'>
 }): Promise<UpdateCoordinator> {
   const execDir = dirname(process.execPath)
   const stateDir = join(execDir, 'siphon-updater')
@@ -656,6 +658,13 @@ export async function createInstalledUpdates(input: {
         reason: 'setup-required',
         message: 'Rerun the Windows service installer to configure the protected update helper.'
       }
+    }
+    if (capability.supported) {
+      input.log?.info('Protected Windows update helper verified at startup.')
+    } else {
+      input.log?.warn(
+        `Protected Windows update helper could not be verified at startup: ${capability.message}`
+      )
     }
   }
   return createUpdateCoordinator({
