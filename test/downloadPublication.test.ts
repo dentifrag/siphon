@@ -16,6 +16,7 @@ import {
   assertDestination,
   cleanupDownloadStage,
   createDownloadStage,
+  inspectDownloadDirectory,
   publishDownload,
   snapshotDestination,
   type DownloadStage
@@ -23,7 +24,13 @@ import {
 
 vi.mock('node:fs/promises', async (original) => {
   const fs = await original<typeof import('node:fs/promises')>()
-  return { ...fs, link: vi.fn(fs.link), rename: vi.fn(fs.rename), open: vi.fn(fs.open) }
+  return {
+    ...fs,
+    link: vi.fn(fs.link),
+    rename: vi.fn(fs.rename),
+    open: vi.fn(fs.open),
+    lstat: vi.fn(fs.lstat)
+  }
 })
 
 let root: string
@@ -41,10 +48,42 @@ afterEach(async () => {
   vi.mocked(link).mockClear()
   vi.mocked(rename).mockClear()
   vi.mocked(open).mockClear()
+  vi.mocked(lstat).mockReset()
   await rm(root, { recursive: true, force: true })
 })
 
 describe('exclusive download publication', () => {
+  it.each(['destination', 'directory'] as const)(
+    'detects a blocking ancestor when inspecting a %s returns ENOTDIR',
+    async (kind) => {
+      await writeFile(target, 'blocking file')
+      const directory = join(target, 'nested', 'deeper')
+      for (let i = 0; i < (kind === 'destination' ? 3 : 2); i++) {
+        vi.mocked(lstat).mockRejectedValueOnce(
+          Object.assign(new Error('Not a directory'), { code: 'ENOTDIR' })
+        )
+      }
+      if (kind === 'destination') {
+        expect(await snapshotDestination(join(directory, 'payload'))).toEqual({
+          kind: 'blocked',
+          path: target
+        })
+      } else {
+        expect(await inspectDownloadDirectory(directory)).toBe(false)
+      }
+      expect(await readFile(target, 'utf8')).toBe('blocking file')
+      expect(link).not.toHaveBeenCalled()
+      expect(rename).not.toHaveBeenCalled()
+    }
+  )
+
+  it('surfaces directory inspection permission errors rather than treating them as absent', async () => {
+    vi.mocked(lstat).mockRejectedValueOnce(
+      Object.assign(new Error('Read denied'), { code: 'EACCES' })
+    )
+    await expect(inspectDownloadDirectory(root)).rejects.toMatchObject({ code: 'EACCES' })
+  })
+
   it('publishes a new target and cleans staging only after publication', async () => {
     expect(await publishDownload(stage, target, { kind: 'absent' }, () => false)).toBe(true)
     await cleanupDownloadStage(stage)

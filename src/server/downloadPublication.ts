@@ -57,7 +57,8 @@ async function snapshotContainer(path: string): Promise<string | null> {
     const stat = await lstat(path)
     if (!stat.isDirectory() || stat.isSymbolicLink()) return path
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error
   }
   const parent = dirname(path)
   return parent === path ? null : snapshotContainer(parent)
