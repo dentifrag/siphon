@@ -78,7 +78,14 @@ export function useDownloadCollisions() {
         busyRef.current = false
         aliveRef.current = null
         if (expiry) clearTimeout(expiry)
-        if (plan) await window.api.releaseDownloadPlan(plan.id)
+        if (plan) {
+          void window.api.releaseDownloadPlan(plan.id).catch((error: unknown) => {
+            console.warn(
+              'Failed to release the download plan; it will expire automatically.',
+              error
+            )
+          })
+        }
       }
     },
     [cancelChoice]

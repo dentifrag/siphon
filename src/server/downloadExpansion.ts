@@ -1,10 +1,14 @@
 import { dirname, join, sep } from 'node:path'
 import type { FsScope } from './localFs'
-import type { RcloneClient, RcloneListEntry } from './rclone/client'
+import {
+  MAX_RECURSIVE_LIST_ENTRIES,
+  type RcloneClient,
+  type RcloneListEntry
+} from './rclone/client'
 import type { RcloneEnqueueInput } from './rclone/downloadManager'
 import { httpError } from './http'
 
-export const MAX_DOWNLOAD_ENTRIES = 10_000
+export const MAX_DOWNLOAD_ENTRIES = MAX_RECURSIVE_LIST_ENTRIES
 
 export interface ExpandDownloadInput {
   item: RcloneListEntry

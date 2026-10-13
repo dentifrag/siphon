@@ -1,5 +1,35 @@
 import type { RcloneSupervisor } from './supervisor'
 import type { MultiThreadConfig } from './chunk'
+import { httpError } from '../http'
+
+export const MAX_RECURSIVE_LIST_ENTRIES = 10_000
+export const MAX_RECURSIVE_LIST_BYTES = 32 * 1024 * 1024
+export const RECURSIVE_LIST_TIMEOUT_MS = 35_000
+
+async function readBoundedResponse(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return ''
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytes = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > maxBytes) {
+        throw httpError(
+          400,
+          'The recursive folder listing exceeds the 32 MiB response limit.',
+          'DOWNLOAD_LIST_TOO_LARGE'
+        )
+      }
+      chunks.push(value)
+    }
+    return Buffer.concat(chunks, bytes).toString('utf8')
+  } finally {
+    reader.releaseLock()
+  }
+}
 
 export interface RcloneListEntry {
   Path: string
@@ -31,27 +61,38 @@ export class RcloneClient {
   private async call<T>(
     path: string,
     body: Record<string, unknown>,
-    timeoutMs?: number
+    options: { timeoutMs?: number; maxResponseBytes?: number } = {}
   ): Promise<T> {
     const { baseUrl, authHeader } = this.supervisor.getEndpoint()
-    const res = await fetch(`${baseUrl}/${path}`, {
-      method: 'POST',
-      headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined
-    }).catch((err: unknown) => {
-      if (err instanceof Error && err.name === 'TimeoutError') {
-        throw new Error(`rclone ${path} timed out after ${Math.round((timeoutMs ?? 0) / 1000)}s`)
+    const controller = new AbortController()
+    const signal = options.timeoutMs
+      ? AbortSignal.any([controller.signal, AbortSignal.timeout(options.timeoutMs)])
+      : controller.signal
+    try {
+      const res = await fetch(`${baseUrl}/${path}`, {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal
+      })
+      const text = options.maxResponseBytes
+        ? await readBoundedResponse(res, options.maxResponseBytes)
+        : await res.text()
+      const data = text ? JSON.parse(text) : {}
+      if (!res.ok) {
+        const message = (data && (data.error as string)) || `rclone ${path} failed (${res.status})`
+        throw new Error(message)
+      }
+      return data as T
+    } catch (err) {
+      controller.abort()
+      if (signal.reason instanceof Error && signal.reason.name === 'TimeoutError') {
+        throw new Error(
+          `rclone ${path} timed out after ${Math.round((options.timeoutMs ?? 0) / 1000)}s`
+        )
       }
       throw err
-    })
-    const text = await res.text()
-    const data = text ? JSON.parse(text) : {}
-    if (!res.ok) {
-      const message = (data && (data.error as string)) || `rclone ${path} failed (${res.status})`
-      throw new Error(message)
     }
-    return data as T
   }
 
   checkConnection(fs: string): Promise<void> {
@@ -63,7 +104,7 @@ export class RcloneClient {
         opt: { noModTime: true },
         _config: { ConnectTimeout: '15s', Timeout: '30s' }
       },
-      35_000
+      { timeoutMs: 35_000 }
     ).then(() => undefined)
   }
 
@@ -106,12 +147,25 @@ export class RcloneClient {
     )
   }
 
-  listRecursiveEntries(fs: string, remote: string): Promise<RcloneListEntry[]> {
-    return this.call<{ list?: RcloneListEntry[] }>('operations/list', {
-      fs,
-      remote,
-      opt: { recurse: true, noModTime: true }
-    }).then((r) => r.list ?? [])
+  async listRecursiveEntries(fs: string, remote: string): Promise<RcloneListEntry[]> {
+    const result = await this.call<{ list?: RcloneListEntry[] }>(
+      'operations/list',
+      {
+        fs,
+        remote,
+        opt: { recurse: true, noModTime: true },
+        _config: { ConnectTimeout: '15s', Timeout: '30s' }
+      },
+      {
+        timeoutMs: RECURSIVE_LIST_TIMEOUT_MS,
+        maxResponseBytes: MAX_RECURSIVE_LIST_BYTES
+      }
+    )
+    const entries = result.list ?? []
+    if (entries.length > MAX_RECURSIVE_LIST_ENTRIES) {
+      throw httpError(400, 'Too many entries in one download folder.', 'DOWNLOAD_LIST_TOO_LARGE')
+    }
+    return entries
   }
 
   stat(fs: string, remote: string): Promise<RcloneListEntry | null> {

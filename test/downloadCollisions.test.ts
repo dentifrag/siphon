@@ -633,6 +633,35 @@ describe('download collision admission and execution', () => {
     expect(f.client.deleteRemote).toHaveBeenCalledOnce()
   })
 
+  it.each(['response limit', 'timeout'])(
+    'releases planning leases without any writes when recursive listing fails its %s',
+    async (reason) => {
+      const f = await fixture({ 'folder/a': 'source' })
+      const error =
+        reason === 'response limit'
+          ? Object.assign(
+              new Error('The recursive folder listing exceeds the 32 MiB response limit.'),
+              {
+                statusCode: 400,
+                code: 'DOWNLOAD_LIST_TOO_LARGE'
+              }
+            )
+          : new Error('rclone operations/list timed out after 35s')
+      f.client.listRecursiveEntries.mockRejectedValueOnce(error)
+      const response = await f.app.inject({
+        method: 'POST',
+        url: '/api/download/plan',
+        payload: { remotePaths: ['/folder'], downloadDir: f.output, segments: 4 }
+      })
+      expect(response.statusCode).toBe(reason === 'response limit' ? 400 : 500)
+      expect(response.json().message).toBe(error.message)
+      expect(await readdir(f.output)).toEqual([])
+      expect(f.manager.list()).toEqual([])
+      expect(f.client.deleteRemote).toHaveBeenCalledOnce()
+      expect(f.releaseAdmission).toHaveBeenCalledOnce()
+    }
+  )
+
   it('protects confined and excluded paths and rejects symlinked folder children', async () => {
     const f = await fixture({ 'folder/a': 'new' })
     const outside = join(f.root, 'outside')

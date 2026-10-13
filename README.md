@@ -86,6 +86,9 @@ All choices are resolved before any item in the batch is queued or any destinati
 created. Skipped items are reported as skipped, not as empty folders or completed downloads.
 There is no saved overwrite-all preference, Keep both, or Resume.
 An admission is limited to 10,000 files, with at most 10,000 entries per expanded folder.
+Each recursive folder listing has a 35-second deadline (including response-body reading)
+and a 32 MiB response limit enforced while streaming. Oversized or stalled listings fail
+before admission; no destination folders or transfers are created.
 
 The preview is valid for five minutes and is bound to its original source connection.
 Changing that connection before admission invalidates a normal download preview. Retries

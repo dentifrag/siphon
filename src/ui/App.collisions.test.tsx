@@ -1,9 +1,10 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { DownloadPlan } from '@shared/api'
 import type { DownloadEvent, TransferProgress } from '@shared/types'
 import App from './App'
+import { useDownloadCollisions } from './hooks/useDownloadCollisions'
 import { installMockWebApi } from './test/mockWebApi'
 import { renderWithProviders } from './test/renderWithProviders'
 
@@ -144,6 +145,86 @@ describe('download collision decisions', () => {
     })
     expect(screen.queryByText('That folder has no files to download.')).not.toBeInTheDocument()
     expect(screen.queryByText('Download completed')).not.toBeInTheDocument()
+  })
+
+  it('keeps a successful admission visible when releasing the plan fails', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { api, user, table } = await mount(plan({ conflicts: [] }))
+      vi.mocked(api.commitDownload).mockResolvedValue({
+        transfers: [],
+        skipped: ['/a.bin'],
+        empty: false
+      })
+      const error = new Error('Release response lost')
+      vi.mocked(api.releaseDownloadPlan).mockRejectedValue(error)
+
+      await user.dblClick(within(table).getByText('a.bin').closest('tr')!)
+      expect(
+        await screen.findByText('Skipped 1 file. Existing content was preserved.')
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Release response lost')).not.toBeInTheDocument()
+      expect(warning).toHaveBeenCalledWith(
+        'Failed to release the download plan; it will expire automatically.',
+        error
+      )
+      expect(api.commitDownload).toHaveBeenCalledOnce()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('preserves the original commit error when releasing the plan also fails', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { api, user, table } = await mount(plan({ conflicts: [] }))
+      vi.mocked(api.commitDownload).mockRejectedValue(
+        Object.assign(new Error('Destination changed during admission'), {
+          status: 409,
+          code: 'DESTINATION_CHANGED'
+        })
+      )
+      vi.mocked(api.releaseDownloadPlan).mockRejectedValue(new Error('Release response lost'))
+
+      await user.dblClick(within(table).getByText('a.bin').closest('tr')!)
+      expect(await screen.findByText('Destination changed during admission')).toBeInTheDocument()
+      expect(screen.queryByText('Release response lost')).not.toBeInTheDocument()
+      expect(api.disconnect).not.toHaveBeenCalled()
+      expect(warning).toHaveBeenCalledOnce()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('does not delay an admission result while the release request is still pending', async () => {
+    let finishRelease!: () => void
+    const release = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    const admission = { transfers: [], skipped: ['/a.bin'], empty: false }
+    const api = installMockWebApi({
+      planDownload: vi.fn(async () => plan({ conflicts: [] })),
+      commitDownload: vi.fn(async () => admission),
+      releaseDownloadPlan: vi.fn(() => release)
+    })
+    const hook = renderHook(() => useDownloadCollisions())
+    try {
+      await expect(
+        hook.result.current.download(
+          {
+            remotePaths: ['/a.bin'],
+            downloadDir: 'D:\\Downloads',
+            segments: 4,
+            connectionRevision: 'r1'
+          },
+          () => true
+        )
+      ).resolves.toEqual(admission)
+      expect(api.releaseDownloadPlan).toHaveBeenCalledWith('plan-1')
+    } finally {
+      finishRelease()
+      hook.unmount()
+    }
   })
 
   it('does not offer destructive overwrite for a file/directory type conflict', async () => {
