@@ -7,6 +7,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-13
+
+### Added
+
+- Download collision previews for files, folders, multi-selection downloads, and retries.
+  Existing files require an explicit overwrite or batch-skip decision before downloads queue.
+- Downloads transfer into private staging before publication. Changed destinations fail
+  visibly instead of being overwritten, and displaced files retain a recovery path.
+
+### Changed
+
+- Legacy direct download and retry API endpoints reject existing destinations with
+  `409 DESTINATION_COLLISION`. API clients can use the preview and commit endpoints for
+  explicit collision decisions.
+
+### Fixed
+
+- Windows PowerShell executable replacement now passes a true null backup path.
+- Windows updater recovery controls require a current, supported idle-task inspection.
+- Windows updater HTTP operations and health checks use bounded native waits and retry
+  deadlines, including response-body reads that ignore cancellation.
+
 ## [1.0.4] - 2026-10-11
 
 ### Fixed
@@ -99,7 +121,8 @@ The first public release.
 - Docker image with rclone bundled, plus single-file binaries for Windows, macOS, and Linux.
 - Windows service installer for running Siphon at boot.
 
-[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/dentifrag/siphon/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/dentifrag/siphon/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/dentifrag/siphon/compare/1.0.2...v1.0.3
 [1.0.2]: https://github.com/dentifrag/siphon/compare/1.0.1...1.0.2
