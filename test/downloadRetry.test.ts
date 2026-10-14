@@ -6,6 +6,14 @@ import {
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
 import type { RcloneClient } from '../src/server/rclone/client'
+import { dirname } from 'node:path'
+
+vi.mock('../src/server/downloadPublication', () => ({
+  assertDestination: vi.fn(async () => undefined),
+  createDownloadStage: vi.fn(async (path: string) => ({ directory: dirname(path), path })),
+  publishDownload: vi.fn(async () => true),
+  cleanupDownloadStage: vi.fn(async () => undefined)
+}))
 
 // Pins the "Retry failed downloads" contract on RcloneDownloadManager: manager.retry(id, validate).
 

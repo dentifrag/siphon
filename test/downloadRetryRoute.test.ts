@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerDownloadRoutes } from '../src/server/routes/downloads'
@@ -18,6 +18,14 @@ import type { TransferProgress } from '../src/shared/types'
 // Route-registration + injection mirrors test/transferIdentity.test.ts's buildApp() pattern.
 
 const resolvePathMock = vi.fn()
+
+vi.mock('../src/server/downloadPublication', () => ({
+  assertDestination: vi.fn(async () => undefined),
+  snapshotDestination: vi.fn(async () => ({ kind: 'absent' })),
+  createDownloadStage: vi.fn(async (path: string) => ({ directory: dirname(path), path })),
+  publishDownload: vi.fn(async () => true),
+  cleanupDownloadStage: vi.fn(async () => undefined)
+}))
 
 vi.mock('../src/server/localFs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/server/localFs')>()

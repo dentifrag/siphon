@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { resolve } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type { DownloadEnqueueInput } from '../../shared/api'
 import type { TransferProgress } from '../../shared/types'
@@ -12,22 +12,14 @@ import {
   type FsScope
 } from '../localFs'
 import { safeBaseName, uiToRemotePath } from '../mapping'
-import type { RcloneClient, RcloneListEntry } from '../rclone/client'
+import type { RcloneClient } from '../rclone/client'
 import type { RcloneDownloadManager, RcloneEnqueueInput } from '../rclone/downloadManager'
-
-export interface ExpandDownloadInput {
-  item: RcloneListEntry
-  remotePath: string
-  dirPath: string
-  wrappingName: string
-  targetDir: string
-  segments: number
-  jobRemote: string
-  scope?: FsScope
-}
+import { snapshotDestination } from '../downloadPublication'
+import { DownloadPlans } from '../downloadPlans'
+import type { DownloadCommitInput, DownloadPlanInput } from '../../shared/api'
+import { planDownload, type ExpandDownloadInput } from '../downloadExpansion'
 
 async function enqueuePlannedDownloads(
-  client: RcloneClient,
   manager: RcloneDownloadManager,
   planned: RcloneEnqueueInput[],
   scope: FsScope | undefined,
@@ -35,34 +27,35 @@ async function enqueuePlannedDownloads(
 ): Promise<TransferProgress[]> {
   async function allowed(path: string): Promise<string> {
     const canonical = scope ? await resolvePath(scope, path) : path
-    if (
-      !canonical ||
-      (scope?.excludedPaths?.length &&
-        downloadDestinationKey(canonical) !== downloadDestinationKey(resolve(path)))
-    ) {
+    if (!canonical || downloadDestinationKey(canonical) !== downloadDestinationKey(resolve(path))) {
       throw httpError(400, 'That download destination is protected, symlinked, or not accessible.')
     }
     return canonical
   }
 
-  try {
-    if (scope) {
-      for (const input of planned) {
-        const canonical = await allowed(input.localPath)
-        input.destinationKey = downloadDestinationKey(canonical)
-      }
+  if (scope) {
+    for (const input of planned) {
+      const canonical = await allowed(input.localPath)
+      input.destinationKey = downloadDestinationKey(canonical)
     }
-    const canonicalDirectories: string[] = []
-    for (const directory of directories) {
-      const canonical = await allowed(directory)
-      canonicalDirectories.push(canonical)
-    }
-    for (const directory of canonicalDirectories) await mkdir(directory, { recursive: true })
-  } catch (err) {
-    const remote = planned[0]?.cleanupRemote
-    if (remote) await client.deleteRemote(remote).catch(() => undefined)
-    throw err
   }
+  const canonicalDirectories: string[] = []
+  for (const directory of directories) {
+    const canonical = await allowed(directory)
+    canonicalDirectories.push(canonical)
+  }
+  for (const input of planned) {
+    const snapshot = await snapshotDestination(input.localPath)
+    if (snapshot.kind !== 'absent') {
+      throw httpError(
+        409,
+        'The destination already exists. Review the download collision.',
+        'DESTINATION_COLLISION'
+      )
+    }
+    input.destinationSnapshot = snapshot
+  }
+  for (const directory of canonicalDirectories) await mkdir(directory, { recursive: true })
   return manager.enqueueBatch(planned)
 }
 
@@ -71,89 +64,17 @@ export async function expandDownload(
   manager: RcloneDownloadManager,
   input: ExpandDownloadInput
 ): Promise<TransferProgress[]> {
-  const { item, remotePath, dirPath, wrappingName, targetDir, segments, jobRemote } = input
-
-  if (item.IsDir) {
-    const normalizedDirPath = dirPath.split('/').filter(Boolean).join('/')
-    let entries
-    try {
-      entries = await client.listRecursiveEntries(`${jobRemote}:`, normalizedDirPath)
-    } catch (err) {
-      await client.deleteRemote(jobRemote).catch(() => undefined)
-      throw err
-    }
-
-    if (!entries.some((entry) => !entry.IsDir)) {
-      await client.deleteRemote(jobRemote).catch(() => undefined)
+  try {
+    const planned = await planDownload(client, input)
+    if (!planned.inputs.length) {
+      await client.deleteRemote(input.jobRemote)
       return []
     }
-
-    const prefix = normalizedDirPath ? `${normalizedDirPath}/` : ''
-    if (prefix && entries.some((entry) => !entry.Path.startsWith(prefix))) {
-      await client.deleteRemote(jobRemote).catch(() => undefined)
-      throw new Error('Recursive listing returned a file outside the requested directory.')
-    }
-
-    const destinationRoot = join(targetDir, wrappingName)
-    const plannedEntries = entries.map((entry) => {
-      const relativePath = entry.Path.slice(prefix.length)
-      const localPath = join(destinationRoot, relativePath)
-      return { entry, relativePath, localPath }
-    })
-    const hasUnsafePath = plannedEntries.some(
-      ({ relativePath, localPath }) =>
-        !relativePath ||
-        relativePath.startsWith('/') ||
-        relativePath.split('/').includes('..') ||
-        (localPath !== destinationRoot && !localPath.startsWith(`${destinationRoot}${sep}`))
-    )
-    if (hasUnsafePath) {
-      await client.deleteRemote(jobRemote).catch(() => undefined)
-      throw new Error('Recursive listing returned an unsafe file path.')
-    }
-
-    const directories = new Set([
-      destinationRoot,
-      ...plannedEntries.map(({ entry, localPath }) =>
-        entry.IsDir ? localPath : dirname(localPath)
-      )
-    ])
-    const planned = plannedEntries
-      .filter(({ entry }) => !entry.IsDir)
-      .map(({ entry, relativePath, localPath }): RcloneEnqueueInput => {
-        return {
-          srcFs: `${jobRemote}:`,
-          srcRemote: entry.Path,
-          dstFs: destinationRoot,
-          dstRemote: relativePath,
-          displayName: `${wrappingName}/${relativePath}`,
-          localPath,
-          size: entry.Size < 0 ? 0 : entry.Size,
-          segments,
-          cleanupRemote: jobRemote
-        }
-      })
-    return enqueuePlannedDownloads(client, manager, planned, input.scope, [...directories])
+    return await enqueuePlannedDownloads(manager, planned.inputs, input.scope, planned.directories)
+  } catch (error) {
+    await client.deleteRemote(input.jobRemote).catch(() => undefined)
+    throw error
   }
-
-  return enqueuePlannedDownloads(
-    client,
-    manager,
-    [
-      {
-        srcFs: `${jobRemote}:`,
-        srcRemote: dirPath,
-        dstFs: targetDir,
-        dstRemote: wrappingName,
-        displayName: remotePath,
-        localPath: join(targetDir, wrappingName),
-        size: item.Size < 0 ? 0 : item.Size,
-        segments,
-        cleanupRemote: jobRemote
-      }
-    ],
-    input.scope
-  )
 }
 
 export function registerDownloadRoutes(
@@ -166,6 +87,25 @@ export function registerDownloadRoutes(
     confined: config.confined,
     excludedPaths: updates?.protectedPaths
   }
+  const plans = new DownloadPlans(
+    client,
+    manager,
+    session,
+    scope,
+    config.defaultDir,
+    updates,
+    (error) => app.log.error(error, 'Download plan cleanup failed.')
+  )
+  app.addHook('onClose', () => plans.close())
+  app.post('/api/download/plan', async (req) => plans.create(req.body as DownloadPlanInput))
+  app.post<{ Params: { id: string } }>('/api/download/:id/retry-plan', async (req) =>
+    plans.createRetry(req.params.id)
+  )
+  app.post('/api/download/commit', async (req) => plans.commit(req.body as DownloadCommitInput))
+  app.post<{ Params: { id: string } }>('/api/download/plan/:id/release', async (req) => {
+    await plans.release(req.params.id)
+    return { ok: true }
+  })
 
   app.post('/api/download', async (req) => {
     const release = updates?.admitTransfer()
@@ -211,12 +151,20 @@ export function registerDownloadRoutes(
     try {
       return await manager.retry(req.params.id, async (input) => {
         const destinationKey = await validateDownloadDestination(scope, input, resolvePath)
+        const destinationSnapshot = await snapshotDestination(input.localPath)
+        if (destinationSnapshot.kind !== 'absent') {
+          throw httpError(
+            409,
+            'The destination already exists. Review the retry collision.',
+            'DESTINATION_COLLISION'
+          )
+        }
         const item = await client.stat(input.srcFs, input.srcRemote)
         if (!item) throw httpError(404, 'File not found.')
         if (item.IsDir || !Number.isFinite(item.Size)) {
           throw httpError(400, 'The retry source is not a valid file.')
         }
-        return { ...input, size: Math.max(0, item.Size), destinationKey }
+        return { ...input, size: Math.max(0, item.Size), destinationKey, destinationSnapshot }
       })
     } finally {
       release?.()

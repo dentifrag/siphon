@@ -74,7 +74,8 @@ describe('download expansion segment requests', () => {
       localPath: join(targetDir, 'file.bin'),
       size: 100 * 1024 * 1024,
       segments: 8,
-      cleanupRemote: '_dl-file'
+      cleanupRemote: '_dl-file',
+      destinationSnapshot: { kind: 'absent' }
     })
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ status: 'queued', segments: 8 })
@@ -115,7 +116,8 @@ describe('download expansion segment requests', () => {
         localPath: join(targetDir, 'folder', relativePath),
         size: 100 * 1024 * 1024,
         segments: 8,
-        cleanupRemote: '_dl-folder'
+        cleanupRemote: '_dl-folder',
+        destinationSnapshot: { kind: 'absent' }
       })
     }
     expect(result.map(({ segments }) => segments)).toEqual([8, 8])

@@ -76,6 +76,72 @@ Successfully completed transfers show a full green bar and 100%, including empty
 files within folder downloads whose sizes or byte statistics are unavailable. The byte
 counts still reflect the reported metadata; completion does not invent missing bytes.
 
+### Download destination collisions
+
+Downloads preserve existing files unless you explicitly choose **Overwrite**. An individual
+file offers **Overwrite / Cancel**; a folder or multi-selection also offers **Skip this file /
+Cancel batch**. Directories can merge without deleting unrelated content, but a file blocking
+a required folder, a directory in place of a file, or a symlink is never converted destructively.
+All choices are resolved before any item in the batch is queued or any destination folder is
+created. Skipped items are reported as skipped, not as empty folders or completed downloads.
+There is no saved overwrite-all preference, Keep both, or Resume.
+An admission is limited to 10,000 files, with at most 10,000 entries per expanded folder.
+Each recursive folder listing has a 35-second deadline (including response-body reading)
+and a 32 MiB response limit enforced while streaming. Oversized or stalled listings fail
+before admission; no destination folders or transfers are created.
+
+The preview is valid for five minutes and is bound to its original source connection.
+Changing that connection before admission invalidates a normal download preview. Retries
+instead retain the failed transfer's original source binding and ask for fresh collision
+authorization. Ambiguous or overlapping file destinations in one batch are rejected.
+
+Each file transfers into a unique private `.siphon-download-*` directory beside its final
+destination. The final destination stays reserved until publication finishes. New files are
+published with an exclusive hard link, never a clobbering rename. Existing-file approvals
+include file identity, timestamps, size, and a content hash; targets are checked again at
+admission, dispatch, and publication. A file appearing or changing while a download waits or
+transfers produces a visible conflict instead of silently overwriting it. Overwrite always
+downloads fresh bytes, including when existing size and modification time match the source.
+Reading existing files for these checks can make large-file previews and overwrites slower.
+
+An approved overwrite moves the previous file into the private directory, verifies the
+displaced object, then exclusively publishes the new copy. On a conflict or cancellation,
+Siphon attempts non-destructive restoration; a new external file is never replaced during
+that rollback. **The displaced object is retained even after success**, because an external
+process might still write through an already-open handle. Transfers and the server log show
+its recovery path (`.siphon-download-*/previous`). Inspect and remove that recovery content
+manually only after confirming no old writer still uses it; it consumes space until removed.
+If automatic restoration is impossible, the error and recovery path identify the preserved
+object rather than hiding it.
+
+Publication requires a filesystem supporting exclusive hard links (for example, NTFS).
+Unsupported filesystems fail safely; Siphon never substitutes an overwriting rename.
+An overwrite has a short interval during which the final name is absent, not a portable
+compare-and-swap replacement. Once exclusive publication succeeds, completion wins over
+a late cancellation; Siphon cannot safely undo that name after another process can use it.
+The guarantees concern file-content preservation and
+cooperative external writers, not hostile concurrent replacement of ancestor directories,
+mounts, or Siphon's private staging directories. Path confinement and protected-path checks
+remain enforced, but portable Node filesystem APIs cannot eliminate those adversarial
+directory races. A crash can leave staging or recovery directories; there is no automatic
+startup deletion or byte-level recovery.
+
+Confirmed finished or canceled writers have their expendable staging removed. Uncertain
+writers keep their staging and final-destination quarantine, even if their queue rows are
+removed. Pending previews, publication, queued transfers, and uncertain download writers
+block in-app update installation. Do not delete uncertain staging or restart to clear
+quarantine until the old rclone backend is confirmed stopped.
+
+API clients use `POST /api/download/plan` with `remotePaths`, `downloadDir`, `segments`, and
+`connectionRevision`, then `POST /api/download/commit` with the returned `planId` and an
+`entryId`-keyed `decisions` map (`overwrite` or, for batches, `skip`). Commit returns
+`{ transfers, skipped, empty }`. Identical commits return the same admission while the plan
+is retained; different decisions cannot replay it. `POST /api/download/plan/:id/release`
+cancels/releases a preview, and `POST /api/download/:id/retry-plan` previews a failed
+transfer against its original source. Legacy direct download/retry endpoints remain
+no-overwrite and return `409 DESTINATION_COLLISION` for existing targets. Collision, busy,
+changed-destination, expired-plan, and changed-connection errors have distinct `code` fields.
+
 ## First-run setup
 
 On first launch with no configured credentials (no `APP_PASSWORD` / `APP_PASSWORD_HASH` environment variables and no `appPassword` / `appPasswordHash` in `config.json`), Siphon starts in setup mode.
@@ -107,8 +173,9 @@ If `APP_PASSWORD` / `APP_PASSWORD_HASH` or `appPassword` / `appPasswordHash` is 
 
 ### Retry failed downloads
 
-Retry appears only for eligible downloads that rclone has reported as finished with a
-failure. It starts a new attempt with a new transfer ID and job, not a byte-level resume.
+Retry appears only for eligible downloads whose writer has finished with a failure, or whose
+destination validation/publication failed with no writer still running. It starts a new
+attempt with a new transfer ID and job, not a byte-level resume.
 The old row keeps its failure diagnostics and shows Retried. Each failed row can create
 only one successor; repeating the request returns that same successor. If the successor
 also fails, it can become eligible for its own Retry.
@@ -137,8 +204,8 @@ an app restart alone is not proof that old writers stopped. Orphaned or external
 are outside this protection.
 
 Retries are manual: there is no automatic retry, backoff, Retry all, persistent history,
-or polling-based recovery. Retry does not guarantee overwrite behavior, atomic replacement,
-partial-file handling, or byte-level resume.
+or polling-based recovery. Retry uses the same collision decisions and staged publication
+as other downloads; it does not reuse an old overwrite approval or resume partial bytes.
 
 ### Browser columns
 

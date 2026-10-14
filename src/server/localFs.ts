@@ -1,6 +1,6 @@
 import { mkdir, readdir, realpath, lstat } from 'node:fs/promises'
 import { existsSync, type Dirent } from 'node:fs'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { DownloadRoot } from './config'
 import { httpError } from './http'
 import type { RcloneEnqueueInput } from './rclone/downloadManager'
@@ -26,7 +26,13 @@ export interface FsScope {
 export function downloadDestinationKey(path: string): string {
   const normalized = resolve(path)
   if (process.platform === 'darwin') return normalized.normalize('NFC').toLowerCase()
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+  return process.platform === 'win32'
+    ? normalized
+        .split(/[\\/]/)
+        .map((part) => part.replace(/[ .]+$/, ''))
+        .join(sep)
+        .toLowerCase()
+    : normalized
 }
 
 export async function validateDownloadDestination(
@@ -40,7 +46,8 @@ export async function validateDownloadDestination(
   if (key !== (input.destinationKey ?? downloadDestinationKey(input.localPath))) {
     throw httpError(
       409,
-      'The download destination has changed. Remove this transfer and download it again.'
+      'The download destination has changed. Remove this transfer and download it again.',
+      'DESTINATION_CHANGED'
     )
   }
   return key

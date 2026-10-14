@@ -20,8 +20,11 @@ export async function createServices(
   const supervisor = new RcloneSupervisor(config.dataDir, execDir, log)
   await supervisor.start()
   const client = new RcloneClient(supervisor)
-  const manager = new RcloneDownloadManager(client, (input) =>
-    validateDownloadDestination({ roots: config.roots, confined: config.confined }, input)
+  const manager = new RcloneDownloadManager(
+    client,
+    (input) =>
+      validateDownloadDestination({ roots: config.roots, confined: config.confined }, input),
+    log
   )
   const remotes = new RemoteStore(config.dataDir, client)
   await removeEphemeralRemotes(client)

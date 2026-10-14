@@ -4,6 +4,7 @@ import { ConnectionPanel } from './components/ConnectionPanel'
 import { RemoteBrowser } from './components/RemoteBrowser'
 import { TransferQueue } from './components/TransferQueue'
 import { FolderPicker } from './components/FolderPicker'
+import { DownloadCollisionDialog } from './components/DownloadCollisionDialog'
 import { PasswordDialog } from './components/PasswordDialog'
 import { hasUpdateReconnect, UpdatesDialog } from './components/UpdatesDialog'
 import { useConnection } from './hooks/useConnection'
@@ -54,7 +55,8 @@ export default function App({ canChangePassword }: AppProps) {
 
   const transfers = useTransfers({
     refreshCurrent: browser.refreshCurrent,
-    getCwd: browser.getCwd
+    getCwd: browser.getCwd,
+    retryDownload: browser.retryDownload
   })
 
   const connected = connection.connState === 'connected'
@@ -125,7 +127,7 @@ export default function App({ canChangePassword }: AppProps) {
           error={browser.browseError}
           selected={browser.selected}
           canDownload={downloadDir !== ''}
-          suspended={pickerOpen || updatesOpen}
+          suspended={pickerOpen || updatesOpen || browser.collisionChoice !== null}
           onNavigate={browser.navigateTo}
           onRefresh={() => browser.navigateTo(browser.cwd)}
           onSelectionChange={browser.setSelected}
@@ -174,6 +176,7 @@ export default function App({ canChangePassword }: AppProps) {
         />
       )}
       <UpdatesDialog open={updatesOpen} onClose={() => setUpdatesOpen(false)} />
+      <DownloadCollisionDialog choice={browser.collisionChoice} />
     </div>
   )
 }

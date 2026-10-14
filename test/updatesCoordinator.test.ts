@@ -31,6 +31,19 @@ async function journal(job: UpdateJob) {
 }
 
 describe('update coordinator', () => {
+  it('blocks installation for quarantined download writers even after their rows are removed', async () => {
+    const { updates, schedule } = await coordinatorFixture(directory.dir, {
+      listTransfers: () => [],
+      hasUncertainDownloadWriters: () => true
+    })
+    const offer = (await updates.check()).offer!
+    expect(await updates.status()).toMatchObject({
+      canInstall: false,
+      blockedReason: expect.stringContaining('uncertain outcome')
+    })
+    await expect(updates.install(offer.id)).rejects.toMatchObject({ statusCode: 409 })
+    expect(schedule).not.toHaveBeenCalled()
+  })
   it('offers task recovery only for an accepted request whose verified task is idle', async () => {
     let taskIdle = true
     const schedule = vi.fn(async () => {

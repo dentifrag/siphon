@@ -44,6 +44,15 @@ describe('downloadDestinationKey platform case handling', () => {
     expect(upperKey).not.toBe(lowerKey)
   })
 
+  it('folds Windows trailing dot and space aliases while preserving resolved path separators', () => {
+    Object.defineProperty(process, 'platform', { ...platformDescriptor, value: 'win32' })
+    const target = resolve(targetDir, 'Folder', 'Report.BIN')
+    const alias = resolve(targetDir, 'Folder. ', 'Report.BIN. ')
+
+    expect(downloadDestinationKey(alias)).toBe(target.toLowerCase())
+    expect(downloadDestinationKey(alias)).toBe(downloadDestinationKey(target))
+  })
+
   it.each([
     { name: 'matching case', composed: 'caf\u00e9.bin', decomposed: 'cafe\u0301.bin' },
     { name: 'mixed case', composed: 'CAF\u00c9.BIN', decomposed: 'cafe\u0301.bin' }

@@ -145,6 +145,7 @@ async function main(): Promise<void> {
     host: config.host,
     port: config.port,
     listTransfers: () => services.manager.list(),
+    hasUncertainDownloadWriters: () => services.manager.hasUncertainWriters(),
     log: app.log
   })
   await registerRoutes(app, { config, auth, limiter, services, session, execDir, updates })

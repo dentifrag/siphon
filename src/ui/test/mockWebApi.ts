@@ -50,6 +50,22 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
     list: vi.fn(async () => []),
     stat: vi.fn(async (): Promise<RemoteStat> => ({ size: 0, type: 'file', mtime: 0 })),
     enqueueDownload: vi.fn(async () => []),
+    planDownload: vi.fn(async () => ({
+      id: 'plan',
+      expiresAt: Date.now() + 300_000,
+      fileCount: 0,
+      batch: false,
+      conflicts: []
+    })),
+    planDownloadRetry: vi.fn(async (id: string) => ({
+      id: `retry:${id}`,
+      expiresAt: Date.now() + 300_000,
+      fileCount: 1,
+      batch: false,
+      conflicts: []
+    })),
+    commitDownload: vi.fn(async () => ({ transfers: [], skipped: [], empty: true })),
+    releaseDownloadPlan: vi.fn(async () => undefined),
     retryDownload: vi.fn(async (): Promise<TransferProgress> => {
       throw new Error('No retry successor configured.')
     }),

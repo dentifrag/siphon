@@ -6,6 +6,7 @@ import { applyDownloadEvent } from '../lib/transfers'
 interface UseTransfersOptions {
   refreshCurrent: () => Promise<boolean>
   getCwd: () => string
+  retryDownload?: (id: string, alive: () => boolean) => Promise<TransferProgress | null>
 }
 
 interface UseTransfersResult {
@@ -30,7 +31,11 @@ function isRetryEligible(transfer: TransferProgress): boolean {
   )
 }
 
-export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): UseTransfersResult {
+export function useTransfers({
+  refreshCurrent,
+  getCwd,
+  retryDownload
+}: UseTransfersOptions): UseTransfersResult {
   const [transfers, setTransfers] = useState<TransferProgress[]>([])
   const [maxConcurrent, setMaxConcurrent] = useState<number>(loadStoredMaxConcurrent)
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set())
@@ -111,7 +116,15 @@ export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): U
       clearRetryError(id)
       const revision = resetRevisionRef.current
       try {
-        const successor = await window.api.retryDownload(id)
+        const alive = () =>
+          mountedRef.current &&
+          resetRevisionRef.current === revision &&
+          !removedIdsRef.current.has(id) &&
+          transfersRef.current.some((t) => t.id === id && isRetryEligible(t))
+        const successor = retryDownload
+          ? await retryDownload(id, alive)
+          : await window.api.retryDownload(id)
+        if (!successor) return
         if (
           mountedRef.current &&
           resetRevisionRef.current === revision &&
@@ -138,7 +151,7 @@ export function useTransfers({ refreshCurrent, getCwd }: UseTransfersOptions): U
         if (mountedRef.current) setRetryingIds(new Set(retryingRef.current))
       }
     },
-    [clearRetryError]
+    [clearRetryError, retryDownload]
   )
 
   const handleRemoveDownload = useCallback(

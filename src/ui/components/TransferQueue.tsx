@@ -184,6 +184,9 @@ export function TransferQueue(props: TransferQueueProps) {
                       <span className="transfer__error">{transfer.error}</span>
                     )}
                     {transfer.waitingReason && <span>{transfer.waitingReason}</span>}
+                    {transfer.recoveryPath && (
+                      <span>Preserved recovery content: {transfer.recoveryPath}</span>
+                    )}
                     {transfer.retryUnavailableReason &&
                       !transfer.error?.includes(transfer.retryUnavailableReason) && (
                         <span className="transfer__error">{transfer.retryUnavailableReason}</span>

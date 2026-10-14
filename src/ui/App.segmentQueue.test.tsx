@@ -5,7 +5,7 @@ import { renderWithProviders } from './test/renderWithProviders'
 import { installMockWebApi } from './test/mockWebApi'
 import { MAX_CONCURRENT_STORAGE_KEY } from './lib/storage'
 import App from './App'
-import type { DownloadEnqueueInput } from '@shared/api'
+import type { DownloadPlanInput } from '@shared/api'
 import type { DownloadEvent, RemoteEntry, TransferProgress } from '@shared/types'
 
 describe('App queued download segment requests', () => {
@@ -30,11 +30,11 @@ describe('App queued download segment requests', () => {
           mtime: 0
         }))
       ),
-      enqueueDownload: vi.fn(async (input: DownloadEnqueueInput) => {
+      planDownload: vi.fn(async (input: DownloadPlanInput) => {
         const transfer: TransferProgress = {
           id: `t-${returnedTransfers.length + 1}`,
-          remotePath: input.remotePath,
-          localPath: `${input.downloadDir}${input.remotePath}`,
+          remotePath: input.remotePaths[0],
+          localPath: `${input.downloadDir}${input.remotePaths[0]}`,
           direction: 'download',
           status: 'queued',
           size: 100 * 1024 * 1024,
@@ -44,8 +44,19 @@ describe('App queued download segment requests', () => {
           activeSegments: 0
         }
         returnedTransfers.push(transfer)
-        return [transfer]
+        return {
+          id: transfer.id,
+          fileCount: 1,
+          expiresAt: Date.now() + 300_000,
+          batch: false,
+          conflicts: []
+        }
       }),
+      commitDownload: vi.fn(async ({ planId }) => ({
+        transfers: returnedTransfers.filter((transfer) => transfer.id === planId),
+        skipped: [],
+        empty: false
+      })),
       onDownloadUpdate: vi.fn((callback) => {
         onDownloadUpdate = callback
         return () => {}
@@ -64,10 +75,10 @@ describe('App queued download segment requests', () => {
     for (const name of ['a.bin', 'b.bin', 'c.bin']) {
       await user.dblClick(within(browser).getByText(name).closest('tr')!)
     }
-    expect(vi.mocked(api.enqueueDownload).mock.calls).toEqual(
+    expect(vi.mocked(api.planDownload).mock.calls).toEqual(
       ['a.bin', 'b.bin', 'c.bin'].map((name) => [
         {
-          remotePath: `/${name}`,
+          remotePaths: [`/${name}`],
           downloadDir: '/downloads',
           segments: 8,
           connectionRevision: 'r1'
@@ -91,7 +102,7 @@ describe('App queued download segment requests', () => {
     await waitFor(() => expect(api.setMaxConcurrentDownloads).toHaveBeenCalledWith(3))
 
     expect(vi.mocked(api.setMaxConcurrentDownloads).mock.calls).toEqual([[1], [3]])
-    expect(api.enqueueDownload).toHaveBeenCalledTimes(3)
+    expect(api.planDownload).toHaveBeenCalledTimes(3)
     expect(segmentsInput).toHaveValue(8)
     for (const row of originalRows) {
       expect(row).toBeInTheDocument()
@@ -99,8 +110,8 @@ describe('App queued download segment requests', () => {
     }
 
     await user.dblClick(within(browser).getByText('d.bin').closest('tr')!)
-    expect(api.enqueueDownload).toHaveBeenNthCalledWith(4, {
-      remotePath: '/d.bin',
+    expect(api.planDownload).toHaveBeenNthCalledWith(4, {
+      remotePaths: ['/d.bin'],
       downloadDir: '/downloads',
       segments: 8,
       connectionRevision: 'r1'
@@ -110,10 +121,10 @@ describe('App queued download segment requests', () => {
     await user.type(segmentsInput, '2')
     await user.dblClick(within(browser).getByText('e.bin').closest('tr')!)
 
-    expect(vi.mocked(api.enqueueDownload).mock.calls).toEqual(
+    expect(vi.mocked(api.planDownload).mock.calls).toEqual(
       ['a.bin', 'b.bin', 'c.bin', 'd.bin', 'e.bin'].map((name, index) => [
         {
-          remotePath: `/${name}`,
+          remotePaths: [`/${name}`],
           downloadDir: '/downloads',
           segments: index === 4 ? 2 : 8,
           connectionRevision: 'r1'

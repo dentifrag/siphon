@@ -9,6 +9,10 @@ import type {
   ConnectResult,
   ConnectionProfileMeta,
   DownloadEnqueueInput,
+  DownloadPlan,
+  DownloadPlanInput,
+  DownloadCommitInput,
+  DownloadAdmission,
   DownloadRootMeta,
   LocalDirListing,
   ResolvedProfile,
@@ -35,20 +39,28 @@ async function request<T>(
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     let accepted: boolean | undefined
+    let code: string | undefined
     try {
       const data = (await response.json()) as {
         message?: string
         error?: string
         accepted?: unknown
+        code?: unknown
       }
       message = data.message || data.error || message
+      if (typeof data.code === 'string') code = data.code
       if (options?.update && typeof data.accepted === 'boolean') accepted = data.accepted
     } catch {
       message = `Request failed (${response.status})`
     }
-    const error = new Error(message) as Error & { status: number; accepted?: boolean }
+    const error = new Error(message) as Error & {
+      status: number
+      accepted?: boolean
+      code?: string
+    }
     error.status = response.status
     if (accepted !== undefined) error.accepted = accepted
+    if (code) error.code = code
     throw error
   }
   const text = await response.text()
@@ -168,6 +180,17 @@ export function createWebApi(): WebApi {
       ),
     enqueueDownload: (input: DownloadEnqueueInput) =>
       request<TransferProgress[]>('/api/download', { method: 'POST', body: input }),
+    planDownload: (input: DownloadPlanInput) =>
+      request<DownloadPlan>('/api/download/plan', { method: 'POST', body: input }),
+    planDownloadRetry: (id: string) =>
+      request<DownloadPlan>(`/api/download/${encodeURIComponent(id)}/retry-plan`, {
+        method: 'POST'
+      }),
+    commitDownload: (input: DownloadCommitInput) =>
+      request<DownloadAdmission>('/api/download/commit', { method: 'POST', body: input }),
+    releaseDownloadPlan: async (id: string) => {
+      await request(`/api/download/plan/${encodeURIComponent(id)}/release`, { method: 'POST' })
+    },
     retryDownload: (id: string) =>
       request<TransferProgress>(`/api/download/${encodeURIComponent(id)}/retry`, {
         method: 'POST'

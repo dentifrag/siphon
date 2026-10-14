@@ -252,7 +252,11 @@ describe('App download behaviors', () => {
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }
       ]),
-      enqueueDownload: vi.fn(async () => [makeTransfer()])
+      commitDownload: vi.fn(async () => ({
+        transfers: [makeTransfer()],
+        skipped: [],
+        empty: false
+      }))
     })
     renderWithProviders(<App canChangePassword={false} />)
 
@@ -260,8 +264,8 @@ describe('App download behaviors', () => {
     await user.click(row.closest('tr')!)
     await user.click(screen.getByRole('button', { name: /Download/ }))
 
-    expect(api.enqueueDownload).toHaveBeenCalledWith({
-      remotePath: '/a.txt',
+    expect(api.planDownload).toHaveBeenCalledWith({
+      remotePaths: ['/a.txt'],
       downloadDir: '/downloads',
       segments: 4,
       connectionRevision: 'r1'
@@ -281,7 +285,7 @@ describe('App download behaviors', () => {
       list: vi.fn(async (): Promise<RemoteEntry[]> => [
         { path: '/a.txt', name: 'a.txt', type: 'file', size: 10, mtime: 0 }
       ]),
-      enqueueDownload: vi.fn(async () => [])
+      commitDownload: vi.fn(async () => ({ transfers: [], skipped: [], empty: true }))
     })
     renderWithProviders(<App canChangePassword={false} />)
 

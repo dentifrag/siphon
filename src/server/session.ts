@@ -34,7 +34,11 @@ export class ConnectionSession {
 
   bind(expectedRevision?: string): ConnectionBinding {
     if (expectedRevision !== undefined && this.current?.revision !== expectedRevision) {
-      throw httpError(409, 'The connection changed. Reconnect before continuing.')
+      throw httpError(
+        409,
+        'The connection changed. Reconnect before continuing.',
+        'CONNECTION_CHANGED'
+      )
     }
     if (!this.current) throw httpError(400, 'Not connected to a server.')
     return this.current

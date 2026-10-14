@@ -1,6 +1,7 @@
-export function httpError(statusCode: number, message: string): Error {
-  const error = new Error(message) as Error & { statusCode: number }
+export function httpError(statusCode: number, message: string, code?: string): Error {
+  const error = new Error(message) as Error & { statusCode: number; code?: string }
   error.statusCode = statusCode
+  if (code) error.code = code
   return error
 }
 
