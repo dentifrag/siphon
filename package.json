@@ -62,7 +62,7 @@
     "@primer/react": "^38.40.1",
     "fastify": "^5.12.5",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
