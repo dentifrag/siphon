@@ -120,6 +120,37 @@ describe('download API transport', () => {
     vi.useRealTimers()
   })
 
+  it('reopens a closed transfer stream even when the authentication check itself fails', async () => {
+    vi.useFakeTimers()
+    const created = vi.fn()
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        onerror: (() => void) | null = null
+        onmessage = null
+        readyState = 2
+        close = vi.fn()
+        constructor() {
+          created()
+          if (created.mock.calls.length === 1) queueMicrotask(() => this.onerror?.())
+        }
+      }
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline')
+      })
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const close = createWebApi().onDownloadUpdate(vi.fn())
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(created).toHaveBeenCalledTimes(2)
+    close()
+    vi.useRealTimers()
+  })
+
   it.each([
     'CONNECTION_CHANGED',
     'DESTINATION_COLLISION',

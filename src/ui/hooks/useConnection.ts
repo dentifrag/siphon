@@ -198,6 +198,10 @@ export function useConnection({
     async (id: string) => {
       const request = ++profileRequestRef.current
       secretTypedRef.current = false
+      // The previous site's secrets must never travel with the newly selected profile.
+      const cleared = { ...formRef.current, password: '', passphrase: '' }
+      formRef.current = cleared
+      setForm(cleared)
       selectProfile(id)
       if (!id) return
       try {

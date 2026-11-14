@@ -122,6 +122,37 @@ describe('in-app Updates', () => {
     expect(actionNames(dialog)).toEqual(['Resume update'])
   })
 
+  it('explains why checking is unavailable instead of saying nothing was checked', async () => {
+    const user = userEvent.setup()
+    installMockWebApi({
+      getUpdateStatus: vi.fn(async (): Promise<UpdateStatus> => ({
+        ...checked,
+        check: { state: 'idle' },
+        offer: null,
+        canInstall: false,
+        canCheck: false,
+        blockedReason: 'Password authentication is required for Windows service updates.'
+      }))
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    const dialog = await open(user)
+    expect(within(dialog).getByText(/password authentication is required/i)).toBeInTheDocument()
+  })
+
+  it('asks for a fresh check instead of reinstalling an offer whose update just failed', async () => {
+    const user = userEvent.setup()
+    installMockWebApi({
+      getUpdateStatus: vi.fn(async (): Promise<UpdateStatus> => ({
+        ...checked,
+        job: { ...job, phase: 'failed', serviceHealth: 'healthy', offerId: checked.offer?.id },
+        maintenance: false
+      }))
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    const dialog = await open(user)
+    expect(actionNames(dialog)).toEqual(['Check again'])
+  })
+
   it('clears a proven pre-acceptance rejection, keeps focus on the error, and needs another explicit click', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({

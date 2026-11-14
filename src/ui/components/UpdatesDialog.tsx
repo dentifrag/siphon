@@ -114,6 +114,7 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [connection, setConnection] = useState<'offline' | 'signin' | null>(null)
   const [stalled, setStalled] = useState(false)
   const [settled, setSettled] = useState<string | null>(null)
+  const [rechecked, setRechecked] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [checking, setChecking] = useState(false)
   const [monitor, setMonitor] = useState(hasUpdateReconnect)
@@ -252,7 +253,9 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
     setSettled(null)
     setActionError(null)
     try {
-      setStatus(await window.api.checkForUpdates())
+      const next = await window.api.checkForUpdates()
+      setStatus(next)
+      setRechecked(next.job?.id ?? null)
     } catch (err) {
       let reconciled: UpdateStatus | null = null
       // A 409 can mean another tab is already checking, so the authoritative status may explain it.
@@ -382,6 +385,14 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
           (job.phase !== 'succeeded' && !hasCurrentCheck))
       ? job
       : null
+  // A definitive failure of the offered release means its assets may have changed, so refresh the offer first.
+  const staleOffer = Boolean(
+    offer &&
+    job &&
+    (job.phase === 'failed' || job.phase === 'rolled-back') &&
+    rechecked !== job.id &&
+    (job.offerId === offer.id || settled === job.id)
+  )
   const canResume =
     maintenance &&
     status?.canRetryTask === true &&
@@ -429,6 +440,8 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
     }
   } else if (!supported) {
     stage = { text: status.capability.supported ? '' : status.capability.message }
+  } else if (status.canCheck === false && !offer && status.blockedReason) {
+    stage = { text: status.blockedReason }
   } else if (checking) {
     stage = { text: 'Checking for updates…' }
   } else if (shownCheckError) {
@@ -458,7 +471,7 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
   } else if (status && supported) {
     if (checking) {
       action = { label: 'Checking…', onClick: () => {}, disabled: true }
-    } else if (offer && !shownCheckError) {
+    } else if (offer && !shownCheckError && !staleOffer) {
       action = {
         label: 'Update and restart',
         onClick: () => void install(),
@@ -467,7 +480,7 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
         blocked: !status.canInstall
       }
     } else if (canCheck) {
-      const again = shownCheckError || status.check.state === 'checked'
+      const again = shownCheckError || staleOffer || status.check.state === 'checked'
       action = { label: again ? 'Check again' : 'Check for updates', onClick: () => void check() }
     }
   }

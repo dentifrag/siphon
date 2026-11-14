@@ -184,19 +184,24 @@ describe('RcloneDownloadManager concurrency', () => {
     expect(vi.mocked(cleanupDownloadStage).mock.calls).toHaveLength(cleanupCalls)
   })
 
-  it('treats a missing rclone endpoint as a non-submission that neither quarantines nor blocks updates', async () => {
+  it('keeps a transfer queued while rclone is restarting and starts it once rclone returns', async () => {
     const { manager, client } = makeManager()
     client.copyFileAsync.mockImplementationOnce(() => {
       throw new RcloneNotSubmittedError()
     })
-    const failed = manager.enqueue(enqueueInput())
+    const waiting = manager.enqueue(enqueueInput())
     await flushMicrotasks()
 
-    expect(manager.list().find((t) => t.id === failed.id)).toMatchObject({
-      status: 'error',
-      errorCode: 'RCLONE_NOT_RUNNING'
+    expect(manager.list().find((t) => t.id === waiting.id)).toMatchObject({
+      status: 'queued',
+      waitingReason: 'Waiting for rclone to restart.'
     })
     expect(manager.hasUncertainWriters()).toBe(false)
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(manager.list().find((t) => t.id === waiting.id)?.status).toBe('downloading')
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
   })
 
   it.each([

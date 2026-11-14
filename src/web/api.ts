@@ -309,6 +309,13 @@ export function createWebApi(): WebApi {
       let checkingAuth = false
       let source: EventSource
       let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+      // EventSource only retries on its own after a dropped connection, so back off here.
+      const scheduleReconnect = (revision: number) => {
+        if (source.readyState !== EventSource.CLOSED) return
+        reconnectTimer = setTimeout(() => {
+          if (!stopped && revision === authRevision) connect()
+        }, STREAM_RECONNECT_DELAY_MS)
+      }
       const connect = () => {
         source = new EventSource('/api/events', { withCredentials: true })
         source.onmessage = (event) => {
@@ -326,11 +333,8 @@ export function createWebApi(): WebApi {
               if (status.state === 'password' && !status.authenticated) {
                 source.close()
                 invalidate(revision)
-              } else if (source.readyState === EventSource.CLOSED) {
-                // EventSource only retries on its own after a dropped connection, so back off here.
-                reconnectTimer = setTimeout(() => {
-                  if (!stopped && revision === authRevision) connect()
-                }, STREAM_RECONNECT_DELAY_MS)
+              } else {
+                scheduleReconnect(revision)
               }
             })
             .catch((error: unknown) => {
@@ -338,6 +342,7 @@ export function createWebApi(): WebApi {
                 'Could not check authentication after the transfer stream disconnected.',
                 error
               )
+              if (!stopped && revision === authRevision) scheduleReconnect(revision)
             })
             .finally(() => {
               checkingAuth = false

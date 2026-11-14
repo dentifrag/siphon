@@ -50,6 +50,7 @@ interface InternalTransfer {
   samples: SpeedSample[]
   settled: boolean
   submission: 'none' | 'pending' | 'known' | 'lost'
+  notBefore?: number
   observedFinish: boolean
   finishedFailure: boolean
   retryAdmission: Promise<TransferProgress> | null
@@ -63,6 +64,8 @@ export const MIN_MAX_CONCURRENT = 1
 export const MAX_MAX_CONCURRENT = 8
 export const CANCEL_SETTLE_TIMEOUT_MS = 4000
 const TARGET_WAIT_REASON = 'Waiting for another download to this file.'
+const RESTART_WAIT_REASON = 'Waiting for rclone to restart.'
+const RESTART_RETRY_MS = 1000
 const QUARANTINE_REASON =
   'A previous download may still be writing to this file. Retry is blocked. Restart Siphon only after confirming its old rclone backend has stopped.'
 
@@ -361,6 +364,7 @@ export class RcloneDownloadManager extends EventEmitter {
         const key = this.destinationKey(t)
         return (
           t.progress.status === 'queued' &&
+          (t.notBefore ?? 0) <= Date.now() &&
           (!key || (!this.activeByKey.has(key) && !this.quarantined.has(key)))
         )
       })
@@ -375,7 +379,12 @@ export class RcloneDownloadManager extends EventEmitter {
     for (const t of this.transfers.values()) {
       if (t.progress.status !== 'queued') continue
       const key = this.destinationKey(t)
-      const reason = key && this.activeByKey.has(key) ? TARGET_WAIT_REASON : undefined
+      const reason =
+        (t.notBefore ?? 0) > Date.now()
+          ? RESTART_WAIT_REASON
+          : key && this.activeByKey.has(key)
+            ? TARGET_WAIT_REASON
+            : undefined
       if (t.progress.waitingReason !== reason) {
         t.progress.waitingReason = reason
         this.emitUpdate(t.progress.id)
@@ -671,8 +680,40 @@ export class RcloneDownloadManager extends EventEmitter {
     }
   }
 
+  /** Nothing was sent to rclone, so the transfer waits for the supervisor to restart it instead of failing. */
+  private async requeueNotSubmitted(id: string, t: InternalTransfer): Promise<void> {
+    t.submission = 'none'
+    if (t.stage) {
+      const stage = t.stage
+      t.stage = null
+      try {
+        await cleanupDownloadStage(stage)
+      } catch (error) {
+        t.stage = stage
+        t.progress.recoveryPath = stage.directory
+        await this.failRun(id, t, error)
+        return
+      }
+      if (!this.ownsActive(id, t)) return
+    }
+    const key = this.destinationKey(t)
+    if (key && this.activeByKey.get(key) === id) this.activeByKey.delete(key)
+    this.activeIds.delete(id)
+    t.notBefore = Date.now() + RESTART_RETRY_MS
+    t.progress.status = 'queued'
+    t.progress.activeSegments = 0
+    t.progress.speedBytesPerSec = 0
+    setTimeout(() => this.pump(), RESTART_RETRY_MS).unref?.()
+    this.pump()
+    this.emitUpdate(id)
+  }
+
   private async failRun(id: string, t: InternalTransfer, err: unknown): Promise<void> {
     if (!this.ownsActive(id, t)) return
+    if (err instanceof RcloneNotSubmittedError && !t.canceled) {
+      await this.requeueNotSubmitted(id, t)
+      return
+    }
     if (err instanceof RcloneJobLostError) t.submission = 'lost'
     else if (err instanceof RcloneNotSubmittedError) t.submission = 'none'
     this.quarantine(t)

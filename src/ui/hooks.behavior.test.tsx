@@ -163,6 +163,21 @@ describe('useConnection: secrets and pending profile resolution', () => {
     expect(result.current.form).toMatchObject({ host: 'original-host', password: 'typed' })
   })
 
+  it('does not carry the previous site password to a newly selected profile', async () => {
+    installMockWebApi({
+      listProfiles: vi.fn(async () => [profileMeta()]),
+      resolveProfile: vi.fn(() => new Promise<ReturnType<typeof resolvedProfile>>(() => {}))
+    })
+    const { result } = renderHook(() => useConnection(options()))
+    act(() => result.current.onFormChange({ password: 'site-a-password' }))
+
+    act(() => {
+      void result.current.handleSelectProfile('p1')
+    })
+
+    expect(result.current.form.password).toBe('')
+  })
+
   it('clears typed secrets when the server reports a different connection at startup', () => {
     installMockWebApi({ listProfiles: vi.fn(async () => []) })
     const { result } = renderHook(() => useConnection(options()))
