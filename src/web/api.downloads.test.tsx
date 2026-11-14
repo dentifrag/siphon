@@ -90,6 +90,36 @@ describe('download API transport', () => {
     close()
   })
 
+  it('waits before reopening a closed transfer stream while the session is still valid', async () => {
+    vi.useFakeTimers()
+    const created = vi.fn()
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        onerror: (() => void) | null = null
+        onmessage = null
+        readyState = 2
+        close = vi.fn()
+        constructor() {
+          created()
+          queueMicrotask(() => this.onerror?.())
+        }
+      }
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ state: 'password', authenticated: true }))
+    )
+    const close = createWebApi().onDownloadUpdate(vi.fn())
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(created).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(created).toHaveBeenCalledTimes(2)
+    close()
+    vi.useRealTimers()
+  })
+
   it.each([
     'CONNECTION_CHANGED',
     'DESTINATION_COLLISION',

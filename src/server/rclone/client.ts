@@ -69,6 +69,16 @@ export class RcloneJobLostError extends Error {
   }
 }
 
+/** The copy was never sent, because rclone was not running at submission time. */
+export class RcloneNotSubmittedError extends Error {
+  readonly code = 'RCLONE_NOT_RUNNING'
+
+  constructor(message = 'rclone is not running yet.') {
+    super(message)
+    this.name = 'RcloneNotSubmittedError'
+  }
+}
+
 export type CopyFileConfig = MultiThreadConfig
 
 export class RcloneClient {
@@ -212,7 +222,12 @@ export class RcloneClient {
     group: string
     config: CopyFileConfig
   }): Promise<RcloneJobHandle> {
-    const endpoint = this.supervisor.getEndpoint()
+    let endpoint: RcloneEndpoint
+    try {
+      endpoint = this.supervisor.getEndpoint()
+    } catch {
+      throw new RcloneNotSubmittedError()
+    }
     return this.call<{ jobid: number; executeId?: string }>(
       'operations/copyfile',
       {

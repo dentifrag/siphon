@@ -46,20 +46,21 @@ export default function Root(): React.JSX.Element {
       setState('login')
     })
     const revision = authRevision.current
-    const timer = hasUpdateReconnect()
-      ? window.setTimeout(() => setAuthRetry((value) => value + 1), 5000)
-      : undefined
+    let timer: number | undefined
     window.api
       .authStatus()
       .then((status) => {
         if (!mounted || authRevision.current !== revision) return
-        window.clearTimeout(timer)
         applyAuthStatus(status)
       })
       .catch((error: unknown) => {
         if (!mounted || authRevision.current !== revision) return
         setError(error instanceof Error ? error.message : 'Could not check authentication.')
         setState('error')
+        // Retry only after a failed check, so a slow response is never discarded by a timer.
+        if (hasUpdateReconnect()) {
+          timer = window.setTimeout(() => setAuthRetry((value) => value + 1), 5000)
+        }
       })
     return () => {
       mounted = false

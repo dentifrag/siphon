@@ -59,6 +59,7 @@ export function useConnection({
   const profileRequestRef = useRef(0)
   const lifecycleRef = useRef(0)
   const formRef = useRef(form)
+  const secretTypedRef = useRef(false)
   formRef.current = form
 
   const selectProfile = useCallback((id: string) => {
@@ -93,14 +94,15 @@ export function useConnection({
   }, [profiles, profilesLoaded, selectedProfileId, selectProfile])
 
   const applyIdentity = useCallback(
-    (identity: ConnectionIdentity) => {
+    (identity: ConnectionIdentity, clearSecrets = false) => {
       const next = {
         ...formRef.current,
         host: identity.host,
         port: String(identity.port),
         username: identity.username,
         authMethod: identity.authMethod,
-        privateKeyPath: identity.privateKeyPath ?? ''
+        privateKeyPath: identity.privateKeyPath ?? '',
+        ...(clearSecrets ? { password: '', passphrase: '' } : {})
       }
       formRef.current = next
       setForm(next)
@@ -113,9 +115,12 @@ export function useConnection({
   const onFormChange = useCallback(
     (patch: Partial<ConnectionForm>) => {
       if (Object.keys(patch).length === 0) return
-      profileRequestRef.current += 1
       // A typed password or passphrase is a one-time secret for the selected saved site.
-      if (!isSecretOnlyPatch(patch)) {
+      // It must not discard a pending profile resolution; the resolution merges it instead.
+      if (isSecretOnlyPatch(patch)) {
+        secretTypedRef.current = true
+      } else {
+        profileRequestRef.current += 1
         if (selectedProfileRef.current) setFormFromProfile(true)
         selectProfile('')
       }
@@ -131,7 +136,7 @@ export function useConnection({
     (connection: ConnectionIdentity | null) => {
       profileRequestRef.current += 1
       setConnState('connected')
-      if (connection) applyIdentity(connection)
+      if (connection) applyIdentity(connection, true)
     },
     [applyIdentity]
   )
@@ -192,6 +197,7 @@ export function useConnection({
   const handleSelectProfile = useCallback(
     async (id: string) => {
       const request = ++profileRequestRef.current
+      secretTypedRef.current = false
       selectProfile(id)
       if (!id) return
       try {
@@ -206,9 +212,9 @@ export function useConnection({
           port: String(resolved.port),
           username: resolved.username,
           authMethod: resolved.authMethod,
-          password: '',
+          password: secretTypedRef.current ? formRef.current.password : '',
           privateKeyPath: resolved.privateKeyPath ?? '',
-          passphrase: ''
+          passphrase: secretTypedRef.current ? formRef.current.passphrase : ''
         }
         formRef.current = next
         setForm(next)

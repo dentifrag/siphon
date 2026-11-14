@@ -160,6 +160,18 @@ describe('RemoteStore.cloneForSession', () => {
     expect(await store.cloneForSession('missing', '_session-3')).toBeNull()
   })
 
+  it('reports the identity of the copied config when it differs from the saved metadata', async () => {
+    const { store, configs } = await makeStore()
+    const [profile] = await save(store, { password: 'saved' })
+    Object.assign(configs.get('alice_host')!, { host: 'legacy-host', port: '2222', user: 'bob' })
+
+    expect(await store.cloneForSession(profile.id, '_session-1')).toMatchObject({
+      host: 'legacy-host',
+      port: 2222,
+      username: 'bob'
+    })
+  })
+
   it('lets a profile without a stored secret connect with a typed one', async () => {
     const { store, configs } = await makeStore()
     const [profile] = await save(store, { rememberSecret: false })

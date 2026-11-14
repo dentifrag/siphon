@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
-import { RcloneJobLostError, type RcloneClient, type RcloneJobHandle } from './client'
+import {
+  RcloneJobLostError,
+  RcloneNotSubmittedError,
+  type RcloneClient,
+  type RcloneJobHandle
+} from './client'
 import { multiThreadConfig, planMultiThread } from './chunk'
 import { httpError } from '../http'
 import { downloadDestinationKey } from '../localFs'
@@ -669,6 +674,7 @@ export class RcloneDownloadManager extends EventEmitter {
   private async failRun(id: string, t: InternalTransfer, err: unknown): Promise<void> {
     if (!this.ownsActive(id, t)) return
     if (err instanceof RcloneJobLostError) t.submission = 'lost'
+    else if (err instanceof RcloneNotSubmittedError) t.submission = 'none'
     this.quarantine(t)
     if (t.stage) {
       if (t.submission === 'none' || t.observedFinish) {

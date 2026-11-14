@@ -208,12 +208,16 @@ export class RemoteStore {
       } else {
         await this.client.cloneRemote(r.remoteName, target)
       }
+      // Legacy records can hold edited metadata over an unchanged rclone config, so the copied config is authoritative.
+      const config = await this.client.getRemote(target)
+      const port = Number(config.port)
       return {
-        host: r.host,
-        port: r.port,
-        username: r.username,
+        host: config.host || r.host,
+        port: Number.isInteger(port) && port > 0 ? port : r.port,
+        username: config.user || r.username,
         authMethod: r.authMethod,
-        privateKeyPath: r.privateKeyPath,
+        privateKeyPath:
+          r.authMethod === 'privateKey' ? config.key_file || r.privateKeyPath : undefined,
         profileId: r.id
       }
     })

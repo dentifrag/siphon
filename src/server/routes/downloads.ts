@@ -109,10 +109,11 @@ export function registerDownloadRoutes(
   })
 
   app.post('/api/download', async (req) => {
+    const input = req.body as DownloadEnqueueInput
+    // Bind before admission: admission can wait while another client switches servers.
+    const binding = session.bind(parseConnectionRevision(input.connectionRevision))
     const release = await updates?.admitTransfer()
     try {
-      const input = req.body as DownloadEnqueueInput
-      const binding = session.bind(parseConnectionRevision(input.connectionRevision))
       const srcRemote = uiToRemotePath(input.remotePath)
       const job = await session.acquireJobRemote('_dl-', binding.revision)
       let item

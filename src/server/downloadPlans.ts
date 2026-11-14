@@ -74,10 +74,11 @@ export class DownloadPlans {
     ) {
       throw httpError(400, 'Invalid download plan.')
     }
+    // Bind before admission: admission can wait while another client switches servers.
+    const binding = this.session.bind(parseConnectionRevision(input.connectionRevision))
     const releaseAdmission = await this.updates?.admitTransfer()
     let releaseJob: (() => Promise<void>) | undefined
     try {
-      const binding = this.session.bind(parseConnectionRevision(input.connectionRevision))
       const job = await this.session.acquireJobRemote('_dl-', binding.revision)
       releaseJob = job.release
       const targetDir = await resolvePath(this.scope, input.downloadDir.trim() || this.defaultDir)

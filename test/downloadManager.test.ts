@@ -7,6 +7,7 @@ import {
 } from '../src/server/rclone/downloadManager'
 import {
   RcloneJobLostError,
+  RcloneNotSubmittedError,
   type RcloneClient,
   type RcloneJobHandle
 } from '../src/server/rclone/client'
@@ -181,6 +182,21 @@ describe('RcloneDownloadManager concurrency', () => {
     expect(manager.hasUncertainWriters()).toBe(false)
     expect(vi.mocked(publishDownload).mock.calls).toHaveLength(publishCalls)
     expect(vi.mocked(cleanupDownloadStage).mock.calls).toHaveLength(cleanupCalls)
+  })
+
+  it('treats a missing rclone endpoint as a non-submission that neither quarantines nor blocks updates', async () => {
+    const { manager, client } = makeManager()
+    client.copyFileAsync.mockImplementationOnce(() => {
+      throw new RcloneNotSubmittedError()
+    })
+    const failed = manager.enqueue(enqueueInput())
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === failed.id)).toMatchObject({
+      status: 'error',
+      errorCode: 'RCLONE_NOT_RUNNING'
+    })
+    expect(manager.hasUncertainWriters()).toBe(false)
   })
 
   it.each([

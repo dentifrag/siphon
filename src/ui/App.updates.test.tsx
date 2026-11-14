@@ -106,6 +106,22 @@ describe('in-app Updates', () => {
     expect(api.checkForUpdates).not.toHaveBeenCalled()
   })
 
+  it('offers Resume update for a failed job when the server authorizes a retry', async () => {
+    const user = userEvent.setup()
+    installMockWebApi({
+      getUpdateStatus: vi.fn(async (): Promise<UpdateStatus> => ({
+        ...checked,
+        job: { ...job, phase: 'failed', error: 'Health check failed' },
+        maintenance: true,
+        canInstall: false,
+        canRetryTask: true
+      }))
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+    const dialog = await open(user)
+    expect(actionNames(dialog)).toEqual(['Resume update'])
+  })
+
   it('clears a proven pre-acceptance rejection, keeps focus on the error, and needs another explicit click', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({

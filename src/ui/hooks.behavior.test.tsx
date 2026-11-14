@@ -129,6 +129,58 @@ describe('useConnection: selecting a profile then editing the form', () => {
   })
 })
 
+describe('useConnection: secrets and pending profile resolution', () => {
+  const options = () => ({
+    segments: 4,
+    downloadDir: '/dl',
+    onSegmentsChange: vi.fn(),
+    onDownloadDirChange: vi.fn(),
+    onConnected: vi.fn(async () => true),
+    onDisconnected: vi.fn()
+  })
+
+  it('keeps a password typed while the selected profile is still resolving', async () => {
+    let finish: (profile: ReturnType<typeof resolvedProfile>) => void = () => undefined
+    installMockWebApi({
+      listProfiles: vi.fn(async () => [profileMeta()]),
+      resolveProfile: vi.fn(
+        () => new Promise<ReturnType<typeof resolvedProfile>>((r) => (finish = r))
+      )
+    })
+    const { result } = renderHook(() => useConnection(options()))
+
+    let selecting: Promise<void> = Promise.resolve()
+    act(() => {
+      selecting = result.current.handleSelectProfile('p1')
+    })
+    act(() => result.current.onFormChange({ password: 'typed' }))
+    await act(async () => {
+      finish(resolvedProfile())
+      await selecting
+    })
+
+    expect(result.current.selectedProfileId).toBe('p1')
+    expect(result.current.form).toMatchObject({ host: 'original-host', password: 'typed' })
+  })
+
+  it('clears typed secrets when the server reports a different connection at startup', () => {
+    installMockWebApi({ listProfiles: vi.fn(async () => []) })
+    const { result } = renderHook(() => useConnection(options()))
+    act(() => result.current.onFormChange({ password: 'other-site-password' }))
+
+    act(() =>
+      result.current.restoreConnection({
+        host: 'server-host',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password'
+      })
+    )
+
+    expect(result.current.form).toMatchObject({ host: 'server-host', password: '', passphrase: '' })
+  })
+})
+
 describe('useBrowser: concurrent navigation', () => {
   it('[principal] a slower, earlier-initiated navigation overwrites a faster, later one on resolve', async () => {
     let resolveInit: (entries: RemoteEntry[]) => void = () => undefined

@@ -382,7 +382,10 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
           (job.phase !== 'succeeded' && !hasCurrentCheck))
       ? job
       : null
-  const canResume = maintenance && status?.canRetryTask === true && !(job && terminal(job))
+  const canResume =
+    maintenance &&
+    status?.canRetryTask === true &&
+    !(job && (job.phase === 'rollback-failed' || job.phase === 'succeeded'))
 
   type Stage = {
     text: string
@@ -409,9 +412,10 @@ export function UpdatesDialog({ open, onClose }: { open: boolean; onClose: () =>
   } else if (submitting) {
     stage = { text: 'Sending the update request…' }
   } else if (shownJob) {
-    const summary = canResume
-      ? { text: 'The accepted update is not running. Resume it to continue this same update.' }
-      : jobSummary(shownJob)
+    const summary =
+      canResume && !terminal(shownJob)
+        ? { text: 'The accepted update is not running. Resume it to continue this same update.' }
+        : jobSummary(shownJob)
     stage = {
       ...summary,
       details: [shownJob.error, maintenance && status.blockedReason]

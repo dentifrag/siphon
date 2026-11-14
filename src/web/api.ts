@@ -25,6 +25,8 @@ import type {
   UploadEnqueueInput
 } from '@shared/api'
 
+const STREAM_RECONNECT_DELAY_MS = 3000
+
 interface RequestOptions {
   method?: string
   body?: unknown
@@ -306,6 +308,7 @@ export function createWebApi(): WebApi {
       let stopped = false
       let checkingAuth = false
       let source: EventSource
+      let reconnectTimer: ReturnType<typeof setTimeout> | undefined
       const connect = () => {
         source = new EventSource('/api/events', { withCredentials: true })
         source.onmessage = (event) => {
@@ -324,7 +327,10 @@ export function createWebApi(): WebApi {
                 source.close()
                 invalidate(revision)
               } else if (source.readyState === EventSource.CLOSED) {
-                connect()
+                // EventSource only retries on its own after a dropped connection, so back off here.
+                reconnectTimer = setTimeout(() => {
+                  if (!stopped && revision === authRevision) connect()
+                }, STREAM_RECONNECT_DELAY_MS)
               }
             })
             .catch((error: unknown) => {
@@ -341,6 +347,7 @@ export function createWebApi(): WebApi {
       connect()
       return () => {
         stopped = true
+        clearTimeout(reconnectTimer)
         source.close()
       }
     }
