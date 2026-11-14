@@ -18,6 +18,7 @@ import { snapshotDestination } from '../downloadPublication'
 import { DownloadPlans } from '../downloadPlans'
 import type { DownloadCommitInput, DownloadPlanInput } from '../../shared/api'
 import { planDownload, type ExpandDownloadInput } from '../downloadExpansion'
+import { readSessionIds } from './auth'
 
 async function enqueuePlannedDownloads(
   manager: RcloneDownloadManager,
@@ -79,7 +80,7 @@ export async function expandDownload(
 
 export function registerDownloadRoutes(
   app: FastifyInstance,
-  { config, services, session, updates }: RouteContext
+  { config, services, session, updates, auth }: RouteContext
 ): void {
   const { client, manager } = services
   const scope: FsScope = {
@@ -108,7 +109,7 @@ export function registerDownloadRoutes(
   })
 
   app.post('/api/download', async (req) => {
-    const release = updates?.admitTransfer()
+    const release = await updates?.admitTransfer()
     try {
       const input = req.body as DownloadEnqueueInput
       const binding = session.bind(parseConnectionRevision(input.connectionRevision))
@@ -147,7 +148,7 @@ export function registerDownloadRoutes(
   })
 
   app.post<{ Params: { id: string } }>('/api/download/:id/retry', async (req) => {
-    const release = updates?.admitTransfer()
+    const release = await updates?.admitTransfer()
     try {
       return await manager.retry(req.params.id, async (input) => {
         const destinationKey = await validateDownloadDestination(scope, input, resolvePath)
@@ -214,13 +215,25 @@ export function registerDownloadRoutes(
       Connection: 'keep-alive'
     })
     raw.write('retry: 3000\n\n')
+    const sessionValid = () =>
+      auth?.state !== 'password' || readSessionIds(req).some((sid) => auth.isValid(sid))
     const send = (payload: unknown): void => {
+      if (!sessionValid()) {
+        raw.end()
+        return
+      }
       raw.write(`data: ${JSON.stringify(payload)}\n\n`)
     }
     send({ type: 'reset', transfers: manager.list() })
     const offUpdate = manager.onUpdate((transfer) => send({ type: 'update', transfer }))
     const offRemove = manager.onRemove((id) => send({ type: 'remove', id }))
-    const ping = setInterval(() => raw.write(': ping\n\n'), 25000)
+    const ping = setInterval(() => {
+      if (!sessionValid()) {
+        raw.end()
+        return
+      }
+      raw.write(': ping\n\n')
+    }, 25000)
     req.raw.on('close', () => {
       clearInterval(ping)
       offUpdate()

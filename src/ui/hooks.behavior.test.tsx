@@ -35,7 +35,16 @@ function resolvedProfile(): ResolvedProfile {
 
 describe('useConnection: selecting a profile then editing the form', () => {
   it('[principal] still connects using the stale saved profile id, discarding the edit', async () => {
-    const connect = vi.fn(async () => ({ home: '/', connectionRevision: 'r1' }))
+    const connect = vi.fn(async () => ({
+      home: '/',
+      connectionRevision: 'r1',
+      connection: {
+        host: 'edited-host.example.com',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password' as const
+      }
+    }))
     installMockWebApi({
       listProfiles: vi.fn(async () => [profileMeta()]),
       resolveProfile: vi.fn(async () => resolvedProfile()),
@@ -81,7 +90,17 @@ describe('useConnection: selecting a profile then editing the form', () => {
   })
 
   it('[control] selecting a profile and connecting without editing still passes that profile id', async () => {
-    const connect = vi.fn(async () => ({ home: '/', connectionRevision: 'r1' }))
+    const connect = vi.fn(async () => ({
+      home: '/',
+      connectionRevision: 'r1',
+      connection: {
+        host: 'original-host',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password' as const,
+        profileId: 'p1'
+      }
+    }))
     installMockWebApi({
       listProfiles: vi.fn(async () => [profileMeta()]),
       resolveProfile: vi.fn(async () => resolvedProfile()),

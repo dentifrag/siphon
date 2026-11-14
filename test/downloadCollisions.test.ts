@@ -6,11 +6,18 @@ import type { DownloadAdmission, DownloadPlan } from '../src/shared/api'
 import type { RouteContext } from '../src/server/context'
 import type { ServerConfig } from '../src/server/config'
 import { DOWNLOAD_PLAN_TTL_MS } from '../src/server/downloadPlans'
+import { deferred } from './fixtures/updates'
+import { jobHandle } from './fixtures/rcloneJobs'
 import { downloadDestinationKey, validateDownloadDestination } from '../src/server/localFs'
 import { registerDownloadRoutes } from '../src/server/routes/downloads'
 import { ConnectionSession } from '../src/server/session'
 import type { Services } from '../src/server/services'
-import type { RcloneClient, RcloneJobStatus, RcloneListEntry } from '../src/server/rclone/client'
+import type {
+  RcloneClient,
+  RcloneJobHandle,
+  RcloneJobStatus,
+  RcloneListEntry
+} from '../src/server/rclone/client'
 import {
   RcloneDownloadManager,
   type RcloneEnqueueInput
@@ -66,9 +73,9 @@ async function fixture(source: Source = { 'a.bin': 'fresh source' }, paused = fa
       await writeFile(join(input.dstFs, input.dstRemote), content)
       const id = ++nextJob
       jobs.set(id, { id, finished: !paused, success: true, error: '' })
-      return id
+      return jobHandle(id)
     }),
-    jobStatus: vi.fn(async (id: number) => jobs.get(id)!),
+    jobStatus: vi.fn(async ({ id }: RcloneJobHandle) => jobs.get(id)!),
     jobStop: vi.fn(async () => undefined)
   }
   const scope = { roots: [{ name: 'Downloads', path: output }], confined: true }
@@ -155,6 +162,50 @@ afterEach(async () => {
 })
 
 describe('download collision admission and execution', () => {
+  it('keeps queueing beyond the plan limit without client release and preserves recent commit replay', async () => {
+    const f = await fixture(undefined, true)
+    const oldest = await f.plan()
+    await f.commit(oldest)
+    for (let i = 1; i < 128; i++) await f.commit(await f.plan())
+
+    const latest = await f.plan()
+    const admitted = await f.commit(latest)
+    expect(await f.commit(latest)).toEqual(admitted)
+    expect(f.manager.list()).toHaveLength(129)
+    expect(f.manager.list().filter((t) => t.status === 'queued')).toHaveLength(128)
+    const expired = await f.commitResponse(oldest)
+    expect(expired.statusCode).toBe(409)
+    expect(expired.json().code).toBe('DOWNLOAD_PLAN_EXPIRED')
+    expect(f.manager.list()).toHaveLength(129)
+  })
+
+  it('retains the pending-plan limit until in-flight admission cleanup finishes', async () => {
+    const f = await fixture({ folder: null })
+    const first = await f.plan(['/folder'])
+    for (let i = 1; i < 128; i++) await f.plan(['/folder'])
+    const create = () =>
+      f.app.inject({
+        method: 'POST',
+        url: '/api/download/plan',
+        payload: { remotePaths: ['/folder'], downloadDir: f.output, segments: 4 }
+      })
+    expect((await create()).statusCode).toBe(429)
+
+    const cleanup = deferred<void>()
+    f.client.deleteRemote.mockImplementationOnce(() => cleanup.promise)
+    const admission = f.commitResponse(first).then((response) => response)
+    try {
+      await vi.waitFor(() => expect(f.client.deleteRemote).toHaveBeenCalledOnce())
+      expect((await create()).statusCode).toBe(429)
+    } finally {
+      cleanup.resolve()
+      await admission
+    }
+    expect((await admission).statusCode).toBe(200)
+    expect((await create()).statusCode).toBe(200)
+    expect(f.manager.list()).toEqual([])
+  })
+
   it('plans without side effects, admits idempotently, stages privately and completes only after publication', async () => {
     const f = await fixture()
     const plan = await f.plan()

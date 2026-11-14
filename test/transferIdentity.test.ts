@@ -52,10 +52,22 @@ function createGate<T>() {
   return { promise, resolve, reject }
 }
 
-function makeRemotes(nameFor: Record<string, string>): RemoteStore {
+// Fake saved-site store. `sources` maps each session remote to the saved remote it was copied from.
+function makeRemotes(
+  nameFor: Record<string, string>,
+  copy: (source: string, target: string) => Promise<void> = async () => undefined
+): RemoteStore & { sources: Map<string, string> } {
+  const sources = new Map<string, string>()
   return {
-    remoteNameFor: vi.fn(async (id: string) => nameFor[id] ?? null)
-  } as unknown as RemoteStore
+    sources,
+    cloneForSession: vi.fn(async (id: string, target: string) => {
+      const source = nameFor[id]
+      if (!source) return null
+      await copy(source, target)
+      sources.set(target, source)
+      return { host: source, port: 22, username: 'user', authMethod: 'password', profileId: id }
+    })
+  } as unknown as RemoteStore & { sources: Map<string, string> }
 }
 
 function makeManager(): RcloneDownloadManager {
@@ -150,7 +162,9 @@ function contractFixture(overrides: Partial<RcloneClient> = {}) {
   } as unknown as RcloneClient
   const session = new ConnectionSession({
     client,
-    remotes: makeRemotes({ A: 'remoteA', B: 'remoteB' })
+    remotes: makeRemotes({ A: 'remoteA', B: 'remoteB' }, async (source, target) => {
+      configs.set(target, { ...configs.get(source)! })
+    })
   } as unknown as Services)
   const manager = makeManager()
   const config = {
@@ -320,7 +334,7 @@ describe('public connection revision contract', () => {
         expect(response.statusCode).toBe(outcome === 'unchanged-error' ? 500 : 409)
         if (outcome === 'unchanged-error')
           expect(response.json().message).toBe('Remote read failed')
-        expect(session.status().remoteName).toBe(
+        expect(session.status().connection?.host).toBe(
           outcome === 'unchanged-error' ? 'remoteA' : 'remoteB'
         )
       } finally {
@@ -348,11 +362,14 @@ describe('immutable clone acquisition and lifecycle recovery', () => {
           payload: { config: { host: 'A', port: 22, username: 'user', authMethod: 'privateKey' } }
         })
         expect(failed.statusCode).toBe(400)
-        expect(client.deleteRemote).toHaveBeenCalledExactlyOnceWith('_session')
+        expect(client.deleteRemote).toHaveBeenCalledExactlyOnceWith(
+          expect.stringMatching(/^_session-/)
+        )
         expect(session.status()).toEqual({
           connected: false,
           remoteName: null,
-          connectionRevision: null
+          connectionRevision: null,
+          connection: null
         })
         const next = await app.inject({
           method: 'POST',
@@ -409,7 +426,7 @@ describe('immutable clone acquisition and lifecycle recovery', () => {
         expect(configs.get(acquired.remoteName)?.host).toBe('A')
         expect(acquired.revision).toBe(revision)
         expect(session.status().connectionRevision).not.toBe(revision)
-        if (connection === 'manual') expect(configs.get('_session')?.host).toBe('B')
+        expect(configs.get(session.status().remoteName!)?.host).toBe('B')
         await acquired.release()
       } finally {
         pending.resolve()
@@ -435,7 +452,7 @@ describe('immutable clone acquisition and lifecycle recovery', () => {
         payload: { profileId: 'B' }
       })
       expect(next.statusCode).toBe(200)
-      expect(session.status().remoteName).toBe('remoteB')
+      expect(session.status().connection?.host).toBe('remoteB')
     } finally {
       await app.close()
     }
@@ -459,7 +476,8 @@ describe('immutable clone acquisition and lifecycle recovery', () => {
       expect(session.status()).toEqual({
         connected: false,
         remoteName: null,
-        connectionRevision: null
+        connectionRevision: null,
+        connection: null
       })
       pending.reject(new Error('Deletion failed'))
       const response = await request
@@ -525,7 +543,8 @@ describe('ConnectionSession concurrency', () => {
     const aStarted = createGate<void>()
     const bStarted = createGate<void>()
     const callOrder: string[] = []
-    const checkConnection = vi.fn((fs: string) => {
+    const checkConnection = vi.fn((target: string) => {
+      const fs = `${remotes.sources.get(target.slice(0, -1))}:`
       callOrder.push(fs)
       if (fs === 'remoteA:') {
         aStarted.resolve()
@@ -561,7 +580,7 @@ describe('ConnectionSession concurrency', () => {
       await pB
 
       expect(session.status().connected).toBe(true)
-      expect(session.status().remoteName).toBe('remoteB')
+      expect(session.status().connection?.host).toBe('remoteB')
     } finally {
       aGate.resolve()
       bGate.resolve()
@@ -593,7 +612,7 @@ describe('ConnectionSession concurrency', () => {
       })
     ).rejects.toThrow()
 
-    expect(deleteRemote).toHaveBeenCalledWith('_session')
+    expect(deleteRemote).toHaveBeenCalledWith(expect.stringMatching(/^_session-/))
     expect(session.status().connected).toBe(false)
     expect(session.status().remoteName).toBeNull()
   })
@@ -607,14 +626,14 @@ describe('ConnectionSession concurrency', () => {
     const session = new ConnectionSession({ client, remotes } as unknown as Services)
 
     await session.connect({ profileId: 'A' })
-    expect(session.status().remoteName).toBe('remoteA')
+    expect(session.status().connection?.host).toBe('remoteA')
 
     await expect(session.connect({ profileId: 'missing' })).rejects.toThrow(
       'Saved connection not found.'
     )
 
     await session.connect({ profileId: 'A' })
-    expect(session.status().remoteName).toBe('remoteA')
+    expect(session.status().connection?.host).toBe('remoteA')
   })
 })
 
@@ -661,7 +680,10 @@ describe('download route identity binding', () => {
       // request start, captured before any await), even though B became
       // live later. Today the clone only happens *after* stat resolves and
       // reads the (by then reconnected) live session, cloning B instead.
-      expect(cloneRemote).toHaveBeenCalledWith('remoteA', expect.stringMatching(/^_dl-/))
+      expect(cloneRemote).toHaveBeenCalledWith(
+        expect.stringMatching(/^_session-/),
+        expect.stringMatching(/^_dl-/)
+      )
       // Principal assertion 3: the manager must pull the transfer from
       // exactly the clone fs that validated the file.
       expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ srcFs: statFsArg }))
@@ -701,7 +723,10 @@ describe('download route identity binding', () => {
       // This outcome holds both before and after the clone-first reordering,
       // since there is no reconnect to go wrong here.
       expect(response.statusCode).toBe(200)
-      expect(cloneRemote).toHaveBeenCalledWith('remoteA', expect.stringMatching(/^_dl-/))
+      expect(cloneRemote).toHaveBeenCalledWith(
+        expect.stringMatching(/^_session-/),
+        expect.stringMatching(/^_dl-/)
+      )
       expect(manager.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({ srcFs: expect.stringMatching(/^_dl-/) })
       )
@@ -747,7 +772,10 @@ describe('download route identity binding', () => {
       // actually 400 — this assertion targets the pending clone-first design,
       // not proof of the original P1 bug.
       expect(response.statusCode).toBe(200)
-      expect(cloneRemote).toHaveBeenCalledWith('remoteA', expect.stringMatching(/^_dl-/))
+      expect(cloneRemote).toHaveBeenCalledWith(
+        expect.stringMatching(/^_session-/),
+        expect.stringMatching(/^_dl-/)
+      )
     } finally {
       await app.close()
     }
@@ -792,7 +820,6 @@ describe('upload route identity binding', () => {
       // the request must be rejected (409) rather than silently cloning
       // whatever is live now (B). Today this returns 200 and clones B.
       expect(response.statusCode).toBe(409)
-      expect(cloneRemote).not.toHaveBeenCalledWith('remoteB', expect.anything())
       expect(cloneRemote).not.toHaveBeenCalled()
     } finally {
       await app.close()
@@ -821,7 +848,10 @@ describe('upload route identity binding', () => {
       })
 
       expect(response.statusCode).toBe(200)
-      expect(cloneRemote).toHaveBeenCalledWith('remoteA', expect.stringMatching(/^_ul-/))
+      expect(cloneRemote).toHaveBeenCalledWith(
+        expect.stringMatching(/^_session-/),
+        expect.stringMatching(/^_ul-/)
+      )
     } finally {
       await app.close()
     }
@@ -885,13 +915,21 @@ describe('connectionRevision design (supplemental — not proof of the original 
         url: '/api/connect',
         payload: { profileId: 'A' }
       })
-      const connectBody = connectResponse.json() as { connectionRevision?: string }
+      const connectBody = connectResponse.json() as {
+        connectionRevision?: string
+        connection?: unknown
+      }
+      expect(connectBody.connection).toMatchObject({ profileId: 'A' })
       expect(typeof connectBody.connectionRevision).toBe('string')
       expect(connectBody.connectionRevision).toBeTruthy()
 
       const statusResponse = await app.inject({ method: 'GET', url: '/api/status' })
-      const statusBody = statusResponse.json() as { connectionRevision?: string | null }
+      const statusBody = statusResponse.json() as {
+        connectionRevision?: string | null
+        connection?: unknown
+      }
       expect(statusBody.connectionRevision).toBe(connectBody.connectionRevision)
+      expect(statusBody.connection).toEqual(connectBody.connection)
     } finally {
       await app.close()
     }

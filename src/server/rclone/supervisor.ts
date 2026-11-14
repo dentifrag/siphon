@@ -33,6 +33,10 @@ export class RcloneSupervisor {
     return this.endpoint
   }
 
+  isEndpointCurrent(endpoint: RcloneEndpoint): boolean {
+    return this.endpoint === endpoint
+  }
+
   async start(): Promise<void> {
     await mkdir(this.dataDir, { recursive: true })
     this.binaryPath = await resolveRcloneBinary(this.dataDir, this.execDir)

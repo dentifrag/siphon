@@ -5,7 +5,8 @@ import {
   RcloneDownloadManager,
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
-import type { RcloneClient } from '../src/server/rclone/client'
+import type { RcloneClient, RcloneJobHandle } from '../src/server/rclone/client'
+import { jobHandle } from './fixtures/rcloneJobs'
 import { dirname } from 'node:path'
 
 vi.mock('../src/server/downloadPublication', () => ({
@@ -59,9 +60,12 @@ function makeManager(maxConcurrent = 3) {
     copyFileAsync: vi.fn().mockImplementation(async () => {
       const id = nextJobId++
       jobStatuses.set(id, { finished: false, success: false, error: '' })
-      return id
+      return jobHandle(id)
     }),
-    jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+    jobStatus: vi.fn().mockImplementation(async ({ id }: RcloneJobHandle) => ({
+      id,
+      ...jobStatuses.get(id)!
+    })),
     jobStop: vi.fn().mockResolvedValue(undefined),
     deleteRemote: vi.fn().mockResolvedValue(undefined)
   }
@@ -469,7 +473,7 @@ describe('RcloneDownloadManager destination quarantine', () => {
   })
 
   it('quarantines a destination after a watchdog force-settles a cancel while its copy submission was still uncertain, rejecting new submissions to that key even after clearAll', async () => {
-    const copyGate = deferred<number>()
+    const copyGate = deferred<RcloneJobHandle>()
     const client = {
       coreStatsDelete: vi.fn().mockResolvedValue(undefined),
       coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
@@ -509,7 +513,7 @@ describe('RcloneDownloadManager destination quarantine', () => {
     expect(manager.list().find((t) => t.id === stillQuarantined.id)?.status).toBe('error')
     expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
 
-    copyGate.resolve(1)
+    copyGate.resolve(jobHandle(1))
   })
 
   it('does not quarantine the destination when a cap-queued (never submitted) download is canceled', async () => {
@@ -560,7 +564,7 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
       const client = {
         coreStatsDelete: vi.fn().mockReturnValue(resetGate.promise),
         coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
-        copyFileAsync: vi.fn().mockResolvedValue(1),
+        copyFileAsync: vi.fn().mockResolvedValue(jobHandle(1)),
         jobStatus: vi.fn(),
         jobStop: vi.fn().mockResolvedValue(undefined),
         deleteRemote: vi.fn().mockResolvedValue(undefined)
@@ -594,14 +598,14 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
   )
 
   it('quarantines the destination and fails a queued same-key sibling before any further pump when cancel arrives while the copy submission is still pending and it later resolves with a known job id, leaving an unrelated destination unaffected (distinct from the watchdog-timeout path)', async () => {
-    const copyGate = deferred<number>()
+    const copyGate = deferred<RcloneJobHandle>()
     let callCount = 0
     const client = {
       coreStatsDelete: vi.fn().mockResolvedValue(undefined),
       coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
       copyFileAsync: vi.fn().mockImplementation(() => {
         callCount += 1
-        return callCount === 1 ? copyGate.promise : Promise.resolve(callCount + 100)
+        return callCount === 1 ? copyGate.promise : Promise.resolve(jobHandle(callCount + 100))
       }),
       jobStatus: vi.fn(),
       jobStop: vi.fn().mockResolvedValue(undefined),
@@ -627,12 +631,12 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
     // No watchdog timer advance here: cancel arrives while submission is uncertain, and the
     // copy promise settles with a known job id before any CANCEL_SETTLE_TIMEOUT_MS elapses.
     manager.cancel(stuck.id)
-    copyGate.resolve(77)
+    copyGate.resolve(jobHandle(77))
     await flushMicrotasks()
 
     expect(manager.list().find((t) => t.id === stuck.id)?.status).toBe('canceled')
     expect(client.jobStop).toHaveBeenCalledTimes(1)
-    expect(client.jobStop).toHaveBeenCalledWith(77)
+    expect(client.jobStop).toHaveBeenCalledWith(jobHandle(77))
 
     const siblingAfter = manager.list().find((t) => t.id === sibling.id)!
     expect(siblingAfter.status).toBe('error')
@@ -648,14 +652,14 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
   it.each([{ outcome: 'resolve' as const }, { outcome: 'reject' as const }])(
     'a late copy $outcome arriving after a watchdog has already force-settled a cancel does not re-settle or restart the same-key queued task, which is already failed as a nonretryable quarantine error',
     async ({ outcome }) => {
-      const copyGate = deferred<number>()
+      const copyGate = deferred<RcloneJobHandle>()
       let callCount = 0
       const client = {
         coreStatsDelete: vi.fn().mockResolvedValue(undefined),
         coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
         copyFileAsync: vi.fn().mockImplementation(() => {
           callCount += 1
-          return callCount === 1 ? copyGate.promise : Promise.resolve(99)
+          return callCount === 1 ? copyGate.promise : Promise.resolve(jobHandle(99))
         }),
         jobStatus: vi.fn(),
         jobStop: vi.fn().mockResolvedValue(undefined),
@@ -690,7 +694,7 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
       const onUpdate = vi.fn()
       manager.onUpdate(onUpdate)
 
-      if (outcome === 'resolve') copyGate.resolve(55)
+      if (outcome === 'resolve') copyGate.resolve(jobHandle(55))
       else copyGate.reject(new Error('late network failure'))
       await flushMicrotasks()
 
@@ -708,7 +712,7 @@ describe('RcloneDownloadManager uncertain-submission races', () => {
       copyFileAsync: vi
         .fn()
         .mockRejectedValueOnce(new Error('network error'))
-        .mockImplementation(async () => 1),
+        .mockImplementation(async () => jobHandle(1)),
       jobStatus: vi.fn().mockResolvedValue({ finished: false, success: false, error: '', id: 1 }),
       jobStop: vi.fn().mockResolvedValue(undefined),
       deleteRemote: vi.fn().mockResolvedValue(undefined)

@@ -13,13 +13,71 @@ afterEach(() => {
 })
 
 function client() {
+  const endpoint = {
+    baseUrl: 'http://127.0.0.1:5572',
+    authHeader: 'Basic test'
+  }
   return new RcloneClient({
-    getEndpoint: () => ({
-      baseUrl: 'http://127.0.0.1:5572',
-      authHeader: 'Basic test'
-    })
+    getEndpoint: () => endpoint,
+    isEndpointCurrent: (candidate: unknown) => candidate === endpoint
   } as unknown as RcloneSupervisor)
 }
+
+const copyInput = {
+  srcFs: 'source:',
+  srcRemote: 'file.bin',
+  dstFs: '/out',
+  dstRemote: 'file.bin',
+  group: 'job-test',
+  config: { MultiThreadStreams: 1, MultiThreadCutoff: '1B', MultiThreadChunkSize: '5242880B' }
+}
+
+describe('rclone job ownership', () => {
+  it('rejects status and cancellation after the owning daemon ends without contacting its replacement', async () => {
+    let endpoint = { baseUrl: 'http://127.0.0.1:5572', authHeader: 'Basic test' }
+    const rc = new RcloneClient({
+      getEndpoint: () => endpoint,
+      isEndpointCurrent: (candidate: unknown) => candidate === endpoint
+    } as unknown as RcloneSupervisor)
+    const fetch = vi.fn(async () => Response.json({ jobid: 1, executeId: 'old-daemon' }))
+    vi.stubGlobal('fetch', fetch)
+    const job = await rc.copyFileAsync(copyInput)
+    endpoint = { baseUrl: 'http://127.0.0.1:5573', authHeader: 'Basic test' }
+    await expect(rc.jobStatus(job)).rejects.toThrow(/rclone.*(stopped|restarted)/i)
+    await expect(rc.jobStop(job)).rejects.toThrow(/rclone.*(stopped|restarted)/i)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it('does not accept an unrelated successful job from another rclone execution', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ jobid: 1, executeId: 'old-daemon' }))
+        .mockResolvedValueOnce(
+          Response.json({ id: 1, executeId: 'new-daemon', finished: true, success: true })
+        )
+    )
+    const rc = client()
+    const job = await rc.copyFileAsync(copyInput)
+    await expect(rc.jobStatus(job)).rejects.toThrow(/rclone.*(stopped|restarted)/i)
+  })
+
+  it('supports older rclone without execution IDs and explicitly rejects an expired job', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ jobid: 1 }))
+        .mockResolvedValueOnce(Response.json({ id: 1, finished: false, success: false, error: '' }))
+        .mockResolvedValueOnce(Response.json({ error: 'job not found' }, { status: 500 }))
+    )
+    const rc = client()
+    const job = await rc.copyFileAsync(copyInput)
+    expect(await rc.jobStatus(job)).toMatchObject({ id: 1, finished: false })
+    await expect(rc.jobStatus(job)).rejects.toMatchObject({ code: 'RCLONE_JOB_LOST' })
+  })
+})
 
 describe('RcloneClient.listRecursiveEntries', () => {
   it('lists both files and directories so the destination tree can be created first', async () => {

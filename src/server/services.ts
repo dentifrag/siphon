@@ -2,7 +2,7 @@ import type { ServerConfig } from './config'
 import { RcloneSupervisor } from './rclone/supervisor'
 import { RcloneClient } from './rclone/client'
 import { RcloneDownloadManager } from './rclone/downloadManager'
-import { RemoteStore } from './rclone/remotes'
+import { RemoteStore, SESSION_REMOTE_PREFIX } from './rclone/remotes'
 import { validateDownloadDestination } from './localFs'
 
 export interface Services {
@@ -34,7 +34,12 @@ export async function createServices(
 async function removeEphemeralRemotes(client: RcloneClient): Promise<void> {
   const names = await client.listRemotes().catch(() => [] as string[])
   for (const name of names) {
-    if (name === '_session' || name.startsWith('_dl-') || name.startsWith('_ul-')) {
+    if (
+      name === '_session' ||
+      name.startsWith(SESSION_REMOTE_PREFIX) ||
+      name.startsWith('_dl-') ||
+      name.startsWith('_ul-')
+    ) {
       await client.deleteRemote(name).catch(() => undefined)
     }
   }

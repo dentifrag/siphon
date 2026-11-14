@@ -5,6 +5,7 @@ import type { UpdateStatus } from '@shared/api'
 
 export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
   const base: WebApi = {
+    onSessionExpired: vi.fn(() => () => {}),
     authStatus: vi.fn(async (): Promise<AuthStatus> => ({
       state: 'open',
       required: false,
@@ -40,12 +41,24 @@ export function createMockWebApi(overrides: Partial<WebApi> = {}): WebApi {
     }),
     getVersionHealth: vi.fn(async () => ({ app: 'siphon' as const, version: '1.0.2' })),
 
-    connect: vi.fn(async () => ({ home: '/', connectionRevision: 'r1' })),
+    connect: vi.fn(async (config, profileId) => ({
+      home: '/',
+      connectionRevision: 'r1',
+      connection: {
+        host: config.host,
+        port: config.port,
+        username: config.username,
+        authMethod: config.authMethod,
+        privateKeyPath: config.privateKeyPath,
+        ...(profileId ? { profileId } : {})
+      }
+    })),
     disconnect: vi.fn(async () => undefined),
     status: vi.fn(async () => ({
       connected: false,
       remoteName: null,
-      connectionRevision: null
+      connectionRevision: null,
+      connection: null
     })),
     list: vi.fn(async () => []),
     stat: vi.fn(async (): Promise<RemoteStat> => ({ size: 0, type: 'file', mtime: 0 })),

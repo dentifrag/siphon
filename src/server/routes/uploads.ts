@@ -96,7 +96,7 @@ export function registerUploadRoutes(
   }
 
   app.post('/api/upload', async (req) => {
-    const release = updates?.admitTransfer()
+    const release = await updates?.admitTransfer()
     try {
       const input = req.body as UploadEnqueueInput
       const binding = session.bind(parseConnectionRevision(input.connectionRevision))

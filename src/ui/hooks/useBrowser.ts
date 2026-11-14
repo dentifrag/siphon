@@ -3,11 +3,13 @@ import type { RemoteEntry } from '@shared/types'
 import { errorMessage } from '../lib/format'
 import { useDownloadCollisions, type CollisionChoice } from './useDownloadCollisions'
 import type { TransferProgress } from '@shared/types'
+import type { ConnectionIdentity } from '@shared/api'
+import { isSameServer, readStoredConnection, storeConnection } from '../lib/connectionIdentity'
 
 interface UseBrowserOptions {
   downloadDir: string
   segments: number
-  onStatusConnected: () => void
+  onStatusConnected: (connection: ConnectionIdentity | null) => void
 }
 
 interface UseBrowserResult {
@@ -160,8 +162,16 @@ export function useBrowser({
         if (lifetimeRef.current !== lifetime) return
         if (!status.connected || !status.connectionRevision) return
         revisionRef.current = status.connectionRevision
-        optionsRef.current.onStatusConnected()
-        const storedCwd = localStorage.getItem('siphon.cwd') || '/'
+        const connection = status.connection ?? null
+        optionsRef.current.onStatusConnected(connection)
+        let storedCwd = localStorage.getItem('siphon.cwd') || '/'
+        if (connection) {
+          if (!isSameServer(readStoredConnection(), connection)) {
+            storedCwd = '/'
+            localStorage.removeItem('siphon.cwd')
+          }
+          storeConnection(connection)
+        }
         const restoreNavigation = navigationRef.current + 1
         const result = await navigate(storedCwd)
         if (

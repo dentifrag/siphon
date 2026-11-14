@@ -292,6 +292,12 @@ describe('startup connection and restore ownership', () => {
   it.each(['connect', 'disconnect'] as const)(
     'ignores a late startup status after local %s begins',
     async (operation) => {
+      const connection = {
+        host: 'new',
+        port: 22,
+        username: 'user',
+        authMethod: 'password' as const
+      }
       const status = gate<SessionStatus>()
       const connect = gate<ConnectResult>()
       const disconnect = gate<void>()
@@ -333,7 +339,7 @@ describe('startup connection and restore ownership', () => {
         expect(api.list).not.toHaveBeenCalled()
         expect(result.current.browser.entries).toEqual([])
         await act(async () => {
-          connect.resolve({ home: '/new', connectionRevision: 'r-new' })
+          connect.resolve({ home: '/new', connectionRevision: 'r-new', connection })
           disconnect.resolve()
           await pending
         })
@@ -342,7 +348,7 @@ describe('startup connection and restore ownership', () => {
       } finally {
         await act(async () => {
           status.resolve({ connected: false, remoteName: null, connectionRevision: null })
-          connect.resolve({ home: '/new', connectionRevision: 'r-new' })
+          connect.resolve({ home: '/new', connectionRevision: 'r-new', connection })
           disconnect.resolve()
           await pending
         })
@@ -416,6 +422,7 @@ function resolvedProfile(): ResolvedProfile {
 
 function mountConnection(overrides: Partial<WebApi> = {}) {
   const api = installMockWebApi({
+    listProfiles: vi.fn(async () => [{ ...resolvedProfile(), id: 'p1', hasSecret: true }]),
     resolveProfile: vi.fn(async () => resolvedProfile()),
     ...overrides
   })

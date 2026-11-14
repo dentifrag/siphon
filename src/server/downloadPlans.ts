@@ -43,6 +43,7 @@ interface PendingPlan {
   decisions?: string
   canceled: boolean
   admitted: boolean
+  settled: boolean
   directories: { id: string; path: string; root: string; blocked: boolean }[]
 }
 
@@ -73,7 +74,7 @@ export class DownloadPlans {
     ) {
       throw httpError(400, 'Invalid download plan.')
     }
-    const releaseAdmission = this.updates?.admitTransfer()
+    const releaseAdmission = await this.updates?.admitTransfer()
     let releaseJob: (() => Promise<void>) | undefined
     try {
       const binding = this.session.bind(parseConnectionRevision(input.connectionRevision))
@@ -134,7 +135,7 @@ export class DownloadPlans {
 
   async createRetry(id: string): Promise<DownloadPlan> {
     this.assertCapacity()
-    const releaseAdmission = this.updates?.admitTransfer()
+    const releaseAdmission = await this.updates?.admitTransfer()
     let lease: ReturnType<RcloneDownloadManager['acquireRetryInput']> | undefined
     try {
       lease = this.manager.acquireRetryInput(id)
@@ -163,6 +164,13 @@ export class DownloadPlans {
 
   private assertCapacity(): void {
     if (this.plans.size >= MAX_PLANS) {
+      for (const [id, plan] of this.plans) {
+        if (plan.settled) {
+          clearTimeout(plan.timer)
+          this.plans.delete(id)
+          return
+        }
+      }
       throw httpError(
         429,
         'Too many pending download plans. Cancel a pending choice or wait for expiry.'
@@ -252,6 +260,7 @@ export class DownloadPlans {
       retryOf,
       canceled: false,
       admitted: false,
+      settled: false,
       directories,
       releaseLease: async (transferred) => {
         if (released) return
@@ -319,7 +328,9 @@ export class DownloadPlans {
       )
     }
     plan.decisions = decisions
-    plan.admission = this.admit(plan, { ...input.decisions })
+    plan.admission = this.admit(plan, { ...input.decisions }).finally(() => {
+      plan.settled = true
+    })
     return plan.admission
   }
 

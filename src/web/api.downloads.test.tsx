@@ -4,6 +4,92 @@ import { createWebApi } from './api'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('download API transport', () => {
+  it('notifies session expiry once but preserves ordinary password rejection errors', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 })
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 })
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Current password is incorrect' }, { status: 401 })
+      )
+    vi.stubGlobal('fetch', fetch)
+    const api = createWebApi()
+    const expired = vi.fn()
+    api.onSessionExpired(expired)
+    await expect(api.disconnect()).rejects.toMatchObject({ status: 401 })
+    await expect(api.disconnect()).rejects.toMatchObject({ status: 401 })
+    await expect(api.changePassword('incorrect', 'new-password')).rejects.toThrow(
+      'Current password is incorrect'
+    )
+    expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('ignores an old unauthorized response after a new successful sign-in', async () => {
+    let finish!: (response: Response) => void
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve
+          })
+      )
+      .mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 })
+      )
+    vi.stubGlobal('fetch', fetch)
+    const api = createWebApi()
+    const expired = vi.fn()
+    api.onSessionExpired(expired)
+    const oldRequest = api.disconnect()
+    await api.login('admin', 'synthetic-password')
+    finish(Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 }))
+    await expect(oldRequest).rejects.toMatchObject({ status: 401 })
+    expect(expired).not.toHaveBeenCalled()
+    await expect(api.disconnect()).rejects.toMatchObject({ status: 401 })
+    expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('checks authentication when the transfer stream closes instead of silently retrying an expired session', async () => {
+    const source = {
+      onerror: null as (() => void) | null,
+      onmessage: null,
+      close: vi.fn(),
+      readyState: 2
+    }
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        constructor() {
+          return source
+        }
+      }
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          state: 'password',
+          authenticated: false
+        })
+      )
+    )
+    const api = createWebApi()
+    const expired = vi.fn()
+    api.onSessionExpired(expired)
+    const close = api.onDownloadUpdate(vi.fn())
+    source.onerror?.()
+    await vi.waitFor(() => expect(expired).toHaveBeenCalledOnce())
+    expect(source.close).toHaveBeenCalledOnce()
+    close()
+  })
+
   it.each([
     'CONNECTION_CHANGED',
     'DESTINATION_COLLISION',

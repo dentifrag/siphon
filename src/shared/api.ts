@@ -7,15 +7,22 @@ import type {
   TransferProgress
 } from './types'
 
+export type ConnectionIdentity = Pick<
+  ConnectionConfig,
+  'host' | 'port' | 'username' | 'authMethod' | 'privateKeyPath'
+> & { profileId?: string }
+
 export interface ConnectResult {
   home: string
   connectionRevision: string
+  connection: ConnectionIdentity
 }
 
 export interface SessionStatus {
   connected: boolean
   remoteName: string | null
   connectionRevision: string | null
+  connection?: ConnectionIdentity | null
 }
 
 export interface DownloadEnqueueInput {

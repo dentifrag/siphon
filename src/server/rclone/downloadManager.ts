@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import type { TransferProgress } from '../../shared/types'
 import { pushSample, rollingSpeed, type SpeedSample } from './speed'
-import type { RcloneClient } from './client'
+import { RcloneJobLostError, type RcloneClient, type RcloneJobHandle } from './client'
 import { multiThreadConfig, planMultiThread } from './chunk'
 import { httpError } from '../http'
 import { downloadDestinationKey } from '../localFs'
@@ -36,7 +36,7 @@ interface InternalTransfer {
   progress: TransferProgress
   input: RcloneEnqueueInput
   group: string
-  jobid: number | null
+  jobid: RcloneJobHandle | null
   canceled: boolean
   canceledAt: number | null
   cleaned: boolean
@@ -44,7 +44,7 @@ interface InternalTransfer {
   polling: boolean
   samples: SpeedSample[]
   settled: boolean
-  submission: 'none' | 'pending' | 'known'
+  submission: 'none' | 'pending' | 'known' | 'lost'
   observedFinish: boolean
   finishedFailure: boolean
   retryAdmission: Promise<TransferProgress> | null
@@ -505,7 +505,9 @@ export class RcloneDownloadManager extends EventEmitter {
     t.polling = true
 
     try {
-      const stats = await this.client.coreStats(t.group)
+      const job = await this.client.jobStatus(t.jobid)
+      if (!this.ownsActive(id, t)) return
+      const stats = await this.client.coreStats(t.group, t.jobid)
       if (!this.ownsActive(id, t)) return
       const transferred = stats.bytes ?? t.progress.transferred
       t.progress.transferred = Math.min(transferred, t.progress.size || transferred)
@@ -514,8 +516,6 @@ export class RcloneDownloadManager extends EventEmitter {
       pushSample(t.samples, { time: Date.now(), bytes: t.progress.transferred })
       t.progress.speedBytesPerSec = rollingSpeed(t.samples)
 
-      const job = await this.client.jobStatus(t.jobid)
-      if (!this.ownsActive(id, t)) return
       if (job.finished) {
         t.observedFinish = true
         t.publishing = true
@@ -562,7 +562,9 @@ export class RcloneDownloadManager extends EventEmitter {
         this.emitUpdate(id)
       }
     } catch (error) {
-      if (t.observedFinish) await this.failRun(id, t, error)
+      if (t.observedFinish || error instanceof RcloneJobLostError) {
+        await this.failRun(id, t, error)
+      }
     } finally {
       t.polling = false
       t.publishing = false
@@ -649,7 +651,7 @@ export class RcloneDownloadManager extends EventEmitter {
 
   private quarantine(t: InternalTransfer): void {
     const key = this.destinationKey(t)
-    if (!key || t.submission === 'none' || t.observedFinish) return
+    if (!key || t.submission === 'none' || t.submission === 'lost' || t.observedFinish) return
     this.quarantined.add(key)
     t.progress.retryUnavailableReason = QUARANTINE_REASON
     for (const other of this.transfers.values()) {
@@ -666,6 +668,7 @@ export class RcloneDownloadManager extends EventEmitter {
 
   private async failRun(id: string, t: InternalTransfer, err: unknown): Promise<void> {
     if (!this.ownsActive(id, t)) return
+    if (err instanceof RcloneJobLostError) t.submission = 'lost'
     this.quarantine(t)
     if (t.stage) {
       if (t.submission === 'none' || t.observedFinish) {

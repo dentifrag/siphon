@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ConnectionProfileMeta, SaveProfileInput } from '@shared/api'
+import type { ConnectionIdentity, ConnectionProfileMeta, SaveProfileInput } from '@shared/api'
 import { defaultConnectionForm, toConnectionConfig, type ConnectionForm } from '../lib/types'
 import { errorMessage } from '../lib/format'
 import {
-  CONNECTION_STORAGE_KEY,
-  parseStoredConnection,
-  type StoredConnection
-} from '../lib/storage'
+  clearStoredConnection,
+  isSecretOnlyPatch,
+  storeConnection
+} from '../lib/connectionIdentity'
 
 type ConnState = 'disconnected' | 'connecting' | 'connected'
 
@@ -35,7 +35,7 @@ interface UseConnectionResult {
   handleSelectProfile: (id: string) => Promise<void>
   handleSaveProfile: () => Promise<void>
   handleDeleteProfile: () => Promise<void>
-  restoreConnection: () => void
+  restoreConnection: (connection: ConnectionIdentity | null) => void
 }
 
 export function useConnection({
@@ -54,6 +54,7 @@ export function useConnection({
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [rememberSecret, setRememberSecret] = useState(true)
   const [formFromProfile, setFormFromProfile] = useState(false)
+  const [profilesLoaded, setProfilesLoaded] = useState(false)
   const selectedProfileRef = useRef('')
   const profileRequestRef = useRef(0)
   const lifecycleRef = useRef(0)
@@ -78,16 +79,46 @@ export function useConnection({
   useEffect(() => {
     window.api
       .listProfiles()
-      .then(setProfiles)
-      .catch(() => undefined)
+      .then((list) => {
+        setProfiles(list)
+        setProfilesLoaded(true)
+      })
+      .catch((error: unknown) => setConnError(errorMessage(error)))
   }, [])
+
+  useEffect(() => {
+    if (profilesLoaded && selectedProfileId && !profiles.some((p) => p.id === selectedProfileId)) {
+      selectProfile('')
+    }
+  }, [profiles, profilesLoaded, selectedProfileId, selectProfile])
+
+  const applyIdentity = useCallback(
+    (identity: ConnectionIdentity) => {
+      const next = {
+        ...formRef.current,
+        host: identity.host,
+        port: String(identity.port),
+        username: identity.username,
+        authMethod: identity.authMethod,
+        privateKeyPath: identity.privateKeyPath ?? ''
+      }
+      formRef.current = next
+      setForm(next)
+      if (identity.profileId) setFormFromProfile(true)
+      selectProfile(identity.profileId ?? '')
+    },
+    [selectProfile]
+  )
 
   const onFormChange = useCallback(
     (patch: Partial<ConnectionForm>) => {
       if (Object.keys(patch).length === 0) return
       profileRequestRef.current += 1
-      if (selectedProfileRef.current) setFormFromProfile(true)
-      selectProfile('')
+      // A typed password or passphrase is a one-time secret for the selected saved site.
+      if (!isSecretOnlyPatch(patch)) {
+        if (selectedProfileRef.current) setFormFromProfile(true)
+        selectProfile('')
+      }
       const next = { ...formRef.current, ...patch }
       formRef.current = next
       setForm(next)
@@ -96,34 +127,14 @@ export function useConnection({
     [selectProfile]
   )
 
-  const restoreConnection = useCallback(() => {
-    profileRequestRef.current += 1
-    setConnState('connected')
-    try {
-      const raw = localStorage.getItem(CONNECTION_STORAGE_KEY)
-      if (raw) {
-        const saved = parseStoredConnection(raw)
-        if (saved) {
-          const next = {
-            ...formRef.current,
-            host: saved.host,
-            port: saved.port,
-            username: saved.username,
-            authMethod: saved.authMethod,
-            privateKeyPath: saved.privateKeyPath,
-            password: '',
-            passphrase: ''
-          }
-          formRef.current = next
-          setForm(next)
-          setFormFromProfile(Boolean(saved.profileId))
-          selectProfile(saved.profileId)
-        }
-      }
-    } catch {
-      // ignore malformed stored connection
-    }
-  }, [selectProfile])
+  const restoreConnection = useCallback(
+    (connection: ConnectionIdentity | null) => {
+      profileRequestRef.current += 1
+      setConnState('connected')
+      if (connection) applyIdentity(connection)
+    },
+    [applyIdentity]
+  )
 
   const handleConnect = useCallback(async () => {
     profileRequestRef.current += 1
@@ -135,7 +146,7 @@ export function useConnection({
     onConnectionChange?.()
     setConnState('connecting')
     setConnError(null)
-    let storagePayload: StoredConnection | null = null
+    let identity: ConnectionIdentity
     try {
       const result = await window.api.connect(
         toConnectionConfig(form),
@@ -143,26 +154,8 @@ export function useConnection({
       )
       if (lifecycleRef.current !== lifecycle) return
       setConnState('connected')
-      const selectedProfile = selectedProfileId
-        ? profiles.find((profile) => profile.id === selectedProfileId)
-        : null
-      storagePayload = selectedProfile
-        ? {
-            host: selectedProfile.host,
-            port: String(selectedProfile.port),
-            username: selectedProfile.username,
-            authMethod: selectedProfile.authMethod,
-            privateKeyPath: selectedProfile.privateKeyPath ?? '',
-            profileId: selectedProfile.id
-          }
-        : {
-            host: form.host,
-            port: form.port,
-            username: form.username,
-            authMethod: form.authMethod,
-            privateKeyPath: form.privateKeyPath,
-            profileId: ''
-          }
+      identity = result.connection
+      applyIdentity(identity)
       await onConnected(result.home || '/', result.connectionRevision)
     } catch (error) {
       if (lifecycleRef.current !== lifecycle) return
@@ -170,11 +163,15 @@ export function useConnection({
       setConnError(errorMessage(error))
       return
     }
-    if (!storagePayload || lifecycleRef.current !== lifecycle) return
-    try {
-      localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(storagePayload))
-    } catch {}
-  }, [form, onConnected, onConnectionChange, profiles, selectedProfileId, requiresPasswordReentry])
+    if (lifecycleRef.current === lifecycle) storeConnection(identity)
+  }, [
+    applyIdentity,
+    form,
+    onConnected,
+    onConnectionChange,
+    selectedProfileId,
+    requiresPasswordReentry
+  ])
 
   const handleDisconnect = useCallback(async () => {
     profileRequestRef.current += 1
@@ -189,9 +186,7 @@ export function useConnection({
       if (lifecycleRef.current === lifecycle) setConnError(errorMessage(error))
     }
     if (lifecycleRef.current !== lifecycle) return
-    try {
-      localStorage.removeItem(CONNECTION_STORAGE_KEY)
-    } catch {}
+    clearStoredConnection()
   }, [onConnectionChange, onDisconnected])
 
   const handleSelectProfile = useCallback(

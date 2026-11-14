@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, SegmentedControl } from '@primer/react'
+import type { ConnectionIdentity } from '@shared/api'
 import { ConnectionPanel } from './components/ConnectionPanel'
 import { RemoteBrowser } from './components/RemoteBrowser'
 import { TransferQueue } from './components/TransferQueue'
@@ -32,8 +33,11 @@ export default function App({ canChangePassword }: AppProps) {
       .catch(() => undefined)
   }, [])
 
-  const restoreConnectionRef = useRef<() => void>(() => {})
-  const onStatusConnected = useCallback(() => restoreConnectionRef.current(), [])
+  const restoreConnectionRef = useRef<(connection: ConnectionIdentity | null) => void>(() => {})
+  const onStatusConnected = useCallback(
+    (connection: ConnectionIdentity | null) => restoreConnectionRef.current(connection),
+    []
+  )
 
   const browser = useBrowser({ downloadDir, segments, onStatusConnected })
 

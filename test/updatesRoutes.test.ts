@@ -74,6 +74,7 @@ async function server(mode: 'password' | 'open' | 'setup' = 'password') {
     status: 'queued',
     direction: input.direction
   }))
+  const onUpdate = vi.fn((_listener: (transfer: TransferProgress) => void) => () => {})
   const retry = vi.fn(
     async (
       _id: string,
@@ -101,11 +102,21 @@ async function server(mode: 'password' | 'open' | 'setup' = 'password') {
       client,
       manager: {
         list: () => fixture.transfers,
+        onUpdate,
+        onRemove: () => () => {},
         enqueue,
         enqueueBatch: (inputs: RcloneEnqueueInput[]) => inputs.map(enqueue),
         retry
       },
-      remotes: { remoteNameFor: vi.fn(async () => 'test') }
+      remotes: {
+        cloneForSession: vi.fn(async () => ({
+          host: 'test',
+          port: 22,
+          username: 'test',
+          authMethod: 'password',
+          profileId: 'test'
+        }))
+      }
     },
     execDir: directory.dir,
     updates: fixture.updates
@@ -117,10 +128,24 @@ async function server(mode: 'password' | 'open' | 'setup' = 'password') {
   await registerRoutes(app, ctx)
   await app.ready()
   const headers = { ...origin, cookie: sid ? `siphon_sid=${sid}` : '' }
-  return { app, headers, client, enqueue, retry, stateDir, ...fixture }
+  return { app, headers, client, enqueue, retry, stateDir, auth, onUpdate, ...fixture }
 }
 
 describe('update HTTP boundary', () => {
+  it('closes an established transfer stream when its session is revoked', async () => {
+    const { app, headers, auth, onUpdate } = await server()
+    const pending = app
+      .inject({ method: 'GET', url: '/api/events', headers })
+      .then((response) => response)
+    await vi.waitFor(() => expect(onUpdate).toHaveBeenCalledOnce())
+    auth.logout(headers.cookie.replace('siphon_sid=', ''))
+    onUpdate.mock.calls[0][0]({ id: 'revoked-event' } as TransferProgress)
+    const response = await pending
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('"type":"reset"')
+    expect(response.body).not.toContain('revoked-event')
+  })
+
   it.each([false, true])(
     'returns authoritative install acceptance %s on a 503',
     async (accepted) => {
