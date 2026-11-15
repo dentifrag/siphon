@@ -310,10 +310,11 @@ export function createWebApi(): WebApi {
       let source: EventSource
       let reconnectTimer: ReturnType<typeof setTimeout> | undefined
       // EventSource only retries on its own after a dropped connection, so back off here.
-      const scheduleReconnect = (revision: number) => {
-        if (source.readyState !== EventSource.CLOSED) return
+      const scheduleReconnect = () => {
+        if (stopped || source.readyState !== EventSource.CLOSED) return
+        clearTimeout(reconnectTimer)
         reconnectTimer = setTimeout(() => {
-          if (!stopped && revision === authRevision) connect()
+          if (!stopped && !expired) connect()
         }, STREAM_RECONNECT_DELAY_MS)
       }
       const connect = () => {
@@ -329,12 +330,14 @@ export function createWebApi(): WebApi {
           const revision = authRevision
           void request<{ state: string; authenticated: boolean }>('/api/auth-status')
             .then((status) => {
-              if (stopped || revision !== authRevision) return
+              if (stopped) return
+              // A newer session (for example after a password change) still needs its stream.
+              if (revision !== authRevision) return scheduleReconnect()
               if (status.state === 'password' && !status.authenticated) {
                 source.close()
                 invalidate(revision)
               } else {
-                scheduleReconnect(revision)
+                scheduleReconnect()
               }
             })
             .catch((error: unknown) => {
@@ -342,7 +345,7 @@ export function createWebApi(): WebApi {
                 'Could not check authentication after the transfer stream disconnected.',
                 error
               )
-              if (!stopped && revision === authRevision) scheduleReconnect(revision)
+              scheduleReconnect()
             })
             .finally(() => {
               checkingAuth = false

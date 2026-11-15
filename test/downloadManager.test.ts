@@ -13,7 +13,11 @@ import {
 } from '../src/server/rclone/client'
 import { jobHandle } from './fixtures/rcloneJobs'
 import { dirname, join } from 'node:path'
-import { cleanupDownloadStage, publishDownload } from '../src/server/downloadPublication'
+import {
+  cleanupDownloadStage,
+  createDownloadStage,
+  publishDownload
+} from '../src/server/downloadPublication'
 
 // Scheduler tests use a publication double; downloadPublication/downloadCollisions exercise disk.
 vi.mock('../src/server/downloadPublication', () => ({
@@ -202,6 +206,21 @@ describe('RcloneDownloadManager concurrency', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(manager.list().find((t) => t.id === waiting.id)?.status).toBe('downloading')
     expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
+  })
+
+  it('shares one restart cooldown, so queued transfers do not each retry while rclone is down', async () => {
+    const { manager, client } = makeManager()
+    vi.mocked(createDownloadStage).mockClear()
+    client.copyFileAsync.mockImplementationOnce(() => {
+      throw new RcloneNotSubmittedError()
+    })
+    for (let i = 0; i < 4; i++) manager.enqueue(enqueueInput())
+    await flushMicrotasks()
+
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(createDownloadStage)).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(client.copyFileAsync.mock.calls.length).toBeGreaterThan(1)
   })
 
   it.each([

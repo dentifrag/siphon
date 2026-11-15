@@ -172,6 +172,17 @@ describe('RemoteStore.cloneForSession', () => {
     })
   })
 
+  it('rejects a typed secret when the saved metadata no longer matches the rclone config', async () => {
+    const { store, configs } = await makeStore()
+    const [profile] = await save(store, { password: 'saved' })
+    configs.get('alice_host')!.port = '2222'
+
+    await expect(store.cloneForSession(profile.id, '_session-1', 'typed')).rejects.toMatchObject({
+      statusCode: 409
+    })
+    expect(configs.has('_session-1')).toBe(false)
+  })
+
   it('lets a profile without a stored secret connect with a typed one', async () => {
     const { store, configs } = await makeStore()
     const [profile] = await save(store, { rememberSecret: false })

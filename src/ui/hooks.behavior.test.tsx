@@ -175,7 +175,7 @@ describe('useConnection: secrets and pending profile resolution', () => {
       void result.current.handleSelectProfile('p1')
     })
 
-    expect(result.current.form.password).toBe('')
+    expect(result.current.form).toMatchObject({ host: '', username: '', password: '' })
   })
 
   it('clears typed secrets when the server reports a different connection at startup', () => {

@@ -198,8 +198,14 @@ export function useConnection({
     async (id: string) => {
       const request = ++profileRequestRef.current
       secretTypedRef.current = false
-      // The previous site's secrets must never travel with the newly selected profile.
-      const cleared = { ...formRef.current, password: '', passphrase: '' }
+      // The previous site's identity and secrets must never travel with the newly selected profile.
+      // An empty host and username also keep Save and Connect disabled until it resolves.
+      const cleared = {
+        ...formRef.current,
+        ...(id ? { host: '', username: '', privateKeyPath: '' } : {}),
+        password: '',
+        passphrase: ''
+      }
       formRef.current = cleared
       setForm(cleared)
       selectProfile(id)

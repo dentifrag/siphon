@@ -43,7 +43,7 @@ export class RcloneSupervisor {
     const port = await freePort()
     const addr = `127.0.0.1:${port}`
 
-    this.child = spawn(
+    const child = spawn(
       this.binaryPath,
       [
         'rcd',
@@ -59,6 +59,7 @@ export class RcloneSupervisor {
       ],
       { stdio: ['ignore', 'ignore', 'pipe'] }
     )
+    this.child = child
 
     this.child.stderr?.on('data', (buf: Buffer) => {
       const line = buf.toString().trim()
@@ -74,17 +75,17 @@ export class RcloneSupervisor {
       }
     })
 
-    this.endpoint = {
+    const endpoint: RcloneEndpoint = {
       baseUrl: `http://${addr}`,
       authHeader: 'Basic ' + Buffer.from(`${this.user}:${this.pass}`).toString('base64')
     }
 
-    await this.waitUntilReady()
+    await this.waitUntilReady(endpoint)
+    // Expose the endpoint only once it accepts connections, and only if this daemon is still alive.
+    if (this.child === child && child.exitCode === null) this.endpoint = endpoint
   }
 
-  private async waitUntilReady(): Promise<void> {
-    const endpoint = this.endpoint
-    if (!endpoint) throw new Error('rclone endpoint not set.')
+  private async waitUntilReady(endpoint: RcloneEndpoint): Promise<void> {
     const deadline = Date.now() + 20_000
     let lastErr: unknown
     while (Date.now() < deadline) {

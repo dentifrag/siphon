@@ -120,6 +120,45 @@ describe('download API transport', () => {
     vi.useRealTimers()
   })
 
+  it('still reopens a closed transfer stream when a password change replaces the session mid-check', async () => {
+    vi.useFakeTimers()
+    const created = vi.fn()
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        onerror: (() => void) | null = null
+        onmessage = null
+        readyState = 2
+        close = vi.fn()
+        constructor() {
+          created()
+          if (created.mock.calls.length === 1) queueMicrotask(() => this.onerror?.())
+        }
+      }
+    )
+    let releaseStatus!: () => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/auth-status') {
+          await new Promise<void>((resolve) => (releaseStatus = resolve))
+          return Response.json({ state: 'password', authenticated: true })
+        }
+        return Response.json({})
+      })
+    )
+    const api = createWebApi()
+    const close = api.onDownloadUpdate(vi.fn())
+    await vi.advanceTimersByTimeAsync(0)
+    await api.changePassword('old', 'new')
+    releaseStatus()
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(created).toHaveBeenCalledTimes(2)
+    close()
+    vi.useRealTimers()
+  })
+
   it('reopens a closed transfer stream even when the authentication check itself fails', async () => {
     vi.useFakeTimers()
     const created = vi.fn()

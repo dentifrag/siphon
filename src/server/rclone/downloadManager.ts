@@ -50,7 +50,6 @@ interface InternalTransfer {
   samples: SpeedSample[]
   settled: boolean
   submission: 'none' | 'pending' | 'known' | 'lost'
-  notBefore?: number
   observedFinish: boolean
   finishedFailure: boolean
   retryAdmission: Promise<TransferProgress> | null
@@ -84,6 +83,9 @@ export class RcloneDownloadManager extends EventEmitter {
   private readonly quarantined = new Set<string>()
   private maxConcurrent = DEFAULT_MAX_CONCURRENT
   private ticker: ReturnType<typeof setInterval> | null = null
+  // One cooldown for every queued start: each attempt repeats destination validation and staging.
+  private restartUntil = 0
+  private restartTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private readonly client: RcloneClient,
@@ -358,13 +360,13 @@ export class RcloneDownloadManager extends EventEmitter {
   }
 
   private pump(): void {
-    while (this.activeIds.size < this.maxConcurrent) {
+    const cooling = this.restartUntil > Date.now()
+    while (!cooling && this.activeIds.size < this.maxConcurrent) {
       const nextId = this.order.find((id) => {
         const t = this.transfers.get(id)!
         const key = this.destinationKey(t)
         return (
           t.progress.status === 'queued' &&
-          (t.notBefore ?? 0) <= Date.now() &&
           (!key || (!this.activeByKey.has(key) && !this.quarantined.has(key)))
         )
       })
@@ -379,12 +381,11 @@ export class RcloneDownloadManager extends EventEmitter {
     for (const t of this.transfers.values()) {
       if (t.progress.status !== 'queued') continue
       const key = this.destinationKey(t)
-      const reason =
-        (t.notBefore ?? 0) > Date.now()
-          ? RESTART_WAIT_REASON
-          : key && this.activeByKey.has(key)
-            ? TARGET_WAIT_REASON
-            : undefined
+      const reason = cooling
+        ? RESTART_WAIT_REASON
+        : key && this.activeByKey.has(key)
+          ? TARGET_WAIT_REASON
+          : undefined
       if (t.progress.waitingReason !== reason) {
         t.progress.waitingReason = reason
         this.emitUpdate(t.progress.id)
@@ -699,11 +700,16 @@ export class RcloneDownloadManager extends EventEmitter {
     const key = this.destinationKey(t)
     if (key && this.activeByKey.get(key) === id) this.activeByKey.delete(key)
     this.activeIds.delete(id)
-    t.notBefore = Date.now() + RESTART_RETRY_MS
     t.progress.status = 'queued'
     t.progress.activeSegments = 0
     t.progress.speedBytesPerSec = 0
-    setTimeout(() => this.pump(), RESTART_RETRY_MS).unref?.()
+    this.restartUntil = Date.now() + RESTART_RETRY_MS
+    if (this.restartTimer) clearTimeout(this.restartTimer)
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null
+      this.pump()
+    }, RESTART_RETRY_MS)
+    this.restartTimer.unref?.()
     this.pump()
     this.emitUpdate(id)
   }

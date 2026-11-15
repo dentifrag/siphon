@@ -9,6 +9,7 @@ import type {
   ResolvedProfile,
   SaveProfileInput
 } from '../../shared/api'
+import { httpError } from '../http'
 import type { RcloneClient } from './client'
 
 interface RemoteMeta {
@@ -202,6 +203,17 @@ export class RemoteStore {
       if (!r) return null
       if (secret) {
         const { type, ...parameters } = await this.client.getRemote(r.remoteName)
+        // A legacy record can show metadata that differs from the config, which would receive the secret.
+        if (
+          (parameters.host ?? r.host) !== r.host ||
+          Number(parameters.port || 22) !== r.port ||
+          (parameters.user ?? r.username) !== r.username
+        ) {
+          throw httpError(
+            409,
+            'This saved site is out of date. Save it again before connecting with a new secret.'
+          )
+        }
         for (const key of SECRET_KEYS) delete parameters[key]
         parameters[secretKeyFor(r.authMethod)] = secret
         await this.client.createRemote(target, type ?? 'sftp', parameters)
