@@ -7,6 +7,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-15
+
+### Changed
+
+- The Windows Updates dialog shows one primary action for the current state (check,
+  install, resume, or check again) with a single status message.
+- A saved site's host, port, username, and key path are clearly shown as it loads, and
+  a secret typed for one site can no longer reach another.
+
+### Fixed
+
+- Transfers are no longer blocked after update maintenance ends, and settled download
+  plans no longer fill the plan limit and block new downloads.
+- Transfers wait and retry while rclone restarts instead of failing, and rclone job
+  IDs from a previous process are never reused.
+- rclone is exposed to transfers only after it is ready, and a daemon that never
+  becomes ready is restarted.
+- "Remember password" is honored, concurrent saved-site writes no longer lose entries,
+  and deleting the active site no longer breaks new transfers.
+- An expired sign-in returns to the login screen, and the transfer stream reconnects
+  after disconnects and password changes.
+
 ## [1.0.5] - 2026-10-13
 
 ### Added
@@ -121,7 +143,8 @@ The first public release.
 - Docker image with rclone bundled, plus single-file binaries for Windows, macOS, and Linux.
 - Windows service installer for running Siphon at boot.
 
-[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/dentifrag/siphon/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/dentifrag/siphon/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/dentifrag/siphon/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/dentifrag/siphon/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/dentifrag/siphon/compare/1.0.2...v1.0.3
