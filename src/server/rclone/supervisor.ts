@@ -60,12 +60,14 @@ export class RcloneSupervisor {
       { stdio: ['ignore', 'ignore', 'pipe'] }
     )
     this.child = child
+    let exited = false
 
     this.child.stderr?.on('data', (buf: Buffer) => {
       const line = buf.toString().trim()
       if (line) this.log(`[rclone] ${line}`)
     })
     this.child.on('exit', (code) => {
+      exited = true
       this.endpoint = null
       if (!this.shuttingDown) {
         this.log(`rclone exited (code ${code}); restarting in 1s`)
@@ -80,9 +82,15 @@ export class RcloneSupervisor {
       authHeader: 'Basic ' + Buffer.from(`${this.user}:${this.pass}`).toString('base64')
     }
 
-    await this.waitUntilReady(endpoint)
+    try {
+      await this.waitUntilReady(endpoint)
+    } catch (error) {
+      // A daemon that never became ready is stopped, so the exit handler retries the start.
+      if (!exited) child.kill('SIGKILL')
+      throw error
+    }
     // Expose the endpoint only once it accepts connections, and only if this daemon is still alive.
-    if (this.child === child && child.exitCode === null) this.endpoint = endpoint
+    if (this.child === child && !exited) this.endpoint = endpoint
   }
 
   private async waitUntilReady(endpoint: RcloneEndpoint): Promise<void> {
