@@ -39,8 +39,14 @@ function apiPath(url: string): string {
   return queryIndex >= 0 ? url.slice(0, queryIndex) : url
 }
 
-function reject(reply: FastifyReply, code: number, error: string): void {
-  reply.header('Cache-Control', 'no-store').code(code).send({ error })
+function reject(reply: FastifyReply, statusCode: number, error: string): void {
+  reply
+    .header('Cache-Control', 'no-store')
+    .code(statusCode)
+    .send({
+      error,
+      ...(statusCode === 401 ? { code: 'UNAUTHENTICATED' } : {})
+    })
 }
 
 export function authGuard(auth: AuthService) {

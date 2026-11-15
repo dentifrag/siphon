@@ -75,7 +75,7 @@ describe('authGuard', () => {
     guard({ url: '/api/browse', cookies: {} } as any, unauthReply, doneUnauthed)
     expect(doneUnauthed).not.toHaveBeenCalled()
     expect(unauthCapture.statusCode).toBe(401)
-    expect(unauthCapture.payload).toEqual({ error: 'Unauthorized' })
+    expect(unauthCapture.payload).toEqual({ error: 'Unauthorized', code: 'UNAUTHENTICATED' })
 
     const doneAuthed = vi.fn()
     const { reply: authedReply, capture: authedCapture } = makeReply()

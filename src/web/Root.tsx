@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Button, TextInput } from '@primer/react'
 import App from '../ui/App'
+import { hasUpdateReconnect } from '../ui/components/UpdatesDialog'
 
 export default function Root(): React.JSX.Element {
-  const [state, setState] = useState<'loading' | 'setup' | 'login' | 'ready'>('loading')
+  const [state, setState] = useState<'loading' | 'setup' | 'login' | 'ready' | 'error'>('loading')
   const [canChangePassword, setCanChangePassword] = useState(false)
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [authRetry, setAuthRetry] = useState(0)
+  const authRevision = useRef(0)
 
   const applyAuthStatus = (status: {
     state: 'setup' | 'login' | 'open'
@@ -29,11 +32,42 @@ export default function Root(): React.JSX.Element {
   }
 
   useEffect(() => {
+    let mounted = true
+    const unsubscribe = window.api.onSessionExpired(() => {
+      authRevision.current++
+      setPassword('')
+      setConfirmPassword('')
+      setSubmitting(false)
+      if (hasUpdateReconnect()) {
+        window.location.reload()
+        return
+      }
+      setError('Your session expired. Sign in again.')
+      setState('login')
+    })
+    const revision = authRevision.current
+    let timer: number | undefined
     window.api
       .authStatus()
-      .then(applyAuthStatus)
-      .catch(() => setState('ready'))
-  }, [])
+      .then((status) => {
+        if (!mounted || authRevision.current !== revision) return
+        applyAuthStatus(status)
+      })
+      .catch((error: unknown) => {
+        if (!mounted || authRevision.current !== revision) return
+        setError(error instanceof Error ? error.message : 'Could not check authentication.')
+        setState('error')
+        // Retry only after a failed check, so a slow response is never discarded by a timer.
+        if (hasUpdateReconnect()) {
+          timer = window.setTimeout(() => setAuthRetry((value) => value + 1), 5000)
+        }
+      })
+    return () => {
+      mounted = false
+      window.clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [authRetry])
 
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
@@ -41,6 +75,8 @@ export default function Root(): React.JSX.Element {
     setError(null)
     try {
       await window.api.login(username, password)
+      authRevision.current++
+      setPassword('')
       applyAuthStatus(await window.api.authStatus())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
@@ -96,6 +132,26 @@ export default function Root(): React.JSX.Element {
     return (
       <div className="login">
         <p>Loading…</p>
+      </div>
+    )
+  }
+
+  if (state === 'error') {
+    return (
+      <div className="login">
+        <div className="login__card">
+          <h1>Siphon</h1>
+          <p role="alert">{error}</p>
+          <Button
+            onClick={() => {
+              setState('loading')
+              setError(null)
+              setAuthRetry((value) => value + 1)
+            }}
+          >
+            Try again
+          </Button>
+        </div>
       </div>
     )
   }

@@ -8,7 +8,8 @@ import {
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
 import { validateDownloadDestination } from '../src/server/localFs'
-import type { RcloneClient } from '../src/server/rclone/client'
+import type { RcloneClient, RcloneJobHandle } from '../src/server/rclone/client'
+import { jobHandle } from './fixtures/rcloneJobs'
 import type { RouteContext } from '../src/server/context'
 import type { ServerConfig } from '../src/server/config'
 import type { Services } from '../src/server/services'
@@ -70,9 +71,12 @@ function makeClient(overrides: Partial<RcloneClient> = {}) {
     copyFileAsync: vi.fn().mockImplementation(async () => {
       const id = nextJobId++
       jobStatuses.set(id, { finished: false, success: false, error: '' })
-      return id
+      return jobHandle(id)
     }),
-    jobStatus: vi.fn().mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+    jobStatus: vi.fn().mockImplementation(async ({ id }: RcloneJobHandle) => ({
+      id,
+      ...jobStatuses.get(id)!
+    })),
     jobStop: vi.fn().mockResolvedValue(undefined),
     deleteRemote: vi.fn().mockResolvedValue(undefined),
     stat: vi.fn().mockResolvedValue({

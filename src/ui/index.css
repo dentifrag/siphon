@@ -1000,8 +1000,13 @@ body {
   gap: 8px;
 }
 
-.updates-dialog__confirmation,
 .updates-dialog__progress {
   display: grid;
   gap: 12px;
+}
+
+.updates-dialog__details {
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
 }

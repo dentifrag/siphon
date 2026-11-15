@@ -5,8 +5,19 @@ import {
   RcloneDownloadManager,
   type RcloneEnqueueInput
 } from '../src/server/rclone/downloadManager'
-import type { RcloneClient } from '../src/server/rclone/client'
+import {
+  RcloneJobLostError,
+  RcloneNotSubmittedError,
+  type RcloneClient,
+  type RcloneJobHandle
+} from '../src/server/rclone/client'
+import { jobHandle } from './fixtures/rcloneJobs'
 import { dirname, join } from 'node:path'
+import {
+  cleanupDownloadStage,
+  createDownloadStage,
+  publishDownload
+} from '../src/server/downloadPublication'
 
 // Scheduler tests use a publication double; downloadPublication/downloadCollisions exercise disk.
 vi.mock('../src/server/downloadPublication', () => ({
@@ -65,7 +76,7 @@ describe('RcloneDownloadManager direction', () => {
 
 describe('RcloneDownloadManager cancellation race', () => {
   it('stops and cleans up a job that starts after the user already canceled', async () => {
-    const startJob = deferred<number>()
+    const startJob = deferred<RcloneJobHandle>()
     const jobStop = vi.fn().mockResolvedValue(undefined)
     const deleteRemote = vi.fn().mockResolvedValue(undefined)
     const jobStatus = vi
@@ -88,12 +99,12 @@ describe('RcloneDownloadManager cancellation race', () => {
     expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
     manager.cancel(enqueued.id)
 
-    startJob.resolve(42)
+    startJob.resolve(jobHandle(42))
     await new Promise((r) => setTimeout(r, 10))
 
     const transfer = manager.list().find((t) => t.id === enqueued.id)
     expect(transfer?.status).toBe('canceled')
-    expect(jobStop).toHaveBeenCalledWith(42)
+    expect(jobStop).toHaveBeenCalledWith(jobHandle(42))
     expect(deleteRemote).toHaveBeenCalledWith('_dl-abc')
     expect(jobStatus).not.toHaveBeenCalled()
   })
@@ -111,11 +122,11 @@ describe('RcloneDownloadManager concurrency', () => {
       copyFileAsync: vi.fn<RcloneClient['copyFileAsync']>().mockImplementation(async () => {
         const id = nextJobId++
         jobStatuses.set(id, { finished: false, success: false, error: '' })
-        return id
+        return jobHandle(id)
       }),
       jobStatus: vi
         .fn<RcloneClient['jobStatus']>()
-        .mockImplementation(async (id) => ({ id, ...jobStatuses.get(id)! })),
+        .mockImplementation(async ({ id }) => ({ id, ...jobStatuses.get(id)! })),
       jobStop: vi.fn<RcloneClient['jobStop']>().mockResolvedValue(undefined),
       deleteRemote: vi.fn<RcloneClient['deleteRemote']>().mockResolvedValue(undefined)
     }
@@ -154,6 +165,62 @@ describe('RcloneDownloadManager concurrency', () => {
     expect(statusOf(a.id)).toBe('completed')
     expect(statusOf(c.id)).toBe('downloading')
     expect(client.copyFileAsync).toHaveBeenCalledTimes(3)
+  })
+
+  it('fails lost jobs without publishing partial staging or blocking the next queued transfer', async () => {
+    const { manager, client } = makeManager()
+    const publishCalls = vi.mocked(publishDownload).mock.calls.length
+    const cleanupCalls = vi.mocked(cleanupDownloadStage).mock.calls.length
+    const lost = manager.enqueue(enqueueInput())
+    const next = manager.enqueue(enqueueInput())
+    await flushMicrotasks()
+    client.jobStatus.mockRejectedValueOnce(new RcloneJobLostError())
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(manager.list().find((t) => t.id === lost.id)).toMatchObject({
+      status: 'error',
+      errorCode: 'RCLONE_JOB_LOST',
+      retryable: false,
+      recoveryPath: '/out'
+    })
+    expect(manager.list().find((t) => t.id === next.id)?.status).toBe('downloading')
+    expect(manager.hasUncertainWriters()).toBe(false)
+    expect(vi.mocked(publishDownload).mock.calls).toHaveLength(publishCalls)
+    expect(vi.mocked(cleanupDownloadStage).mock.calls).toHaveLength(cleanupCalls)
+  })
+
+  it('keeps a transfer queued while rclone is restarting and starts it once rclone returns', async () => {
+    const { manager, client } = makeManager()
+    client.copyFileAsync.mockImplementationOnce(() => {
+      throw new RcloneNotSubmittedError()
+    })
+    const waiting = manager.enqueue(enqueueInput())
+    await flushMicrotasks()
+
+    expect(manager.list().find((t) => t.id === waiting.id)).toMatchObject({
+      status: 'queued',
+      waitingReason: 'Waiting for rclone to restart.'
+    })
+    expect(manager.hasUncertainWriters()).toBe(false)
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(manager.list().find((t) => t.id === waiting.id)?.status).toBe('downloading')
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(2)
+  })
+
+  it('shares one restart cooldown, so queued transfers do not each retry while rclone is down', async () => {
+    const { manager, client } = makeManager()
+    vi.mocked(createDownloadStage).mockClear()
+    client.copyFileAsync.mockImplementationOnce(() => {
+      throw new RcloneNotSubmittedError()
+    })
+    for (let i = 0; i < 4; i++) manager.enqueue(enqueueInput())
+    await flushMicrotasks()
+
+    expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(createDownloadStage)).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(client.copyFileAsync.mock.calls.length).toBeGreaterThan(1)
   })
 
   it.each([
@@ -321,7 +388,7 @@ describe('RcloneDownloadManager concurrency', () => {
       await flushMicrotasks()
       manager.cancel(active.id)
       await flushMicrotasks()
-      expect(client.jobStop).toHaveBeenCalledWith(1)
+      expect(client.jobStop).toHaveBeenCalledWith(jobHandle(1))
       expect(client.copyFileAsync).toHaveBeenCalledTimes(1)
       expect(manager.list().find(({ id }) => id === queued.id)?.status).toBe('queued')
 
@@ -554,11 +621,12 @@ describe('RcloneDownloadManager remove and clearAll', () => {
         copyFileAsync: vi.fn().mockImplementation(async () => {
           const id = nextJobId++
           jobStatuses.set(id, { finished: false, success: false, error: '' })
-          return id
+          return jobHandle(id)
         }),
-        jobStatus: vi
-          .fn()
-          .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+        jobStatus: vi.fn().mockImplementation(async ({ id }: RcloneJobHandle) => ({
+          id,
+          ...jobStatuses.get(id)!
+        })),
         jobStop,
         deleteRemote
       } as unknown as RcloneClient
@@ -574,7 +642,7 @@ describe('RcloneDownloadManager remove and clearAll', () => {
       manager.clearAll()
 
       expect(manager.list().find((t) => t.id === queued.id)).toBeUndefined()
-      expect(jobStop).toHaveBeenCalledWith(1)
+      expect(jobStop).toHaveBeenCalledWith(jobHandle(1))
       expect(manager.list().find((t) => t.id === active.id)?.status).toBe('downloading')
 
       jobStatuses.set(1, { finished: true, success: false, error: '' })
@@ -625,11 +693,12 @@ describe('RcloneDownloadManager removal signal', () => {
         copyFileAsync: vi.fn().mockImplementation(async () => {
           const id = nextJobId++
           jobStatuses.set(id, { finished: false, success: false, error: '' })
-          return id
+          return jobHandle(id)
         }),
-        jobStatus: vi
-          .fn()
-          .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+        jobStatus: vi.fn().mockImplementation(async ({ id }: RcloneJobHandle) => ({
+          id,
+          ...jobStatuses.get(id)!
+        })),
         jobStop: vi.fn().mockResolvedValue(undefined),
         deleteRemote: vi.fn().mockResolvedValue(undefined)
       } as unknown as RcloneClient
@@ -679,11 +748,12 @@ describe('RcloneDownloadManager shared-remote refcounting', () => {
       copyFileAsync: vi.fn().mockImplementation(async () => {
         const id = nextJobId++
         jobStatuses.set(id, { finished: false, success: false, error: '' })
-        return id
+        return jobHandle(id)
       }),
-      jobStatus: vi
-        .fn()
-        .mockImplementation(async (id: number) => ({ id, ...jobStatuses.get(id)! })),
+      jobStatus: vi.fn().mockImplementation(async ({ id }: RcloneJobHandle) => ({
+        id,
+        ...jobStatuses.get(id)!
+      })),
       jobStop: vi.fn().mockResolvedValue(undefined),
       deleteRemote
     } as unknown as RcloneClient
@@ -753,7 +823,7 @@ describe('RcloneDownloadManager cancel watchdog', () => {
     const client = {
       coreStatsDelete: vi.fn().mockResolvedValue(undefined),
       coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
-      copyFileAsync: vi.fn().mockResolvedValue(1),
+      copyFileAsync: vi.fn().mockResolvedValue(jobHandle(1)),
       jobStatus: vi.fn().mockResolvedValue({ finished: false, success: false, error: '', id: 1 }),
       jobStop: vi.fn().mockResolvedValue(undefined),
       deleteRemote
@@ -791,7 +861,7 @@ describe('RcloneDownloadManager cancel watchdog', () => {
     const client = {
       coreStatsDelete: vi.fn().mockResolvedValue(undefined),
       coreStats: vi.fn().mockResolvedValue({ bytes: 0, transferring: [] }),
-      copyFileAsync: vi.fn().mockResolvedValue(1),
+      copyFileAsync: vi.fn().mockResolvedValue(jobHandle(1)),
       jobStatus,
       jobStop: vi.fn().mockResolvedValue(undefined),
       deleteRemote

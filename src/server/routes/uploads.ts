@@ -96,11 +96,11 @@ export function registerUploadRoutes(
   }
 
   app.post('/api/upload', async (req) => {
-    const release = updates?.admitTransfer()
+    const input = req.body as UploadEnqueueInput
+    // Bind before admission: admission can wait while another client switches servers.
+    const binding = session.bind(parseConnectionRevision(input.connectionRevision))
+    const release = await updates?.admitTransfer()
     try {
-      const input = req.body as UploadEnqueueInput
-      const binding = session.bind(parseConnectionRevision(input.connectionRevision))
-
       const resolved = await resolvePath(scope, input.localPath)
       if (!resolved) throw httpError(400, 'That file or folder is not accessible.')
 

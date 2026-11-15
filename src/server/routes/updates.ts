@@ -9,7 +9,8 @@ export function registerUpdateRoutes(app: FastifyInstance, { auth, updates }: Ro
     reply.header('Cache-Control', 'no-store')
     if (auth.state !== 'password' || !readSessionIds(req).some((id) => auth.isValid(id))) {
       reply.code(auth.state === 'password' ? 401 : 403).send({
-        error: 'Password authentication is required for Windows service updates.'
+        error: 'Password authentication is required for Windows service updates.',
+        ...(auth.state === 'password' ? { code: 'UNAUTHENTICATED' } : {})
       })
       return false
     }

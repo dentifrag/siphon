@@ -379,7 +379,7 @@ export async function createUpdateCoordinator(options: UpdateCoordinatorOptions)
       ? uncertainty ||
         (revision === readRevision ? journalError : null) ||
         (taskIdle && job?.phase === 'accepted'
-          ? 'The accepted task is idle without matching worker progress. Its outcome is unknown; Retry accepted task can reconcile this same request.'
+          ? 'The accepted task is idle without matching worker progress. Its outcome is unknown. Resume update can reconcile this same request.'
           : 'Update maintenance is active; wait for the worker and task to finish.')
       : !capability.supported
         ? capability.message
@@ -528,7 +528,7 @@ export async function createUpdateCoordinator(options: UpdateCoordinatorOptions)
         uncertainty = null
         revision++
       } else {
-        uncertainty = `Scheduled Task outcome is unknown: ${error instanceof Error ? error.message : String(error)}. Use Retry accepted task only after the task is verified idle.`
+        uncertainty = `Scheduled Task outcome is unknown: ${error instanceof Error ? error.message : String(error)}. Use Resume update only after the task is verified idle.`
         await atomicJson(join(stateDir, 'scheduling.json'), {
           id: request.id,
           message: uncertainty
@@ -582,7 +582,8 @@ export async function createUpdateCoordinator(options: UpdateCoordinatorOptions)
     check: checkForUpdates,
     install,
     retryAcceptedTask,
-    admitTransfer() {
+    async admitTransfer() {
+      if (maintenance) await status()
       if (maintenance) throw httpError(409, 'Transfers are blocked during update maintenance.')
       admissions++
       let released = false

@@ -25,10 +25,17 @@ import type {
   UploadEnqueueInput
 } from '@shared/api'
 
-async function request<T>(
-  path: string,
-  options?: { method?: string; body?: unknown; signal?: AbortSignal; update?: boolean }
-): Promise<T> {
+const STREAM_RECONNECT_DELAY_MS = 3000
+
+interface RequestOptions {
+  method?: string
+  body?: unknown
+  signal?: AbortSignal
+  update?: boolean
+  onSessionExpired?: () => void
+}
+
+async function httpRequest<T>(path: string, options?: RequestOptions): Promise<T> {
   const response = await fetch(path, {
     method: options?.method ?? 'GET',
     headers: options?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -61,17 +68,19 @@ async function request<T>(
     error.status = response.status
     if (accepted !== undefined) error.accepted = accepted
     if (code) error.code = code
+    if (response.status === 401 && code === 'UNAUTHENTICATED') options?.onSessionExpired?.()
     throw error
   }
   const text = await response.text()
   return (text ? JSON.parse(text) : undefined) as T
 }
 
-async function updateRequest<T>(
+async function performUpdateRequest<T>(
   path: string,
   options?: { method?: string; body?: unknown },
   signal?: AbortSignal,
-  timeoutMs = 20_000
+  timeoutMs = 20_000,
+  onSessionExpired?: () => void
 ): Promise<T> {
   const controller = new AbortController()
   const abort = () => controller.abort(signal?.reason)
@@ -87,7 +96,12 @@ async function updateRequest<T>(
     timeoutMs
   )
   try {
-    return await request<T>(path, { ...options, signal: controller.signal, update: true })
+    return await httpRequest<T>(path, {
+      ...options,
+      signal: controller.signal,
+      update: true,
+      onSessionExpired
+    })
   } finally {
     window.clearTimeout(timeout)
     signal?.removeEventListener('abort', abort)
@@ -107,6 +121,7 @@ export interface ServerConfig {
 }
 
 export interface WebApi extends SftpApi {
+  onSessionExpired(listener: () => void): () => void
   getUpdateStatus(signal?: AbortSignal): Promise<UpdateStatus>
   checkForUpdates(signal?: AbortSignal): Promise<UpdateStatus>
   installUpdate(input: { offerId: string }, signal?: AbortSignal): Promise<UpdateJob>
@@ -121,7 +136,38 @@ export interface WebApi extends SftpApi {
 }
 
 export function createWebApi(): WebApi {
+  let authRevision = 0
+  let expired = false
+  const expiryListeners = new Set<() => void>()
+  const invalidate = (revision: number) => {
+    if (revision !== authRevision || expired) return
+    expired = true
+    for (const listener of expiryListeners) listener()
+  }
+  const request = <T>(path: string, options?: RequestOptions) => {
+    const revision = authRevision
+    return httpRequest<T>(path, { ...options, onSessionExpired: () => invalidate(revision) })
+  }
+  const updateRequest = <T>(
+    path: string,
+    options?: { method?: string; body?: unknown },
+    signal?: AbortSignal,
+    timeoutMs = 20_000
+  ) => {
+    const revision = authRevision
+    return performUpdateRequest<T>(path, options, signal, timeoutMs, () => invalidate(revision))
+  }
+  const authenticated = () => {
+    authRevision++
+    expired = false
+  }
   return {
+    onSessionExpired: (listener) => {
+      expiryListeners.add(listener)
+      return () => {
+        expiryListeners.delete(listener)
+      }
+    },
     getUpdateStatus: (signal) => updateRequest('/api/updates/status', undefined, signal),
     checkForUpdates: (signal) =>
       updateRequest('/api/updates/check', { method: 'POST', body: {} }, signal, 60_000),
@@ -146,25 +192,35 @@ export function createWebApi(): WebApi {
     },
     login: async (username: string, password: string) => {
       await request('/api/login', { method: 'POST', body: { username, password } })
+      authenticated()
     },
     logout: async () => {
       await request('/api/logout', { method: 'POST' })
     },
     setup: async (input) => {
       await request('/api/setup', { method: 'POST', body: input })
+      authenticated()
     },
     changePassword: async (currentPassword: string, newPassword: string) => {
       await request('/api/change-password', {
         method: 'POST',
         body: { currentPassword, newPassword }
       })
+      authenticated()
     },
     serverConfig: () => request<ServerConfig>('/api/config'),
 
     connect: (config: ConnectionConfig, profileId?: string) =>
       request<ConnectResult>('/api/connect', {
         method: 'POST',
-        body: profileId ? { profileId } : { config }
+        body: profileId
+          ? {
+              profileId,
+              secret:
+                (config.authMethod === 'password' ? config.password : config.passphrase) ||
+                undefined
+            }
+          : { config }
       }),
     disconnect: async () => {
       await request('/api/disconnect', { method: 'POST' })
@@ -249,13 +305,59 @@ export function createWebApi(): WebApi {
         body: { id }
       }),
     onDownloadUpdate: (callback: (event: DownloadEvent) => void) => {
-      const source = new EventSource('/api/events', { withCredentials: true })
-      source.onmessage = (event) => {
-        try {
-          callback(JSON.parse(event.data) as DownloadEvent)
-        } catch {}
+      let stopped = false
+      let checkingAuth = false
+      let source: EventSource
+      let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+      // EventSource only retries on its own after a dropped connection, so back off here.
+      const scheduleReconnect = () => {
+        if (stopped || source.readyState !== EventSource.CLOSED) return
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => {
+          if (!stopped && !expired) connect()
+        }, STREAM_RECONNECT_DELAY_MS)
       }
-      return () => source.close()
+      const connect = () => {
+        source = new EventSource('/api/events', { withCredentials: true })
+        source.onmessage = (event) => {
+          try {
+            callback(JSON.parse(event.data) as DownloadEvent)
+          } catch {}
+        }
+        source.onerror = () => {
+          if (stopped || checkingAuth) return
+          checkingAuth = true
+          const revision = authRevision
+          void request<{ state: string; authenticated: boolean }>('/api/auth-status')
+            .then((status) => {
+              if (stopped) return
+              // A newer session (for example after a password change) still needs its stream.
+              if (revision !== authRevision) return scheduleReconnect()
+              if (status.state === 'password' && !status.authenticated) {
+                source.close()
+                invalidate(revision)
+              } else {
+                scheduleReconnect()
+              }
+            })
+            .catch((error: unknown) => {
+              console.warn(
+                'Could not check authentication after the transfer stream disconnected.',
+                error
+              )
+              scheduleReconnect()
+            })
+            .finally(() => {
+              checkingAuth = false
+            })
+        }
+      }
+      connect()
+      return () => {
+        stopped = true
+        clearTimeout(reconnectTimer)
+        source.close()
+      }
     }
   }
 }

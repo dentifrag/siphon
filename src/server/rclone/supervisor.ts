@@ -33,13 +33,17 @@ export class RcloneSupervisor {
     return this.endpoint
   }
 
+  isEndpointCurrent(endpoint: RcloneEndpoint): boolean {
+    return this.endpoint === endpoint
+  }
+
   async start(): Promise<void> {
     await mkdir(this.dataDir, { recursive: true })
     this.binaryPath = await resolveRcloneBinary(this.dataDir, this.execDir)
     const port = await freePort()
     const addr = `127.0.0.1:${port}`
 
-    this.child = spawn(
+    const child = spawn(
       this.binaryPath,
       [
         'rcd',
@@ -55,12 +59,15 @@ export class RcloneSupervisor {
       ],
       { stdio: ['ignore', 'ignore', 'pipe'] }
     )
+    this.child = child
+    let exited = false
 
     this.child.stderr?.on('data', (buf: Buffer) => {
       const line = buf.toString().trim()
       if (line) this.log(`[rclone] ${line}`)
     })
     this.child.on('exit', (code) => {
+      exited = true
       this.endpoint = null
       if (!this.shuttingDown) {
         this.log(`rclone exited (code ${code}); restarting in 1s`)
@@ -70,17 +77,23 @@ export class RcloneSupervisor {
       }
     })
 
-    this.endpoint = {
+    const endpoint: RcloneEndpoint = {
       baseUrl: `http://${addr}`,
       authHeader: 'Basic ' + Buffer.from(`${this.user}:${this.pass}`).toString('base64')
     }
 
-    await this.waitUntilReady()
+    try {
+      await this.waitUntilReady(endpoint)
+    } catch (error) {
+      // A daemon that never became ready is stopped, so the exit handler retries the start.
+      if (!exited) child.kill('SIGKILL')
+      throw error
+    }
+    // Expose the endpoint only once it accepts connections, and only if this daemon is still alive.
+    if (this.child === child && !exited) this.endpoint = endpoint
   }
 
-  private async waitUntilReady(): Promise<void> {
-    const endpoint = this.endpoint
-    if (!endpoint) throw new Error('rclone endpoint not set.')
+  private async waitUntilReady(endpoint: RcloneEndpoint): Promise<void> {
     const deadline = Date.now() + 20_000
     let lastErr: unknown
     while (Date.now() < deadline) {

@@ -4,6 +4,192 @@ import { createWebApi } from './api'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('download API transport', () => {
+  it('notifies session expiry once but preserves ordinary password rejection errors', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 })
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 })
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Current password is incorrect' }, { status: 401 })
+      )
+    vi.stubGlobal('fetch', fetch)
+    const api = createWebApi()
+    const expired = vi.fn()
+    api.onSessionExpired(expired)
+    await expect(api.disconnect()).rejects.toMatchObject({ status: 401 })
+    await expect(api.disconnect()).rejects.toMatchObject({ status: 401 })
+    await expect(api.changePassword('incorrect', 'new-password')).rejects.toThrow(
+      'Current password is incorrect'
+    )
+    expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('ignores an old unauthorized response after a new successful sign-in', async () => {
+    let finish!: (response: Response) => void
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve
+          })
+      )
+      .mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 })
+      )
+    vi.stubGlobal('fetch', fetch)
+    const api = createWebApi()
+    const expired = vi.fn()
+    api.onSessionExpired(expired)
+    const oldRequest = api.disconnect()
+    await api.login('admin', 'synthetic-password')
+    finish(Response.json({ error: 'Unauthorized', code: 'UNAUTHENTICATED' }, { status: 401 }))
+    await expect(oldRequest).rejects.toMatchObject({ status: 401 })
+    expect(expired).not.toHaveBeenCalled()
+    await expect(api.disconnect()).rejects.toMatchObject({ status: 401 })
+    expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('checks authentication when the transfer stream closes instead of silently retrying an expired session', async () => {
+    const source = {
+      onerror: null as (() => void) | null,
+      onmessage: null,
+      close: vi.fn(),
+      readyState: 2
+    }
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        constructor() {
+          return source
+        }
+      }
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          state: 'password',
+          authenticated: false
+        })
+      )
+    )
+    const api = createWebApi()
+    const expired = vi.fn()
+    api.onSessionExpired(expired)
+    const close = api.onDownloadUpdate(vi.fn())
+    source.onerror?.()
+    await vi.waitFor(() => expect(expired).toHaveBeenCalledOnce())
+    expect(source.close).toHaveBeenCalledOnce()
+    close()
+  })
+
+  it('waits before reopening a closed transfer stream while the session is still valid', async () => {
+    vi.useFakeTimers()
+    const created = vi.fn()
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        onerror: (() => void) | null = null
+        onmessage = null
+        readyState = 2
+        close = vi.fn()
+        constructor() {
+          created()
+          queueMicrotask(() => this.onerror?.())
+        }
+      }
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ state: 'password', authenticated: true }))
+    )
+    const close = createWebApi().onDownloadUpdate(vi.fn())
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(created).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(created).toHaveBeenCalledTimes(2)
+    close()
+    vi.useRealTimers()
+  })
+
+  it('still reopens a closed transfer stream when a password change replaces the session mid-check', async () => {
+    vi.useFakeTimers()
+    const created = vi.fn()
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        onerror: (() => void) | null = null
+        onmessage = null
+        readyState = 2
+        close = vi.fn()
+        constructor() {
+          created()
+          if (created.mock.calls.length === 1) queueMicrotask(() => this.onerror?.())
+        }
+      }
+    )
+    let releaseStatus!: () => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/auth-status') {
+          await new Promise<void>((resolve) => (releaseStatus = resolve))
+          return Response.json({ state: 'password', authenticated: true })
+        }
+        return Response.json({})
+      })
+    )
+    const api = createWebApi()
+    const close = api.onDownloadUpdate(vi.fn())
+    await vi.advanceTimersByTimeAsync(0)
+    await api.changePassword('old', 'new')
+    releaseStatus()
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(created).toHaveBeenCalledTimes(2)
+    close()
+    vi.useRealTimers()
+  })
+
+  it('reopens a closed transfer stream even when the authentication check itself fails', async () => {
+    vi.useFakeTimers()
+    const created = vi.fn()
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        static CLOSED = 2
+        onerror: (() => void) | null = null
+        onmessage = null
+        readyState = 2
+        close = vi.fn()
+        constructor() {
+          created()
+          if (created.mock.calls.length === 1) queueMicrotask(() => this.onerror?.())
+        }
+      }
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline')
+      })
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const close = createWebApi().onDownloadUpdate(vi.fn())
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(created).toHaveBeenCalledTimes(2)
+    close()
+    vi.useRealTimers()
+  })
+
   it.each([
     'CONNECTION_CHANGED',
     'DESTINATION_COLLISION',

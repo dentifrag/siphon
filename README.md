@@ -91,6 +91,9 @@ and a 32 MiB response limit enforced while streaming. Oversized or stalled listi
 before admission; no destination folders or transfers are created.
 
 The preview is valid for five minutes and is bound to its original source connection.
+The server retains at most 128 download plans. Under capacity pressure, it discards completed
+commit receipts before rejecting new previews. Queued and running transfers are not discarded.
+Repeating a commit whose receipt was discarded returns an expired-plan error, not another transfer.
 Changing that connection before admission invalidates a normal download preview. Retries
 instead retain the failed transfer's original source binding and ask for fresh collision
 authorization. Ambiguous or overlapping file destinations in one batch are rejected.
@@ -113,6 +116,11 @@ its recovery path (`.siphon-download-*/previous`). Inspect and remove that recov
 manually only after confirming no old writer still uses it; it consumes space until removed.
 If automatic restoration is impossible, the error and recovery path identify the preserved
 object rather than hiding it.
+
+If rclone stops, restarts, or loses a job result, affected transfers fail explicitly and keep
+their partial staging for manual recovery. They are never reported as complete. The destination
+is not quarantined, because the old rclone process is confirmed ended. There is no automatic
+retry: queue the download again.
 
 Publication requires a filesystem supporting exclusive hard links (for example, NTFS).
 Unsupported filesystems fail safely; Siphon never substitutes an overwriting rename.
@@ -229,7 +237,18 @@ by default.
 
 Editing a saved site's connection fields or deselecting it creates a manual connection.
 Re-enter the password before connecting or saving it. An unchanged selected site still
-uses its saved credentials.
+uses its saved credentials. Typing only a password or passphrase keeps the site selected and
+uses it for that connection only.
+
+Save honors **Remember password**. When it is cleared, Siphon removes the saved password or
+key passphrase from rclone's config. When it is set and no new secret is typed, an existing
+saved secret is kept. Saving always updates rclone's config to match the saved fields.
+A site saved without a secret stays usable: type the password or passphrase when connecting.
+
+Each connection runs on its own private copy of the site's rclone remote. Saving or deleting
+the site does not change an open connection. After a page reload, the connection bar shows
+the server's actual connection, and the remembered folder is used only if it is the same
+server and user.
 
 The active connection is shared across tabs. If another tab changes it, a stale tab shows
 a connection conflict instead of transferring to the wrong server. Select the desired
@@ -252,8 +271,8 @@ connection; confirm the server before transferring.
 ## In-app Windows service updates
 
 The **Updates** header button can check and install the latest published stable release
-for an existing Windows service. Checking is explicit; opening the dialog does not contact
-GitHub or install anything. Docker, development processes, standalone launches, and other
+for an existing Windows service. Opening the dialog checks for updates when no checked result
+is available. Installation always requires **Update and restart**. Docker, development processes, standalone launches, and other
 operating systems are not updated.
 
 First, complete the [one-time administrator setup](windows-service/README.md#update).
@@ -261,16 +280,17 @@ An existing executable is **not** rebuilt by the installer's `-Build` switch. Re
 `npm run package:build` and `npm run package:win`, then rerun the service installer, or run
 one last `update.ps1` followed by the service installer.
 
-Sign in with a password, finish or cancel queued/running transfers, choose **Check for
-updates**, then confirm **Install and restart**. A protected independent SYSTEM task
+Sign in with a password, finish or cancel queued/running transfers, and open **Updates**.
+Siphon checks for the latest release automatically. When a newer version is available, select
+**Update and restart**. There is no separate confirmation step. A protected independent SYSTEM task
 downloads the pinned release while Siphon serves, verifies size and SHA-256, replaces only
 the existing executable, restarts the service, and verifies its exact version. If startup
 fails, it restores and verifies the old executable. Data, settings, and rclone are preserved.
 
 The browser reconnects without resubmitting an install. You may need to sign in again
 after the service restarts. Closing the dialog does not cancel an update. A reconnect
-deadline reports an unknown outcome, not a proven failure; **Retry status** resumes reading
-the result. **Retry accepted task** retries only the already-pinned request after the helper
+deadline reports an unknown outcome, not a proven failure; **Reconnect** resumes reading
+the result. **Resume update** retries only the already-pinned request after the helper
 verifies its task is idle. Failed recovery keeps transfers blocked and preserves the backup
 for administrator recovery.
 
@@ -293,7 +313,7 @@ the app's folder and transfer APIs.
 Hashed passwords take precedence over plaintext values.
 
 - Login lockout is enabled by default, `loginMaxAttempts=10` and `loginLockoutMinutes=15`. Set `loginMaxAttempts=0` to disable lockout.
-- Sessions expire automatically, `sessionTtlHours=72` by default.
+- Sessions expire automatically, `sessionTtlHours=72` by default. An expired session returns the browser to sign-in without a manual reload.
 - For HTTPS behind VPN or reverse proxy, set `trustProxy=true` and `secureCookies=true`.
 - Password changes are available in-app for store-managed credentials. Env-managed credentials are read-only and skip the setup wizard.
 - Forgot your password, if a hash is configured (`APP_PASSWORD_HASH` or `appPasswordHash`), replace or remove that hash first (or regenerate it with `--hash-password`) because hash settings take precedence over plaintext. Then set a new password or hash and restart Siphon.

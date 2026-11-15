@@ -35,7 +35,16 @@ function resolvedProfile(): ResolvedProfile {
 
 describe('useConnection: selecting a profile then editing the form', () => {
   it('[principal] still connects using the stale saved profile id, discarding the edit', async () => {
-    const connect = vi.fn(async () => ({ home: '/', connectionRevision: 'r1' }))
+    const connect = vi.fn(async () => ({
+      home: '/',
+      connectionRevision: 'r1',
+      connection: {
+        host: 'edited-host.example.com',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password' as const
+      }
+    }))
     installMockWebApi({
       listProfiles: vi.fn(async () => [profileMeta()]),
       resolveProfile: vi.fn(async () => resolvedProfile()),
@@ -81,7 +90,17 @@ describe('useConnection: selecting a profile then editing the form', () => {
   })
 
   it('[control] selecting a profile and connecting without editing still passes that profile id', async () => {
-    const connect = vi.fn(async () => ({ home: '/', connectionRevision: 'r1' }))
+    const connect = vi.fn(async () => ({
+      home: '/',
+      connectionRevision: 'r1',
+      connection: {
+        host: 'original-host',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password' as const,
+        profileId: 'p1'
+      }
+    }))
     installMockWebApi({
       listProfiles: vi.fn(async () => [profileMeta()]),
       resolveProfile: vi.fn(async () => resolvedProfile()),
@@ -107,6 +126,73 @@ describe('useConnection: selecting a profile then editing the form', () => {
     })
 
     expect(connect).toHaveBeenCalledWith(expect.anything(), 'p1')
+  })
+})
+
+describe('useConnection: secrets and pending profile resolution', () => {
+  const options = () => ({
+    segments: 4,
+    downloadDir: '/dl',
+    onSegmentsChange: vi.fn(),
+    onDownloadDirChange: vi.fn(),
+    onConnected: vi.fn(async () => true),
+    onDisconnected: vi.fn()
+  })
+
+  it('keeps a password typed while the selected profile is still resolving', async () => {
+    let finish: (profile: ReturnType<typeof resolvedProfile>) => void = () => undefined
+    installMockWebApi({
+      listProfiles: vi.fn(async () => [profileMeta()]),
+      resolveProfile: vi.fn(
+        () => new Promise<ReturnType<typeof resolvedProfile>>((r) => (finish = r))
+      )
+    })
+    const { result } = renderHook(() => useConnection(options()))
+
+    let selecting: Promise<void> = Promise.resolve()
+    act(() => {
+      selecting = result.current.handleSelectProfile('p1')
+    })
+    act(() => result.current.onFormChange({ password: 'typed' }))
+    await act(async () => {
+      finish(resolvedProfile())
+      await selecting
+    })
+
+    expect(result.current.selectedProfileId).toBe('p1')
+    expect(result.current.form).toMatchObject({ host: 'original-host', password: 'typed' })
+  })
+
+  it('does not carry the previous site password to a newly selected profile', async () => {
+    installMockWebApi({
+      listProfiles: vi.fn(async () => [profileMeta()]),
+      resolveProfile: vi.fn(() => new Promise<ReturnType<typeof resolvedProfile>>(() => {}))
+    })
+    const { result } = renderHook(() => useConnection(options()))
+    act(() => result.current.onFormChange({ password: 'site-a-password' }))
+
+    act(() => {
+      void result.current.handleSelectProfile('p1')
+    })
+
+    expect(result.current.form).toMatchObject({ host: '', username: '', password: '' })
+  })
+
+  it('clears typed secrets when the server reports a different connection at startup', () => {
+    installMockWebApi({ listProfiles: vi.fn(async () => []) })
+    const { result } = renderHook(() => useConnection(options()))
+    act(() => result.current.onFormChange({ password: 'other-site-password' }))
+
+    act(() =>
+      result.current.restoreConnection({
+        host: 'server-host',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password'
+      })
+    )
+
+    expect(result.current.form).toMatchObject({ host: 'server-host', password: '', passphrase: '' })
   })
 })
 

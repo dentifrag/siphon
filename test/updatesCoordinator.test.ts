@@ -31,6 +31,33 @@ async function journal(job: UpdateJob) {
 }
 
 describe('update coordinator', () => {
+  it('reconciles completed maintenance on transfer admission without opening update status', async () => {
+    let taskIdle = true
+    const { updates, options } = await coordinatorFixture(directory.dir, {
+      inspect: async () => ({ capability: { supported: true }, taskIdle })
+    })
+    const offer = (await updates.check()).offer!
+    const accepted = await updates.install(offer.id)
+    await journal({ ...accepted, phase: 'succeeded', serviceHealth: 'healthy' })
+
+    const oldVersion = await createUpdateCoordinator(options)
+    await expect(oldVersion.admitTransfer()).rejects.toMatchObject({
+      statusCode: 409
+    })
+    const restarted = await createUpdateCoordinator({
+      ...options,
+      currentVersion: offer.version
+    })
+    taskIdle = false
+    await expect(restarted.admitTransfer()).rejects.toMatchObject({
+      statusCode: 409
+    })
+    taskIdle = true
+    const release = await restarted.admitTransfer()
+    release()
+    expect((await restarted.status()).maintenance).toBe(false)
+  })
+
   it('blocks installation for quarantined download writers even after their rows are removed', async () => {
     const { updates, schedule } = await coordinatorFixture(directory.dir, {
       listTransfers: () => [],
@@ -180,7 +207,7 @@ describe('update coordinator', () => {
       })
       expect(schedule).not.toHaveBeenCalled()
       expect(await updates.status()).toMatchObject({ maintenance: false, job: null })
-      expect(updates.admitTransfer()()).toBeUndefined()
+      expect((await updates.admitTransfer())()).toBeUndefined()
     }
   )
 
@@ -200,7 +227,7 @@ describe('update coordinator', () => {
       canInstall: false,
       job: { offerId: offer.id, phase: 'accepted' }
     })
-    expect(() => updates.admitTransfer()).toThrow()
+    await expect(updates.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
   })
 
   it('status is local, checks are explicit and bounded, and network failure revokes the offer', async () => {
@@ -238,7 +265,7 @@ describe('update coordinator', () => {
     const first = updates.install(offer.id)
     const duplicate = updates.install(offer.id)
     await expect(duplicate).rejects.toMatchObject({ statusCode: 409 })
-    expect(() => updates.admitTransfer()).toThrow()
+    await expect(updates.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
     await vi.waitFor(() => expect(schedule).toHaveBeenCalledOnce())
     const request = JSON.parse(await readFile(join(directory.dir, 'request.json'), 'utf8'))
     expect(request).toMatchObject({
@@ -275,7 +302,7 @@ describe('update coordinator', () => {
       job: { id: request.id }
     })
     expect(status.job?.error ?? status.blockedReason).toMatch(/schedul|task|unknown|reconcil/i)
-    expect(() => updates.admitTransfer()).toThrow()
+    await expect(updates.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
 
     const restarted = await createUpdateCoordinator(options)
     const recovered = await restarted.status()
@@ -287,13 +314,13 @@ describe('update coordinator', () => {
     expect(recovered.job?.error ?? recovered.blockedReason).toMatch(
       /schedul|task|unknown|reconcil/i
     )
-    expect(() => restarted.admitTransfer()).toThrow()
+    await expect(restarted.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
     expect(schedule).toHaveBeenCalledOnce()
     expect(JSON.parse(await readFile(join(directory.dir, 'request.json'), 'utf8'))).toEqual(request)
 
     await journal({ ...recovered.job!, phase: 'succeeded', serviceHealth: 'healthy' })
     expect((await restarted.status()).maintenance).toBe(false)
-    expect(restarted.admitTransfer()()).toBeUndefined()
+    expect((await restarted.admitTransfer())()).toBeUndefined()
   })
 
   it('rejects a foreign manifest URL before issuing that network request', async () => {
@@ -330,7 +357,7 @@ describe('update coordinator', () => {
   it('keeps an entire asynchronous enqueue admission busy until its finally release', async () => {
     const { updates, schedule } = await coordinatorFixture(directory.dir)
     const offer = (await updates.check()).offer!
-    const release = updates.admitTransfer()
+    const release = await updates.admitTransfer()
     expect((await updates.status()).canInstall).toBe(false)
     await expect(updates.install(offer.id)).rejects.toMatchObject({ statusCode: 409 })
     expect(schedule).not.toHaveBeenCalled()
@@ -344,7 +371,7 @@ describe('update coordinator', () => {
     const job = await updates.install(offer.id)
     const restarted = await createUpdateCoordinator(options)
     expect((await restarted.status()).maintenance).toBe(true)
-    expect(() => restarted.admitTransfer()).toThrow()
+    await expect(restarted.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
     expect(schedule).toHaveBeenCalledOnce()
     await journal({ ...job, id: 'stale-job', phase: 'succeeded', serviceHealth: 'healthy' })
     expect((await restarted.status()).maintenance).toBe(true)
@@ -362,7 +389,7 @@ describe('update coordinator', () => {
       maintenance: false,
       job: { id: job.id, phase: 'rolled-back' }
     })
-    expect(restarted.admitTransfer()()).toBeUndefined()
+    expect((await restarted.admitTransfer())()).toBeUndefined()
   })
 
   it('does not silently unlock an accepted job without a worker journal', async () => {
@@ -373,7 +400,7 @@ describe('update coordinator', () => {
     try {
       vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000)
       expect((await updates.status()).maintenance).toBe(true)
-      expect(() => updates.admitTransfer()).toThrow()
+      await expect(updates.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
     } finally {
       vi.useRealTimers()
     }
@@ -389,7 +416,7 @@ describe('update coordinator', () => {
     const oldStatusRead = updates.status()
     const nextInstall = updates.install(nextOffer.id)
     await oldStatusRead
-    expect(() => updates.admitTransfer()).toThrow()
+    await expect(updates.admitTransfer()).rejects.toMatchObject({ statusCode: 409 })
     const nextJob = await nextInstall
     expect(nextJob.id).not.toBe(firstJob.id)
     expect((await updates.status()).maintenance).toBe(true)

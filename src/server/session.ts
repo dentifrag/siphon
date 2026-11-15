@@ -1,11 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import type { SessionStatus } from '../shared/api'
+import type { ConnectionIdentity, SessionStatus } from '../shared/api'
 import type { ConnectionConfig } from '../shared/types'
 import { httpError } from './http'
 import type { Services } from './services'
-import { sftpParameters } from './rclone/remotes'
-
-const SESSION_REMOTE = '_session'
+import { SESSION_REMOTE_PREFIX, sftpParameters } from './rclone/remotes'
 
 export interface ConnectionBinding {
   readonly remoteName: string
@@ -13,9 +11,12 @@ export interface ConnectionBinding {
   readonly fs: string
 }
 
+interface ActiveConnection extends ConnectionBinding {
+  readonly identity: ConnectionIdentity
+}
+
 export class ConnectionSession {
-  private current: ConnectionBinding | null = null
-  private ephemeral = false
+  private current: ActiveConnection | null = null
   private ownership: Promise<void> = Promise.resolve()
 
   constructor(private readonly services: Services) {}
@@ -28,7 +29,8 @@ export class ConnectionSession {
     return {
       connected: this.connected,
       remoteName: this.current?.remoteName ?? null,
-      connectionRevision: this.current?.revision ?? null
+      connectionRevision: this.current?.revision ?? null,
+      connection: this.current?.identity ?? null
     }
   }
 
@@ -48,37 +50,50 @@ export class ConnectionSession {
     this.bind(binding.revision)
   }
 
-  connect(input: { config?: ConnectionConfig; profileId?: string }): Promise<string> {
+  connect(input: {
+    config?: ConnectionConfig
+    profileId?: string
+    secret?: string
+  }): Promise<string> {
     return this.withOwnership(async () => {
       const { client, remotes } = this.services
       await this.teardown()
-      let remoteName: string
-      let ephemeral = false
-
-      if (input.profileId) {
-        const savedName = await remotes.remoteNameFor(input.profileId)
-        if (!savedName) throw httpError(400, 'Saved connection not found.')
-        remoteName = savedName
-      } else if (input.config) {
-        remoteName = SESSION_REMOTE
-        ephemeral = true
-      } else {
+      if (!input.profileId && !input.config) {
         throw httpError(400, 'A connection or saved site is required.')
       }
+      // Every session owns a private remote, so saving or deleting a saved site never changes it.
+      const remoteName = `${SESSION_REMOTE_PREFIX}${randomUUID()}`
+      let identity: ConnectionIdentity
 
       try {
-        if (ephemeral && input.config) {
-          await client.createRemote(remoteName, 'sftp', sftpParameters(input.config))
+        if (input.profileId) {
+          const cloned = await remotes.cloneForSession(input.profileId, remoteName, input.secret)
+          if (!cloned) throw httpError(400, 'Saved connection not found.')
+          identity = cloned
+        } else if (input.config) {
+          const { config } = input
+          await client.createRemote(remoteName, 'sftp', sftpParameters(config))
+          identity = {
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            authMethod: config.authMethod,
+            privateKeyPath: config.authMethod === 'privateKey' ? config.privateKeyPath : undefined
+          }
+        } else {
+          throw httpError(400, 'A connection or saved site is required.')
         }
         await client.checkConnection(`${remoteName}:`)
       } catch (err) {
-        if (ephemeral) await client.deleteRemote(remoteName)
+        try {
+          await client.deleteRemote(remoteName)
+        } catch {}
+        if (err instanceof Error && 'statusCode' in err) throw err
         throw httpError(400, err instanceof Error ? err.message : 'Could not connect.')
       }
 
       const revision = randomUUID()
-      this.current = Object.freeze({ remoteName, revision, fs: `${remoteName}:` })
-      this.ephemeral = ephemeral
+      this.current = Object.freeze({ remoteName, revision, fs: `${remoteName}:`, identity })
       return revision
     })
   }
@@ -121,11 +136,7 @@ export class ConnectionSession {
 
   private async teardown(): Promise<void> {
     const previous = this.current
-    const ephemeral = this.ephemeral
-    this.ephemeral = false
     this.current = null
-    if (ephemeral && previous) {
-      await this.services.client.deleteRemote(previous.remoteName)
-    }
+    if (previous) await this.services.client.deleteRemote(previous.remoteName)
   }
 }

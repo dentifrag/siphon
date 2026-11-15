@@ -5,6 +5,13 @@ import { renderWithProviders } from './test/renderWithProviders'
 import { installMockWebApi } from './test/mockWebApi'
 import App from './App'
 
+const connection = {
+  host: 'example.com',
+  port: 22,
+  username: 'alice',
+  authMethod: 'password' as const
+}
+
 function fillConnectForm(user: ReturnType<typeof userEvent.setup>) {
   return async () => {
     await user.type(screen.getByPlaceholderText('sftp.example.com'), 'example.com')
@@ -27,10 +34,14 @@ describe('App connection flow', () => {
     )
   })
 
-  it('on success stores the connection and navigates to result.home', async () => {
+  it('on success shows and stores the authoritative connection and navigates to result.home', async () => {
     const user = userEvent.setup()
     const api = installMockWebApi({
-      connect: vi.fn(async () => ({ home: '/uploads', connectionRevision: 'r1' })),
+      connect: vi.fn(async () => ({
+        home: '/uploads',
+        connectionRevision: 'r1',
+        connection: { ...connection, host: 'actual.example.com', username: 'bob' }
+      })),
       list: vi.fn(async () => [])
     })
     renderWithProviders(<App canChangePassword={false} />)
@@ -41,8 +52,9 @@ describe('App connection flow', () => {
     expect(api.list).toHaveBeenCalledWith('/uploads', 'r1')
     const stored = localStorage.getItem('siphon.connection')
     expect(stored && JSON.parse(stored)).toEqual(
-      expect.objectContaining({ host: 'example.com', username: 'alice', profileId: '' })
+      expect.objectContaining({ host: 'actual.example.com', username: 'bob', profileId: '' })
     )
+    expect(screen.getByText('actual.example.com')).toBeInTheDocument()
   })
 
   it('stores form data with profileId "" when selectedProfileId does not match a known profile', async () => {
@@ -84,7 +96,7 @@ describe('App connection flow', () => {
   it('disconnect removes siphon.connection but keeps siphon.cwd, and resets state even if disconnect rejects', async () => {
     const user = userEvent.setup()
     installMockWebApi({
-      connect: vi.fn(async () => ({ home: '/', connectionRevision: 'r1' })),
+      connect: vi.fn(async () => ({ home: '/', connectionRevision: 'r1', connection })),
       disconnect: vi.fn(async () => {
         throw new Error('disconnect failed')
       })

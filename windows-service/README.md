@@ -133,10 +133,17 @@ It waits 30 seconds after boot, then uses bounded old-version readiness checks.
 ### Use the Updates dialog
 
 Sign in with a password and select **Updates** in the header. Open mode cannot check or
-install releases. Opening the dialog reads local status only. Select **Check for updates**,
-then **Install update**, review the confirmation, and select **Install and restart**.
-Queued/running transfers and in-flight enqueue requests prevent installation; maintenance
-blocks new transfers through verification and rollback.
+install releases. Opening the dialog checks for the latest release once, unless a check
+result or offer already exists, an update is running, or the install is unsupported. When a
+newer version is available, select **Update and restart**. The dialog states upfront that
+Siphon restarts, the browser disconnects, you may need to sign in again, and your settings
+and saved data are kept. There is no separate confirmation step.
+The dialog shows one action at a time: **Update and restart**, **Check again**,
+**Resume update**, or **Reconnect**. Expand **Details** to read the raw error or blocker text.
+Queued/running transfers and in-flight enqueue requests prevent installation; finish or
+cancel them first. Maintenance blocks new transfers through verification and rollback.
+New transfer requests reconcile completed maintenance automatically. You do not need to
+open the Updates dialog to unblock transfers after a verified update or rollback.
 
 The task runs independently of WinSW, so stopping Siphon cannot terminate its updater.
 It revalidates the exact confirmed release and asset IDs, downloads from official GitHub
@@ -154,7 +161,7 @@ authorize success or recovery-backup cleanup, even if it returns the expected JS
 The browser stores non-sensitive reconnect intent before submitting. A lost POST response
 is reconciled through status, not resubmitted. A restart can invalidate your session; sign
 in again to see the result. Closing the dialog does not cancel the task. A bounded reconnect
-deadline leaves the outcome unknown; **Retry status** resumes reconciliation.
+deadline leaves the outcome unknown; **Reconnect** resumes reconciliation.
 Only a definitive server rejection before acceptance clears reconnect intent and enables
 another explicit install attempt. An uncertain scheduler or network response retains it,
 even if a status response has not yet identified the job.
@@ -178,7 +185,7 @@ Recovery records whether replacement intent was reached. An interrupted stop or 
 that never reached replacement can restart and verify the untouched old executable without
 a backup. A missing backup after replacement intent remains a failed recovery.
 
-If task acceptance is uncertain, **Retry accepted task** may run the same protected request
+If task acceptance is uncertain, **Resume update** may run the same protected request
 only after task-idle inspection. It does not fetch or substitute a newer release. Never
 delete a pending request/journal to bypass maintenance. For failed recovery, an administrator
 must inspect the protected journal and backup, stop the recorded service, restore the backup
@@ -221,15 +228,15 @@ transports because Windows PowerShell's response streams do not reliably honor r
 cancellation tokens. Errors identify the failed network stage.
 
 The metadata and executable-swap paths share the same atomic replacement helper, including
-the true null backup-path handling required by Windows PowerShell. **Retry accepted task**
+the true null backup-path handling required by Windows PowerShell. **Resume update**
 appears only while an accepted request needs recovery and the helper verifies the worker
 and task are idle. It is not shown while a normal update is running; retrying never selects
 a different release or submits a second installation.
 
 Release checks have a 60-second browser budget for local helper inspections and two bounded
 metadata requests. A timeout is reported explicitly and does not trigger an automatic
-retry or installation. After an installation submission times out, use **Retry status** to
-reconcile the accepted request rather than submitting another update.
+retry or installation. After an installation submission times out, the dialog keeps
+reconciling and offers **Reconnect** if status stays unreachable. It never submits another update.
 
 ## Uninstall
 

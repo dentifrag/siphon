@@ -103,4 +103,90 @@ describe('App profile behaviors', () => {
     await waitFor(() => expect(api.deleteProfile).toHaveBeenCalledWith('p1'))
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe(''))
   })
+
+  it('keeps a saved site selected for a typed password and sends it with the profile id', async () => {
+    const api = installMockWebApi({
+      listProfiles: vi.fn(async () => [makeProfile()]),
+      resolveProfile: vi.fn(async (): Promise<ResolvedProfile> => ({
+        name: 'alice@host',
+        host: 'host',
+        port: 22,
+        username: 'alice',
+        authMethod: 'password',
+        segments: 4,
+        downloadDir: ''
+      }))
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+
+    const select = (await screen.findByLabelText('Saved sites')) as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'p1' } })
+    await waitFor(() => expect(screen.getByPlaceholderText('user')).toHaveValue('alice'))
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'typed' } })
+    expect(select.value).toBe('p1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    await waitFor(() =>
+      expect(api.connect).toHaveBeenCalledWith(expect.objectContaining({ password: 'typed' }), 'p1')
+    )
+  })
+
+  it('shows the server connection after a reload, not the stored one, and drops its folder', async () => {
+    localStorage.setItem(
+      'siphon.connection',
+      JSON.stringify({
+        host: 'alpha',
+        port: '22',
+        username: 'a',
+        authMethod: 'password',
+        privateKeyPath: '',
+        profileId: ''
+      })
+    )
+    localStorage.setItem('siphon.cwd', '/alpha-dir')
+    const api = installMockWebApi({
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: '_session-1',
+        connectionRevision: 'r2',
+        connection: {
+          host: 'beta',
+          port: 22,
+          username: 'b',
+          authMethod: 'password' as const
+        }
+      }))
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+
+    await waitFor(() => expect(api.list).toHaveBeenCalledWith('/', 'r2'))
+    expect(screen.getByText('beta')).toBeInTheDocument()
+    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+    expect(api.list).not.toHaveBeenCalledWith('/alpha-dir', expect.anything())
+  })
+
+  it('labels a reloaded connection without identity as connected, not with stored data', async () => {
+    localStorage.setItem(
+      'siphon.connection',
+      JSON.stringify({
+        host: 'alpha',
+        port: '22',
+        username: 'a',
+        authMethod: 'password',
+        privateKeyPath: '',
+        profileId: ''
+      })
+    )
+    installMockWebApi({
+      status: vi.fn(async () => ({
+        connected: true,
+        remoteName: '_session-1',
+        connectionRevision: 'r2'
+      }))
+    })
+    renderWithProviders(<App canChangePassword={false} />)
+
+    expect(await screen.findByText('Connected')).toBeInTheDocument()
+    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+  })
 })
